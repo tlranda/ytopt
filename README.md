@@ -218,6 +218,8 @@ The convolution-2d tutorial (source and python scripts) is contributed by:
 
 * David Fridlander <davidfrid2@gmail.com>
 
+* Thomas Randall <tlranda@clemson.edu>
+
 # How can I participate?
 
 Questions, comments, feature requests, bug reports, etc. can be directed to:
