@@ -1,4 +1,5 @@
 import os, sys, subprocess, random, uuid
+import torch
 
 class Plopper:
     def __init__(self,sourcefile,outputdir):
@@ -16,12 +17,12 @@ class Plopper:
         for p, v in zip(params, x):
             dictVal[p] = v
         return(dictVal)
-    
+
     # Function to find the execution time of the interim file, and return the execution time as cost to the search module
     def findRuntime(self, x, params, d_size):
         interimfile = ""
         exetime = 1
-        
+
         # Generate intermediate file
         dictVal = self.createDict(x, params)
 
@@ -48,3 +49,28 @@ class Plopper:
             print(compilation_status.stderr)
             print("compile failed")
         return exetime #return execution time as cost
+
+class LazyPlopper(Plopper):
+    def __init__(self, *args, cachefile=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Make cache available
+        if cachefile is None:
+            cachefile = "lazyplopper_cache_"+str(uuid.uuid4())+".pt"
+        self.cachefile = cachefile
+        if os.path.exists(cachefile):
+            self.cache = torch.load(cachefile)
+        else:
+            self.cache = dict()
+
+    def __del__(self):
+        torch.save(self.cache, self.cachefile)
+
+    def findRuntime(self, x, params, d_size):
+        searchtup = (x[0], params[0], d_size)
+        if searchtup in self.cache.keys():
+            return self.cache[searchtup]
+        else:
+            rval = super().findRuntime(x, params, d_size)
+            self.cache[searchtup] = rval
+            return rval
+
