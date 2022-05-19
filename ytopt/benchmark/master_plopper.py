@@ -27,6 +27,7 @@ import torch # Currently used for serialization
       As such, these functions should have UNIQUE (args, kwargs) unless it is INTENDED for them to be shared across
       some or all of the above. This is intended for transparency if these functions are overridden and need additional
       information that is not tracked via the Plopper's self
+      Note that these functions ALWAYS see the dictVal dictionary formed from dict(params: x)
 """
 
 class findReplaceRegex:
@@ -138,25 +139,26 @@ class Plopper:
     def initChecks(self, **kwargs):
         pass
 
-    def compileString(self, outfile, *args, **kwargs):
+    def compileString(self, outfile, dictVal, *args, **kwargs):
         # Return empty string to skip compilation
         # Override with compiling string rules to make a particular compilation occur (includes plotValues)
         # Final executable MUST be written to `outfile`
         return ""
 
-    def runString(self, outfile, *args, **kwargs):
+    def runString(self, outfile, dictVal, *args, **kwargs):
         # Return the string used to execute the attempt
         # outfile is the temporary filename that is generated for this particular instance, ignore it if no compilation/plotted values were used
         # Override as needed
-        return self.kernel_dir + outfile
+        return outfile
 
     # PLANNED CHANGES:
     # Use regex for all changes (similar to commented out section), requires API change to supply REGEX from/to somewhere
     # Replace the Markers in the source file with the corresponding values
-    def plotValues(self, dictVal, outputfile, findReplace=None):
+    def plotValues(self, outputfile, dictVal, findReplace=None):
         if findReplace is None:
             if self.findReplace is None:
-                raise ValueError("PlotValues behavior not defined by findReplaceRegex!")
+                # Compiling may be all that is necessary (-D switches, etc)
+                return
             findReplace = self.findReplace
 
         # Use cache to save I/O time on repeated plots
@@ -180,7 +182,7 @@ class Plopper:
                             foundGroups.append(match)
                 f2.write(line)
 
-    def getTime(self, process, *args, **kwargs):
+    def getTime(self, process, dictVal, *args, **kwargs):
         # Define how to recover self-attributed objective values from the subprocess object
         # Return None to default to the python-based time library's timing of the event
         try:
@@ -196,7 +198,7 @@ class Plopper:
         # Defaults to best-case scenario
         return min(timing_list)
 
-    def execute(self, outfile, *args, **kwargs):
+    def execute(self, outfile, dictVal, *args, **kwargs):
         times = []
         failues = 0
         while failures <= self.retries and len(times) < self.evaluation_tries:
@@ -204,7 +206,7 @@ class Plopper:
             execution_status = subprocess.run(self.runString(outfile, *args, **kwargs), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             duration = time.time() - start
             # Find the execution time
-            derived_time = self.getTime(execution_status, *args, **kwargs)
+            derived_time = self.getTime(execution_status, dictVal, *args, **kwargs)
             if derived_time is not None:
                 duration = derived_time
             if duration == 0.0:
@@ -229,9 +231,9 @@ class Plopper:
         # Generate intermediate file
         dictVal = dict((k,v) for (k,v) in zip(params, x))
         # If there is a compiling string, we need to run plotValues
-        compile_str = self.compileString(interimfile, *args, **kwargs)
+        compile_str = self.compileString(interimfile, dictVal, *args, **kwargs)
         if self.force_plot or compile_str != "":
-            self.plotValues(dictVal, interimfile, *args, **kwargs)
+            self.plotValues(interimfile, dictVal, *args, **kwargs)
             # Compilation
             if compile_str != "":
                 compilation_status = subprocess.run(compile_str, shell=True, stderr=subprocess.PIPE)
@@ -242,7 +244,7 @@ class Plopper:
                     print("Compile failed")
                     return self.infinity
         # Evaluation
-        return self.execute(interimfile, *args, **kwargs)
+        return self.execute(interimfile, dictVal, *args, **kwargs)
 
 class LazyPlopper(Plopper):
     def __init__(self, *args, cachefile=None, lazySaveInterval=10, **kwargs):
