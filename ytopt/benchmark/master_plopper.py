@@ -70,6 +70,13 @@ class findReplaceRegex:
             self.iter_idx = idx
             yield regex
 
+    def replace(self, match, to, string):
+        # Automatically handle the expected replacement patterns
+        if to is None or to == "":
+            return re.sub(self.wrap(match, noInvert=True), "", string)
+        else:
+            return re.sub(self.wrap(match), self.wrap(to), string)
+
     def wrap(self, wrap, direction=None, idx=None, noInvert=False):
         # When direction|idx are None, attempt to use magic variables to predict correct output
         # Actual values passed to direction may be ['from'==0,'to'==1]
@@ -169,12 +176,7 @@ class Plopper:
                             match = m.group(1)
                             if match in foundGroups:
                                 continue
-                            if dictval[match] is not None: # Nonempty string replacement
-                                line = re.sub(findReplace.wrap(match),
-                                              findReplace.wrap(str(dictval[match])),
-                                              line)
-                            else:
-                                line = re.sub(findReplace.wrap(match, noInvert=True), "", line)
+                            line = findReplace.replace(match, dictval[match], line)
                             foundGroups.append(match)
                 f2.write(line)
 
@@ -202,7 +204,8 @@ class Plopper:
             execution_status = subprocess.run(self.runString(outfile, *args, **kwargs), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             duration = time.time() - start
             # Find the execution time
-            if (derived_time := self.getTime(execution_status, *args, **kwargs)) is not None:
+            derived_time = self.getTime(execution_status, *args, **kwargs)
+            if derived_time is not None:
                 duration = derived_time
             if duration == 0.0:
                 failures += 1
@@ -267,7 +270,7 @@ class LazyPlopper(Plopper):
         torch.save(self.cache, self.cachefile)
 
     def findRuntime(self, x, params, *args, **kwargs):
-        searchtup = (x[0], params[0], *args, **kwargs)
+        searchtup = ([x[0], params[0], *args]+[v for (k,v) in kwargs.items()])
         # Lazy evaluation doesn't call findRuntime() when it has seen the runtime before
         if searchtup in self.cache.keys():
             return self.cache[searchtup]
