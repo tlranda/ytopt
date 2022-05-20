@@ -20,7 +20,7 @@ class MMM_Plopper(base_plopper.LazyPlopper):
         gcc_cmd += ' -o ' + outfile
         return gcc_cmd
 
-    def runString(self, outfile, *args, **kwargs):
+    def runString(self, outfile, dictVal, *args, **kwargs):
         if self.use_exe_perl:
             return self.kernel_dir + "/exe.pl " + outfile
         else:

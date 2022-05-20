@@ -1,6 +1,8 @@
 import os, uuid, re, time, subprocess
 import torch # Currently used for serialization
 import atexit # Python < 3.10 bugfix for LazyPloppers
+import itertools # Chain fix for LazyPloppers
+
 
 """
     Expected usage:
@@ -198,7 +200,8 @@ class Plopper:
                             match = m.group(1)
                             if match in foundGroups:
                                 continue
-                            line = findReplace.replace(match, dictval[match], line)
+                            # String-ify-ing must be supported AND intended operation, else this is not going to work
+                            line = findReplace.replace(match, str(dictVal[match]), line)
                             foundGroups.append(match)
                 f2.write(line)
 
@@ -323,7 +326,9 @@ class LazyPlopper(Plopper):
             self.lastSaved = dict((k,v) for (k,v) in self.cache.items())
 
     def findRuntime(self, x, params, *args, **kwargs):
-        searchtup = tuple([x[0], params[0]]+list(args)+[v for (k,v) in kwargs.items()])
+        searchtup = tuple(list(itertools.chain.from_iterable([xx,pp] for (xx,pp) in zip(x, params)))+
+                          list(args)+
+                          list(kwargs.values()))
         # Lazy evaluation doesn't call findRuntime() when it has seen the runtime before
         if searchtup in self.cache.keys():
             return self.cache[searchtup]
