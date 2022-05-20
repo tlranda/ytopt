@@ -8,8 +8,7 @@ from skopt.space import Real, Integer, Categorical
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(1, os.path.dirname(HERE)+ '/plopper')
-#from plopper import Plopper
-from newPlopper import MMM_Plopper as Plopper
+from plopper import Plopper
 
 # create an object of ConfigSpace
 cs = CS.ConfigurationSpace(seed=1234)
@@ -28,7 +27,7 @@ output_space = Space([
 dir_path = os.path.dirname(os.path.realpath(__file__))
 kernel_idx = dir_path.rfind('/')
 kernel = dir_path[kernel_idx+1:]
-obj = Plopper(dir_path+'/mmm_block_100.cpp',dir_path,evaluation_tries=1)
+obj = Plopper(dir_path+'/mmm_block_100.cpp',dir_path)
 
 x1=['BLOCK_SIZE']
 def myobj(point: dict):
