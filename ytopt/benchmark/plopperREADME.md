@@ -1,7 +1,13 @@
 # Refactored Plopper API
 
-The refactored plopper API is based on this directory's `base\_plopper.py`.
+The refactored plopper API is based on this directory's `base_plopper.py`.
 Features of the rework are detailed below, with usage examples and patterns detailed throughout.
+
+Chapters:
+
+* [SIMPLIFIED DEVELOPMENT](plopperREADME.md#simplified-development)
+* [BENEFITS](plopperREADME.md#benefits)
+* [FULLY-IMPLEMENTED EXAMPLES](plopperREADME.md#fully-implemented-examples)
 
 ## SIMPLIFIED DEVELOPMENT
 
@@ -89,7 +95,7 @@ def runString(self, outfile, dictVal, *args, **kwargs):
 
 ### Optional Persistence
 
-Derive a plopper from the LazyPlopper rather than the base Plopper object to automatically gain access to powerful persistence behavior.
+Derive a plopper from the LazyPlopper rather than the base Plopper object to automatically gain access to persistence behavior: recalling prior evaluations and immediately reporting the previously noted objective value rather than re-evaluating them.
 There are a few optional parameters to control serialization frequency and what cache file is loaded (allowing separate caches ie: for different systems)
 
 To use, simply take your existing plopper derivative:
@@ -110,14 +116,17 @@ This feature can also serve as secondary backup for checkpoint-restart-like beha
 
 * Most refactored plopper files are shorter than their original, while making the specifics of their operation clearer
 * Abstraction is powerful enough to remove the need for Perl timing script variants or Plopper variants. One Plopper can be sufficient to handle all variations of an autotuning application
-* Use of the refactored plopper is nearly 100% transparent. Change the imported plopper to the refactored one. Add any initialization arguments you defined to the object's instantiation call. Done.
+* Use of the refactored plopper is nearly 100% transparent to problem definitions. For most problems, using a refactored plopper derivative requires two changes:
+    1. Change the imported plopper to the derivative class.
+    2. Add any initialization arguments you defined for your derived plopper to the object's instantiation call.
 
 ## FULLY-IMPLEMENTED EXAMPLES
 
-mmm-block-tl: [OLD\ PLOPPER](https://github.com/tlranda/ytopt/blob/plopper_refactor/ytopt/benchmark/mmm-block-tl/plopper/plopper.py) --> [NEW\_PLOPPER](https://github.com/tlranda/ytopt/blob/plopper_refactor/ytopt/benchmark/mmm-block-tl/plopper/newPlopper.py)
+mmm-block-tl: [OLD_PLOPPER](mmm-block-tl/plopper/plopper.py) --> [NEW\_PLOPPER](mmm-block-tl/plopper/newPlopper.py)
 * Simple plopper that just uses compile-time definitions to alter files, but the files are passed in as additional \*args values
 
-xsbench-omp-tl: [OLD\_PLOPPER](https://github.com/tlranda/ytopt/blob/plopper_refactor/ytopt/benchmark/xsbench-omp-tl/plopper/plopper.py) --> [NEW\_PLOPPER](https://github.com/tlranda/ytopt/blob/plopper_refactor/ytopt/benchmark/xsbench-omp-tl/plopper/newPlopper.py)
+xsbench-omp-tl: [OLD\_PLOPPER](xsbench-omp-tl/plopper/plopper.py) --> [NEW\_PLOPPER](xsbench-omp-tl/plopper/newPlopper.py)
 * More advanced plopper that makes source code changes and optionally avoids the need to write per-problem-size `exe*.pl` scripts (maintains optional backwards compatiblity with such scripts)
+* Note that this plopper is capable of replacing _ALL_ of the plopper variants formerly used in this benchmark, merely by changing the problem size argument during object instantiation.
 
 
