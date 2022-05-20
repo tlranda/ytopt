@@ -1,5 +1,6 @@
 import os, uuid, re, time, subprocess
 import torch # Currently used for serialization
+import atexit # Python < 3.10 bugfix for LazyPloppers
 
 """
     Expected usage:
@@ -65,6 +66,13 @@ class findReplaceRegex:
         self.iter_idx = None
         self.invert_direction = 0
 
+    def __str__(self):
+        return str({'find': self.find,
+                    'prefix': self.prefix,
+                    'suffix': self.suffix,
+                    'iter_idx': self.iter_idx,
+                    'invert_direction': self.invert_direction})
+
     def __iter__(self):
         # Enumeration just to set up the magic variable
         for idx, regex in enumerate(self.find):
@@ -123,11 +131,11 @@ class Plopper:
         self.output_extension = output_extension # In case compilers are VERY picky about the extension on your intermediate files
         self.evaluation_tries = evaluation_tries # Number of executions to average amongst
         self.retries = retries # Number of failed evaluations to re-attempt before giving up
-        if findreplace is not None and type(findReplace) is not findReplaceRegex:
+        if findReplace is not None and type(findReplace) is not findReplaceRegex:
             raise ValueError("Only support findReplaceRegex type for the findReplace attribute at this time")
         self.findReplace = findReplace # findReplaceRegex object
         self.infinity = infinity # Very large value to return on failure to compile or execute
-        self.force_pot = force_plot # Always utilize plotValues() even if there is no compilation string
+        self.force_plot = force_plot # Always utilize plotValues() even if there is no compilation string
 
         self.buffer = None
         # If your plopper requires additional startup checks or attribute initialization, just override
@@ -135,6 +143,18 @@ class Plopper:
         # This may include things such as checking for CUDA in the source file (go ahead and cache it in self.buffer if so),
         # tracking the host architecture, GPU architecture, or determining what compiler or basic compiler options to use
         self.initChecks(**kwargs)
+
+    def __str__(self):
+        return str({'sourcefile': self.sourcefile,
+                    'kernel_dir': self.kernel_dir,
+                    'outputdir': self.outputdir,
+                    'output_extension': self.output_extension,
+                    'evaluation_tries': self.evaluation_tries,
+                    'retries': self.retries,
+                    'findReplace': self.findReplace,
+                    'infinity': self.infinity,
+                    'force_plot': self.force_plot,
+                    'buffer': self.buffer is not None})
 
     def initChecks(self, **kwargs):
         pass
@@ -154,7 +174,7 @@ class Plopper:
     # PLANNED CHANGES:
     # Use regex for all changes (similar to commented out section), requires API change to supply REGEX from/to somewhere
     # Replace the Markers in the source file with the corresponding values
-    def plotValues(self, outputfile, dictVal, findReplace=None):
+    def plotValues(self, outputfile, dictVal, *args, findReplace=None, **kwargs):
         if findReplace is None:
             if self.findReplace is None:
                 # Compiling may be all that is necessary (-D switches, etc)
@@ -200,7 +220,7 @@ class Plopper:
 
     def execute(self, outfile, dictVal, *args, **kwargs):
         times = []
-        failues = 0
+        failures = 0
         while failures <= self.retries and len(times) < self.evaluation_tries:
             start = time.time()
             execution_status = subprocess.run(self.runString(outfile, *args, **kwargs), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -247,32 +267,63 @@ class Plopper:
         return self.execute(interimfile, dictVal, *args, **kwargs)
 
 class LazyPlopper(Plopper):
-    def __init__(self, *args, cachefile=None, lazySaveInterval=10, **kwargs):
+    def __init__(self, *args, cachefile=None, randomizeCacheName=False, lazySaveInterval=5, **kwargs):
         super().__init__(*args, **kwargs)
         # Make cache available
         if cachefile is None:
-            cachefile = "lazyplopper_cache_"+str(uuid.uuid4())+".cache"
+            cachefile = "lazyplopper_cache"
+            if randomizeCacheName:
+                cachefile += "_"+str(uuid.uuid4())
+            cachefile += ".cache"
         self.cachefile = cachefile
         # Load cache
         if os.path.exists(self.cachefile):
             self.load()
+            self.lastSaved = dict((k,v) for (k,v) in self.cache.items())
         else:
             self.cache = dict()
+            self.lastSaved = dict()
         # Define a checkpoint interval to save new information at prior to object deletion
         self.lazySaveInterval = lazySaveInterval
-        self.lazySaveCounter = 0
+        # Bug fix for Python < 3.10: Make sure there is a save before python deletes the open() method
+        atexit.register(self.__del__)
+
+    @property
+    def nSaved(self):
+        return len(self.lastSaved.keys())
+
+    @property
+    def nCached(self):
+        return len(self.cache.keys())
+
+    def __str__(self):
+        return super().__str__()+"\n"+str({'cachefile': self.cachefile,
+                            'cache': self.cache,
+                            'lazySaveInterval': self.lazySaveInterval})
 
     def __del__(self):
-        self.save()
+        # Prevent redundant saves
+        if self.nSaved != self.nCached:
+            self.save()
 
     # Currently implemented using Pytorch serialization. Override these functions to use something else
     def load(self):
-        torch.load(self.cachefile)
+        self.cache = torch.load(self.cachefile)
+
     def save(self):
-        torch.save(self.cache, self.cachefile)
+        try:
+            torch.save(self.cache, self.cachefile)
+        except NameError:
+            missing_entries = self.nCached - self.nSaved
+            if missing_entries == 1:
+                print(f"!WARNING: FAILED to save final cache entry (garbage collection misordering likely)")
+            elif missing_entries > 1:
+                print(f"!WARNING: FAILED to save final {missing_entries} cache entries (garbage collection misordering likely)")
+        else:
+            self.lastSaved = dict((k,v) for (k,v) in self.cache.items())
 
     def findRuntime(self, x, params, *args, **kwargs):
-        searchtup = ([x[0], params[0], *args]+[v for (k,v) in kwargs.items()])
+        searchtup = tuple([x[0], params[0]]+list(args)+[v for (k,v) in kwargs.items()])
         # Lazy evaluation doesn't call findRuntime() when it has seen the runtime before
         if searchtup in self.cache.keys():
             return self.cache[searchtup]
@@ -280,9 +331,7 @@ class LazyPlopper(Plopper):
             rval = super().findRuntime(x, params, *args, **kwargs)
             self.cache[searchtup] = rval
             # Checkpoint new save values every interval to avoid catastrophic loss
-            self.lazySaveCounter += 1
-            if self.lazySaveCounter >= self.lazySaveInterval:
-                self.lazySaveCounter = 0
+            if self.nCached - self.nSaved >= self.lazySaveInterval:
                 self.save()
             return rval
 

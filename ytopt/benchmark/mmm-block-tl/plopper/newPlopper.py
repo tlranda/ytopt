@@ -1,11 +1,10 @@
 import os, sys
 FETCH_PLOPPER = os.path.abspath(os.path.dirname(os.path.abspath(__file__))+"/../../")
-print(f"fname: {FETCH_PLOPPER}")
 if FETCH_PLOPPER not in sys.path:
     sys.path.append(FETCH_PLOPPER)
-import master_plopper
+import base_plopper
 
-class MMM_Plopper(master_plopper.LazyPlopper):
+class MMM_Plopper(base_plopper.LazyPlopper):
     """
         Call to findRuntime should be:
             (x, params, d_size)
