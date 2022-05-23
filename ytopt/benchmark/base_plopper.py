@@ -225,8 +225,9 @@ class Plopper:
         times = []
         failures = 0
         while failures <= self.retries and len(times) < self.evaluation_tries:
+            run_str = self.runString(outfile, *args, **kwargs)
             start = time.time()
-            execution_status = subprocess.run(self.runString(outfile, *args, **kwargs), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            execution_status = subprocess.run(run_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             duration = time.time() - start
             # Find the execution time
             derived_time = self.getTime(execution_status, dictVal, *args, **kwargs)
@@ -301,8 +302,9 @@ class LazyPlopper(Plopper):
 
     def __str__(self):
         return super().__str__()+"\n"+str({'cachefile': self.cachefile,
-                            'cache': self.cache,
-                            'lazySaveInterval': self.lazySaveInterval})
+                                           'saved': self.nSaved,
+                                           'cached': self.nCached,
+                                           'lazySaveInterval': self.lazySaveInterval})
 
     def __del__(self):
         # Prevent redundant saves
