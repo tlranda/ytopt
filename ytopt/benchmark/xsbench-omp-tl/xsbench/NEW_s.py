@@ -16,8 +16,6 @@ from newPlopper import XSBench_Plopper as Plopper
 # Create constraints
 from sdv.constraints import Between
 
-# Size specification
-class_size = 100000
 # Define ConfigSpace Parameterization
 input_space = BaseProblem.configure_space([('UniformInt',
                                             {'name': 'p0',
@@ -61,11 +59,41 @@ class XSBench_Problem(BaseProblem):
         print(f"OUTPUT: {result}")
         return result
 
-Problem = XSBench_Problem(input_space,
+# Small problem
+class_size = 100000 # Size specification
+SProblem = XSBench_Problem(input_space,
                           None,
                           output_space,
                           params,
                           class_size,
                           None,
                           constraints)
+Problem = SProblem
+# Medium problem
+class_size = 1000000
+MProblem = XSBench_Problem(input_space,
+                           None,
+                           output_space,
+                           params,
+                           class_size,
+                           None,
+                           constraints)
+# Large problem
+class_size = 5000000
+LProblem = XSBench_Problem(input_space,
+                           None,
+                           output_space,
+                           params,
+                           class_size,
+                           None,
+                           constraints)
+# XL problem
+class_size = 10000000
+XLProblem = XSBench_Problem(input_space,
+                            None,
+                            output_space,
+                            params,
+                            class_size,
+                            None,
+                            constraints)
 
