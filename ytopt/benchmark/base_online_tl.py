@@ -211,6 +211,8 @@ def main(args=None):
             pName, attr = problemName.split('.')
             pName += '.py'
         targets.append(load_from_file(pName, attr))
+        # make target evaluations silent as we'll report them on our own
+        targets[-1].silent = True
         # Single-target mode
         if one_target:
             online([targets[-1]], real_data, inputs, args, f"results_sdv_{targets[-1].name}.csv")

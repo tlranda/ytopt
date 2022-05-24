@@ -26,6 +26,7 @@ class BaseProblem:
                  models = None,
                  name = None,
                  constants = None,
+                 silent = False,
                  **kwargs):
         if name is not None:
             self.name = name
@@ -51,15 +52,18 @@ class BaseProblem:
         self.constraints = constraints
         self.models = models
         self.constants = constants
+        self.silent = silent
         # Other KWARGS
         for k,v in kwargs.items():
             self.__setattr__(k,v)
 
     def objective(self, point: dict, *args, **kwargs):
         x = np.asarray_chkfinite([point[k] for k in self.params]) # ValueError if any NaN or Inf
-        print(f"CONFIG: {point}")
+        if not self.silent:
+            print(f"CONFIG: {point}")
         result = self.plopper.findRuntime(x, self.params, *args, **kwargs)
-        print(f"OUTPUT: {result}")
+        if not self.silent:
+            print(f"OUTPUT: {result}")
         return result
 
     @staticmethod
