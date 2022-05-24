@@ -16,16 +16,6 @@ from newPlopper import MMM_Plopper as Plopper
 # Create constraints
 from sdv.constraints import Between
 
-# Size specification
-class_size = 100
-# Define ConfigSpace Parameterization
-input_space = BaseProblem.configure_space([('UniformInt',
-                                            {'name': 'BLOCK_SIZE',
-                                             'lower': 1,
-                                             'upper': class_size,
-                                             'default_value': 5
-                                            }),
-                                           ])
 output_space = Space([Real(0.0, inf, name="time")])
 # Field dict and problem parameter
 params = {'BLOCK_SIZE': 'integer'}
@@ -44,11 +34,70 @@ class MMM_Problem(BaseProblem):
     def objective(self, point: dict, *args, **kwargs):
         return super().objective(point, f"/mmm_block_{self.problem_class}.cpp", *args, **kwargs)
 
-Problem = MMM_Problem(input_space,
-                      None,
-                      output_space,
-                      params,
-                      class_size,
-                      None,
-                      constraints)
+# Size specification
+class_size = 100
+# Define ConfigSpace Parameterization
+input_space = BaseProblem.configure_space([('UniformInt',
+                                            {'name': 'BLOCK_SIZE',
+                                             'lower': 1,
+                                             'upper': class_size,
+                                             'default_value': 5
+                                            }),
+                                           ])
+SProblem = MMM_Problem(input_space,
+                       None,
+                       output_space,
+                       params,
+                       class_size,
+                       None,
+                       constraints)
+Problem = SProblem
+
+class_size = 200
+input_space = BaseProblem.configure_space([('UniformInt',
+                                            {'name': 'BLOCK_SIZE',
+                                             'lower': 1,
+                                             'upper': class_size,
+                                             'default_value': 5
+                                            }),
+                                           ])
+MProblem = MMM_Problem(input_space,
+                       None,
+                       output_space,
+                       params,
+                       class_size,
+                       None,
+                       constraints)
+
+class_size = 300
+input_space = BaseProblem.configure_space([('UniformInt',
+                                            {'name': 'BLOCK_SIZE',
+                                             'lower': 1,
+                                             'upper': class_size,
+                                             'default_value': 5
+                                            }),
+                                           ])
+LProblem = MMM_Problem(input_space,
+                       None,
+                       output_space,
+                       params,
+                       class_size,
+                       None,
+                       constraints)
+
+class_size = 500
+input_space = BaseProblem.configure_space([('UniformInt',
+                                            {'name': 'BLOCK_SIZE',
+                                             'lower': 1,
+                                             'upper': class_size,
+                                             'default_value': 5
+                                            }),
+                                           ])
+XLProblem = MMM_Problem(input_space,
+                        None,
+                        output_space,
+                        params,
+                        class_size,
+                        None,
+                        constraints)
 

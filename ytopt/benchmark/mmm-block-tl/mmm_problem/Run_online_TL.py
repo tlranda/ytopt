@@ -5,7 +5,7 @@ import os, sys, time, json, math
 import ConfigSpace as CS
 import ConfigSpace.hyperparameters as CSH
 from skopt.space import Real, Integer, Categorical
-import csv, time
+import csv
 from csv import writer
 from csv import reader
 
@@ -21,10 +21,6 @@ sdv_models = {'GaussianCopula': GaussianCopula,
               'CopulaGAN': CopulaGAN,
               'CTGAN': CTGAN,
               'TVAE': TVAE}
-sdv_model = 'GaussianCopula'
-max_retries = 1000
-print(f"USING {sdv_model} for constraints")
-
 
 from sdv.evaluation import evaluate
 from sdv.constraints import CustomConstraint, Between
@@ -37,7 +33,13 @@ parser.add_argument('--n_refit', type=int, default=0, help='refit the model')
 parser.add_argument('--seed', type=int, default=1234, help='set seed')
 parser.add_argument('--top', type=float, default=0.1, help='how much to train')
 parser.add_argument('--target', type=int, default=400, help='target task')
+parser.add_argument('--model', choices=list(sdv_models.keys()), default='GaussianCopula', help='SDV model')
+parser.add_argument('--retries', type=int, default=1000, help='#retries given to SDV row generation')
 args = parser.parse_args()
+
+sdv_model = args.model
+max_retries = args.retries
+print(f"USING {sdv_model} for constraints with {max_retries} allotted retries")
 
 MAX_EVALS   = int(args.max_evals)
 N_REFIT     = int(args.n_refit)

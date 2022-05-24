@@ -4,7 +4,7 @@ if FETCH_PLOPPER not in sys.path:
     sys.path.append(FETCH_PLOPPER)
 import base_plopper
 
-class MMM_Plopper(base_plopper.LazyPlopper):
+class MMM_Plopper(base_plopper.Plopper):
     """
         Call to findRuntime should be:
             (x, params, d_size)

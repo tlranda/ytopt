@@ -27,7 +27,10 @@ class BaseProblem:
                  name = None,
                  constants = None,
                  **kwargs):
-        self.name = name
+        if name is not None:
+            self.name = name
+        else:
+            self.name = self.__class__.__name__+'_size_'+str(problem_class)
         # Spaces
         self.input_space = input_space
         self.parameter_space = parameter_space
