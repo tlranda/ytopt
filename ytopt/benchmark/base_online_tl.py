@@ -50,7 +50,7 @@ def online(target_list, data, input_list, args, fname):
         other_names = set(input_problem.params)
         if len(param_names.difference(other_names)) > 0:
             raise ValueError(f"Target {target_list[0].name} and {input_problem.name} utilize different parameters")
-    param_names = list(param_names)
+    param_names = sorted(param_names)
     n_params = len(param_names)
 
     model = sdv_models[sdv_model](

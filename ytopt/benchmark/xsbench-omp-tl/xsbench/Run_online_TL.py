@@ -5,7 +5,7 @@ import os, sys, time, json, math
 import ConfigSpace as CS
 import ConfigSpace.hyperparameters as CSH
 from skopt.space import Real, Integer, Categorical
-import csv, time 
+import csv, time
 from csv import writer
 from csv import reader
 
@@ -17,6 +17,7 @@ from sdv.tabular import GaussianCopula
 from sdv.tabular import CopulaGAN
 from sdv.evaluation import evaluate
 from sdv.constraints import CustomConstraint, Between
+from sdv.sampling.tabular import Condition
 import random, argparse
 
 parser = argparse.ArgumentParser()
@@ -60,21 +61,21 @@ def myobj(point: dict):
     print('OUTPUT:%f',results)
     return results
 
-#### selet by best top x%   
+#### selet by best top x%
 X_opt = []
 cutoff_p = TOP
-print ('----------------------------- how much data to use?', cutoff_p) 
+print ('----------------------------- how much data to use?', cutoff_p)
 param_names = x1
 n_param = len(param_names)
 frames = []
 input_sizes = {}
-input_sizes['s']  = [100000] 
+input_sizes['s']  = [100000]
 input_sizes['m']  = [1000000]
 input_sizes['l']  = [5000000]
 input_sizes['xl'] = [10000000]
 
 for i_size in ['s','m','l']:
-    dataframe = pd.read_csv(dir_path+"/results_rf_"+str(i_size)+"_xsbench.csv")  
+    dataframe = pd.read_csv(dir_path+"/results_rf_"+str(i_size)+"_xsbench.csv")
     dataframe['runtime'] = np.log(dataframe['objective']) # log(run time)
     dataframe['input']   = pd.Series(input_sizes[i_size][0] for _ in range(len(dataframe.index)))
     q_10_s = np.quantile(dataframe.runtime.values, cutoff_p)
@@ -82,17 +83,19 @@ for i_size in ['s','m','l']:
     real_data = real_df.drop(columns=['elapsed_sec'])
     real_data = real_data.drop(columns=['objective'])
     frames.append(real_data)
-        
+
 real_data   = pd.concat(frames)
 
+low = 0
+high = 100000001
 constraint_input = Between(
     column='input',
-    low=1,
-    high=2100000000,
+    low=low,
+    high=high,
     )
 
 model = GaussianCopula(
-            field_names = ['input','p0','p1','p2','runtime'],    
+            field_names = ['input','p0','p1','p2','runtime'],
             field_transformers = {'input': 'integer',
                                   'p0': 'categorical',
                                   'p1': 'categorical',
@@ -105,22 +108,22 @@ model = GaussianCopula(
 
 filename = "results_sdv.csv"
 fields   = ['p0','p1','p2','exe_time','predicted','elapsed_sec']
-# writing to csv file 
-with open(filename, 'w') as csvfile: 
-    # creating a csv writer object 
-    csvwriter = csv.writer(csvfile) 
-        
-    # writing the fields 
-    csvwriter.writerow(fields) 
+# writing to csv file
+with open(filename, 'w') as csvfile:
+    # creating a csv writer object
+    csvwriter = csv.writer(csvfile)
+
+    # writing the fields
+    csvwriter.writerow(fields)
 
     evals_infer = []
     Max_evals = MAX_EVALS
     eval_master = 0
-    while eval_master < Max_evals:         
+    while eval_master < Max_evals:
         # update model
         model.fit(real_data)
-        conditions = {'input': input_sizes[TARGET_task][0]}
-        ss1 = model.sample(max(1000,Max_evals),conditions=conditions)
+        conditions = Condition({'input': input_sizes[TARGET_task][0]}, num_rows=max(1000,Max_evals))
+        ss1 = model.sample_conditions([conditions])
         ss  = ss1.sort_values(by='runtime')#, ascending=False)
         new_sdv = ss[:Max_evals]
         max_evals = N_REFIT
@@ -130,10 +133,10 @@ with open(filename, 'w') as csvfile:
             for row in new_sdv.iterrows():
                 if eval_master == Max_evals:
                     stop = True
-                    break                   
+                    break
                 if eval_update == max_evals:
                     stop = True
-                    break    
+                    break
                 sample_point_val = row[1].values[1:]
                 sample_point = {x1[0]:sample_point_val[0],
                             x1[1]:sample_point_val[1],
@@ -152,7 +155,7 @@ with open(filename, 'w') as csvfile:
                 evaluated = np.append(evaluated,row[1].values[0])
                 real_data.loc[max(real_data.index)+1] = evaluated # real_data = [
                 eval_update += 1
-                eval_master += 1 
-        
-csvfile.close()           
+                eval_master += 1
+
+csvfile.close()
 

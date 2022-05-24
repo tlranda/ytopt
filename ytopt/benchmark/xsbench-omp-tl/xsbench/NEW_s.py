@@ -48,7 +48,7 @@ class XSBench_Problem(BaseProblem):
         super().__init__(*args, **kwargs)
         # Adds default plopper based on input class if needed
         if self.plopper is None:
-            self.plopper = Plopper(HERE+f"/mmp.c", HERE, output_extension='.c', evaluation_tries=3, exe_size='_s')
+            self.plopper = Plopper(HERE+f"/mmp.c", HERE, output_extension='.c', evaluation_tries=1, exe_size='_s')
         # The parameter names CHANGE in this problem, so we have to re-label them in between check finite and findRuntime
         self.CAPITAL_PARAMS = [_.capitalize() for _ in self.params]
 
@@ -71,29 +71,32 @@ SProblem = XSBench_Problem(input_space,
 Problem = SProblem
 # Medium problem
 class_size = 1000000
+plopper = Plopper(HERE+f"/mmp.c", HERE, output_extension='.c', evaluation_tries=1, exe_size='_m')
 MProblem = XSBench_Problem(input_space,
                            None,
                            output_space,
                            params,
                            class_size,
-                           None,
+                           plopper,
                            constraints)
 # Large problem
 class_size = 5000000
+plopper = Plopper(HERE+f"/mmp.c", HERE, output_extension='.c', evaluation_tries=1, exe_size='_l')
 LProblem = XSBench_Problem(input_space,
                            None,
                            output_space,
                            params,
                            class_size,
-                           None,
+                           plopper,
                            constraints)
 # XL problem
 class_size = 10000000
+plopper = Plopper(HERE+f"/mmp.c", HERE, output_extension='.c', evaluation_tries=1, exe_size='_xl')
 XLProblem = XSBench_Problem(input_space,
                             None,
                             output_space,
                             params,
                             class_size,
-                            None,
+                            plopper,
                             constraints)
 
