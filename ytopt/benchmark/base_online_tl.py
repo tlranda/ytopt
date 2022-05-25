@@ -7,23 +7,34 @@ from sdv.tabular import GaussianCopula, CopulaGAN, CTGAN, TVAE
 sdv_models = {'GaussianCopula': GaussianCopula,
               'CopulaGAN': CopulaGAN,
               'CTGAN': CTGAN,
-              'TVAE': TVAE}
+              'TVAE': TVAE,
+              'random': None}
 from sdv.constraints import CustomConstraint, Between
 from sdv.sampling.tabular import Condition
 from ytopt.search.util import load_from_file
 
 def build():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--max_evals', type=int, default=10, help='maximum number of evaluations')
-    parser.add_argument('--n_refit', type=int, default=0, help='refit the model')
-    parser.add_argument('--seed', type=int, default=1234, help='set seed')
-    parser.add_argument('--top', type=float, default=0.1, help='how much to train')
-    parser.add_argument('--inputs', type=str, nargs='+', help='problems to use as input')
-    parser.add_argument('--targets', type=str, nargs='+', help='problems to use as target tasks')
-    parser.add_argument('--model', choices=list(sdv_models.keys()), default='GaussianCopula', help='SDV model')
-    parser.add_argument('--retries', type=int, default=1000, help='#retries given to SDV row generation')
-    parser.add_argument('--single-target', action='store_true', help='Treat each target as a unique problem (default: solve all targets at once)')
-    parser.add_argument('--unique', action='store_true', help='Do not re-evaluate points seen since the last dataset generation')
+    parser.add_argument('--max_evals', type=int, default=10,
+                        help='maximum number of evaluations')
+    parser.add_argument('--n_refit', type=int, default=0,
+                        help='refit the model')
+    parser.add_argument('--seed', type=int, default=1234,
+                        help='set seed')
+    parser.add_argument('--top', type=float, default=0.1,
+                        help='how much to train')
+    parser.add_argument('--inputs', type=str, nargs='+',
+                        help='problems to use as input')
+    parser.add_argument('--targets', type=str, nargs='+',
+                        help='problems to use as target tasks')
+    parser.add_argument('--model', choices=list(sdv_models.keys()),
+                        default='GaussianCopula', help='SDV model')
+    parser.add_argument('--retries', type=int, default=1000,
+                        help='#retries given to SDV row generation')
+    parser.add_argument('--single-target', action='store_true',
+                        help='Treat each target as a unique problem (default: solve all targets at once)')
+    parser.add_argument('--unique', action='store_true',
+                        help='Do not re-evaluate points seen since the last dataset generation')
     return parser
 
 def parse(prs, args=None):
@@ -32,34 +43,41 @@ def parse(prs, args=None):
     return args
 
 def bind_from_args(args):
-    return args.model, args.retries, args.single_target, args.unique, args.max_evals, args.n_refit, args.top, args.seed
+    return args.model, args.retries, args.single_target, args.unique, \
+           args.max_evals, args.n_refit, args.top, args.seed
 
 time_start = time.time()
 
 def online(target_list, data, input_list, args, fname):
     global time_start
-    sdv_model, max_retries, _, unique, MAX_EVALS, N_REFIT, TOP, _ = bind_from_args(args)
+    sdv_model, max_retries, _, unique, \
+               MAX_EVALS, N_REFIT, TOP, _ = bind_from_args(args)
 
     # All problems (input and target alike) must utilize the same parameters or this is not going to work
     param_names = set(target_list[0].params)
     for target_problem in target_list[1:]:
         other_names = set(target_problem.params)
         if len(param_names.difference(other_names)) > 0:
-            raise ValueError(f"Targets {target_list[0].name} and {target_problem.name} utilize different parameters")
+            raise ValueError(f"Targets {target_list[0].name} and "
+                             f"{target_problem.name} utilize different parameters")
     for input_problem in input_list:
         other_names = set(input_problem.params)
         if len(param_names.difference(other_names)) > 0:
-            raise ValueError(f"Target {target_list[0].name} and {input_problem.name} utilize different parameters")
+            raise ValueError(f"Target {target_list[0].name} and "
+                             f"{input_problem.name} utilize different parameters")
     param_names = sorted(param_names)
     n_params = len(param_names)
 
-    model = sdv_models[sdv_model](
-              field_names = ['input']+param_names+['runtime'],
-              field_transformers = target_list[0].problem_params,
-              constraints=target_list[0].constraints,
-              min_value = None,
-              max_value = None
-            )
+    if sdv_model != 'Random':
+        model = sdv_models[sdv_model](
+                  field_names = ['input']+param_names+['runtime'],
+                  field_transformers = target_list[0].problem_params,
+                  constraints=target_list[0].constraints,
+                  min_value = None,
+                  max_value = None
+                )
+    else:
+        model = None
     csv_fields = param_names+['exe_time','predicted','elapsed_sec']*len(target_list)
     # writing to csv file
     with open(fname, 'w') as csvfile:
@@ -71,23 +89,27 @@ def online(target_list, data, input_list, args, fname):
         # Make conditions for each target
         conditions = []
         for target_problem in target_list:
-            conditions.append(Condition({'input': int(target_problem.problem_class)}, num_rows=max(100, MAX_EVALS)))
-
+            conditions.append(Condition({'input': int(target_problem.problem_class)},
+                                        num_rows=max(100, MAX_EVALS)))
         evals_infer = []
         eval_master = 0
         # Initial fit
-        model.fit(data)
+        if model is not None:
+            model.fit(data)
         while eval_master < MAX_EVALS:
             # Generate prospective points
             if sdv_model == 'GaussianCopula':
                 ss1 = model.sample_conditions(conditions)
-            else:
-                # Reject sampling means you may have to repeatedly try in order to generate the requested number of rows
+            elif sdv_model != 'Random':
+                # Reject sampling means you may have to repeatedly try
+                # in order to generate the requested number of rows
                 max_attempts = 100
                 attempts = 0
                 old_ss_len = 0
                 new_ss_len = 0
-                # Should be a way to sample all conditions at once until they have all met their row requirement, but IDK so we're going to do them one at a time for now
+                # Should be a way to sample all conditions at once until
+                # they have all met their row requirement, but IDK so we're
+                # going to do them one at a time for now
                 for cond in conditions:
                     while attempts < max_attempts and cond.num_rows > 0 and new_ss_len < cond.num_rows:
                         attempts += 1
@@ -100,6 +122,9 @@ def online(target_list, data, input_list, args, fname):
                             ss1 = ss1.append(ss, ignore_index=True)
                         cond.num_rows -= new_ss_len - old_ss_len
                         old_ss_len = new_ss_len
+            else:
+                # Random model is achieved by sampling configurations from the target problem's input space
+                ss1 = # Make dataframe from calling target_list[i].input_space.sample_configuration.get_dictionary()
             # Don't evaluate the exact same parameter configuration multiple times in a fitting round
             ss1 = ss1.drop_duplicates(subset=param_names, keep="first")
             ss = ss1.sort_values(by='runtime')#, ascending=False)
@@ -110,14 +135,16 @@ def online(target_list, data, input_list, args, fname):
                 for row in new_sdv.iterrows():
                     if eval_update == N_REFIT:
                         # update model
-                        model.fit(data)
+                        if model is not None:
+                            model.fit(data)
                         stop = True
                         break
                     # May not be safe to index like this lol
                     sample_point_val = row[1].values[1:]
                     # Should be a chain expression or something
                     sample_point = dict((pp,vv) for (pp,vv) in zip(param_names, sample_point_val))
-                    # Search to see if this combination of parameter values AND problem class already exist in the data frame
+                    # Search to see if this combination of parameter values AND
+                    # problem class already exist in the data frame.
                     # If we're unique, skip it, otherwise we will replace it with new value
                     problem_tuple = tuple(param_names+['input'])
                     search_equals = tuple(row[1].values[1:1+n_params].tolist()+[row[1].values[0]])
@@ -147,12 +174,14 @@ def online(target_list, data, input_list, args, fname):
                             evaluated = list(search_equals)
                             # Insert runtime before the problem class size
                             evaluated.insert(-1, float(np.log(evals_infer[-1])))
-                            # For each problem we want to denote the actual result in our dataset to improve future data generation
+                            # For each problem we want to denote the actual result in
+                            # our dataset to improve future data generation
                             if matching_data.empty:
                                 data.loc[max(data.index)+1] = evaluated
                             else:
                                 # Replace results -- should be mostly the same
-                                # Have to wrap `evaluated` in a list for pandas to be happy with the overwrite
+                                # Have to wrap `evaluated` in a list for pandas to be
+                                # happy with the overwrite
                                 data.loc[matching_data.index] = [evaluated]
                         # Record in CSV and update iteration
                         csvwriter.writerow(ss)
@@ -166,7 +195,8 @@ def online(target_list, data, input_list, args, fname):
 
 def main(args=None):
     args = parse(build(), args)
-    sdv_model, max_retries, one_target, _, MAX_EVALS, N_REFIT, TOP, RANDOM_SEED = bind_from_args(args)
+    sdv_model, max_retries, one_target, _, \
+               MAX_EVALS, N_REFIT, TOP, RANDOM_SEED = bind_from_args(args)
     print(f"USING {sdv_model} for constraints with {max_retries} allotted retries")
     print('max_evals', MAX_EVALS, 'number of refit', N_REFIT, 'how much to train', TOP,
           'seed', RANDOM_SEED)
@@ -181,8 +211,9 @@ def main(args=None):
     inputs, targets, frames = [], [], []
     # Fetch the target problem(s)'s plopper
     for idx, problemName in enumerate(args.inputs):
-        # NOTE: When specified as 'filename.attribute', the second argument 'Problem' is effectively ignored
-        # If only the filename is given (ie: 'filename.py'), defaults to finding the 'Problem' attribute in that file
+        # NOTE: When specified as 'filename.attribute', the second argument 'Problem'
+        # is effectively ignored. If only the filename is given (ie: 'filename.py'),
+        # defaults to finding the 'Problem' attribute in that file
         if problemName.endswith('.py'):
             attr = 'Problem'
         else:
@@ -193,7 +224,10 @@ def main(args=None):
         results_file = inputs[-1].plopper.kernel_dir+"/results_"+str(inputs[-1].problem_class)+".csv"
         if not os.path.exists(results_file):
             # Execute the input problem and move its results files to the above directory
-            raise ValueError(f"Could not find {results_file} for '{problemName}' [{inputs[-1].name}]"+"\nYou may need to run this problem or rename its output as above for the script to locate it")
+            raise ValueError(f"Could not find {results_file} for '{problemName}' "
+                             f"[{inputs[-1].name}]"
+                             "\nYou may need to run this problem or rename its output "
+                             "as above for the script to locate it")
         dataframe = pd.read_csv(results_file)
         dataframe['runtime'] = np.log(dataframe['objective']) # log(run time)
         dataframe['input'] = pd.Series(int(inputs[-1].problem_class) for _ in range(len(dataframe.index)))

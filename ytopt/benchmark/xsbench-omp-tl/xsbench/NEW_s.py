@@ -30,7 +30,7 @@ input_space = BaseProblem.configure_space([('UniformInt',
                                             }),
                                            ('Categorical',
                                             {'name': 'p2',
-                                             'choices': ["#pragma omp paralllel for", " "],
+                                             'choices': ["#pragma omp parallel for", " "],
                                              'default_value': " "
                                             }),
                                            ])
