@@ -35,6 +35,8 @@ def build():
                         help='Treat each target as a unique problem (default: solve all targets at once)')
     parser.add_argument('--unique', action='store_true',
                         help='Do not re-evaluate points seen since the last dataset generation')
+    parser.add_argument('--output-prefix', type=str, default='results_sdv',
+                        help='Output files are created using this prefix (default: [results_sdv]*.csv)')
     return parser
 
 def parse(prs, args=None):
@@ -48,37 +50,37 @@ def bind_from_args(args):
 
 time_start = time.time()
 
-def online(target_list, data, input_list, args, fname):
+def online(targets, data, inputs, args, fname):
     global time_start
     sdv_model, max_retries, _, unique, \
                MAX_EVALS, N_REFIT, TOP, _ = bind_from_args(args)
 
     # All problems (input and target alike) must utilize the same parameters or this is not going to work
-    param_names = set(target_list[0].params)
-    for target_problem in target_list[1:]:
+    param_names = set(targets[0].params)
+    for target_problem in targets[1:]:
         other_names = set(target_problem.params)
         if len(param_names.difference(other_names)) > 0:
-            raise ValueError(f"Targets {target_list[0].name} and "
+            raise ValueError(f"Targets {targets[0].name} and "
                              f"{target_problem.name} utilize different parameters")
-    for input_problem in input_list:
+    for input_problem in inputs:
         other_names = set(input_problem.params)
         if len(param_names.difference(other_names)) > 0:
-            raise ValueError(f"Target {target_list[0].name} and "
+            raise ValueError(f"Target {targets[0].name} and "
                              f"{input_problem.name} utilize different parameters")
     param_names = sorted(param_names)
     n_params = len(param_names)
 
-    if sdv_model != 'Random':
+    if sdv_model != 'random':
         model = sdv_models[sdv_model](
                   field_names = ['input']+param_names+['runtime'],
-                  field_transformers = target_list[0].problem_params,
-                  constraints=target_list[0].constraints,
+                  field_transformers = targets[0].problem_params,
+                  constraints=targets[0].constraints,
                   min_value = None,
                   max_value = None
                 )
     else:
         model = None
-    csv_fields = param_names+['exe_time','predicted','elapsed_sec']*len(target_list)
+    csv_fields = param_names+['exe_time','predicted','elapsed_sec']*len(targets)
     # writing to csv file
     with open(fname, 'w') as csvfile:
         # creating a csv writer object
@@ -88,7 +90,7 @@ def online(target_list, data, input_list, args, fname):
 
         # Make conditions for each target
         conditions = []
-        for target_problem in target_list:
+        for target_problem in targets:
             conditions.append(Condition({'input': int(target_problem.problem_class)},
                                         num_rows=max(100, MAX_EVALS)))
         evals_infer = []
@@ -100,7 +102,7 @@ def online(target_list, data, input_list, args, fname):
             # Generate prospective points
             if sdv_model == 'GaussianCopula':
                 ss1 = model.sample_conditions(conditions)
-            elif sdv_model != 'Random':
+            elif sdv_model != 'random':
                 # Reject sampling means you may have to repeatedly try
                 # in order to generate the requested number of rows
                 max_attempts = 100
@@ -123,8 +125,22 @@ def online(target_list, data, input_list, args, fname):
                         cond.num_rows -= new_ss_len - old_ss_len
                         old_ss_len = new_ss_len
             else:
-                # Random model is achieved by sampling configurations from the target problem's input space
-                ss1 = # Make dataframe from calling target_list[i].input_space.sample_configuration.get_dictionary()
+                # random model is achieved by sampling configurations from the target problem's input space
+                columns = ['input']+param_names+['runtime']
+                fix = lambda v: 'int64' if v == 'integer' else v
+                dtypes = [(k,fix(v)) for (k,v) in [(i, targets[0].problem_params[i]) for i in columns]]
+                random_data = []
+                for idx, cond in enumerate(conditions):
+                    for _ in range(cond.num_rows):
+                        # Generate a random valid sample in the parameter space
+                        random_params = targets[idx].input_space.sample_configuration().get_dictionary()
+                        random_params = [random_params[k] for k in param_names]
+                        # Generate the runtime estimate
+                        inference = 1.0
+                        random_data.append(tuple([cond.column_values['input']]+random_params+[inference]))
+                ss1 = np.array(random_data, dtype=dtypes)
+                ss1 = pd.DataFrame(ss1, columns=columns)
+                # Make dataframe from calling targets[i].input_space.sample_configuration.get_dictionary()
             # Don't evaluate the exact same parameter configuration multiple times in a fitting round
             ss1 = ss1.drop_duplicates(subset=param_names, keep="first")
             ss = ss1.sort_values(by='runtime')#, ascending=False)
@@ -153,7 +169,7 @@ def online(target_list, data, input_list, args, fname):
                     matching_data = data.iloc[full_match_idx]
                     if matching_data.empty or not unique:
                         ss = []
-                        for target_problem in target_list:
+                        for target_problem in targets:
                             # Use the target problem's .objective() call to generate an evaluation
                             evals_infer.append(target_problem.objective(sample_point))
                             print(target_problem.name, sample_point, evals_infer[-1])
@@ -197,9 +213,11 @@ def main(args=None):
     args = parse(build(), args)
     sdv_model, max_retries, one_target, _, \
                MAX_EVALS, N_REFIT, TOP, RANDOM_SEED = bind_from_args(args)
+    output_prefix = args.output_prefix
     print(f"USING {sdv_model} for constraints with {max_retries} allotted retries")
     print('max_evals', MAX_EVALS, 'number of refit', N_REFIT, 'how much to train', TOP,
           'seed', RANDOM_SEED)
+    # Seed control
     np.random.seed(RANDOM_SEED)
     global time_start
     time_start = time.time()
@@ -247,11 +265,13 @@ def main(args=None):
         targets.append(load_from_file(pName, attr))
         # make target evaluations silent as we'll report them on our own
         targets[-1].silent = True
+        # Seed control
+        targets[-1].seed(RANDOM_SEED)
         # Single-target mode
         if one_target:
-            online([targets[-1]], real_data, inputs, args, f"results_sdv_{targets[-1].name}.csv")
+            online([targets[-1]], real_data, inputs, args, f"{output_prefix}_{targets[-1].name}.csv")
     if not one_target:
-        online(targets, real_data, inputs, args, "results_sdv_ALL.csv")
+        online(targets, real_data, inputs, args, f"{output_prefix}_ALL.csv")
 
 if __name__ == '__main__':
     main()

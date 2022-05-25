@@ -57,6 +57,28 @@ class BaseProblem:
         for k,v in kwargs.items():
             self.__setattr__(k,v)
 
+    def seed(self, SEED):
+        if self.input_space is not None:
+            try:
+                self.input_space.seed(SEED)
+            except AttributeError:
+                pass
+        if self.parameter_space is not None:
+            try:
+                self.parameter_space.seed(SEED)
+            except AttributeError:
+                pass
+        if self.output_space is not None:
+            try:
+                self.output_space.seed(SEED)
+            except AttributeError:
+                pass
+        if self.plopper is not None:
+            try:
+                self.plopper.seed(SEED)
+            except AttributeError:
+                pass
+
     def objective(self, point: dict, *args, **kwargs):
         x = np.asarray_chkfinite([point[k] for k in self.params]) # ValueError if any NaN or Inf
         if not self.silent:

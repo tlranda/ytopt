@@ -146,6 +146,9 @@ class Plopper:
         # tracking the host architecture, GPU architecture, or determining what compiler or basic compiler options to use
         self.initChecks(**kwargs)
 
+    def seed(self, SEED):
+        pass
+
     def __str__(self):
         return str({'sourcefile': self.sourcefile,
                     'kernel_dir': self.kernel_dir,
