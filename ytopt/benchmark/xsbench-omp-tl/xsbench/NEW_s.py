@@ -17,10 +17,15 @@ from newPlopper import XSBench_Plopper as Plopper
 from sdv.constraints import Between
 
 # Define ConfigSpace Parameterization
-input_space = BaseProblem.configure_space([('UniformInt',
+input_space = BaseProblem.configure_space([#('UniformInt',
+                                           # {'name': 'p0',
+                                           #  'low': 2,
+                                           #  'high': 128,
+                                           #  'default_value': 128
+                                           # }),
+                                           ('Ordinal',
                                             {'name': 'p0',
-                                             'lower': 2,
-                                             'upper': 128,
+                                             'sequence': sorted([6]+[2**i for i in range(1,8)]),
                                              'default_value': 128
                                             }),
                                            ('Ordinal',
@@ -51,6 +56,10 @@ class XSBench_Problem(BaseProblem):
             self.plopper = Plopper(HERE+f"/mmp.c", HERE, output_extension='.c', evaluation_tries=1, exe_size='_s')
         # The parameter names CHANGE in this problem, so we have to re-label them in between check finite and findRuntime
         self.CAPITAL_PARAMS = [_.capitalize() for _ in self.params]
+        # Categorical parameters are ambiguous to cast, so support it
+        self.categorical_cast = {'p0': 'integer',
+                                 'p1': 'integer',
+                                 'p2': 'str'}
 
     def objective(self, point: dict, *args, **kwargs):
         x = np.asarray_chkfinite([point[k] for k in self.params]) # ValueError if any NaN or Inf

@@ -127,8 +127,17 @@ def online(targets, data, inputs, args, fname):
             else:
                 # random model is achieved by sampling configurations from the target problem's input space
                 columns = ['input']+param_names+['runtime']
-                fix = lambda v: 'int64' if v == 'integer' else v
-                dtypes = [(k,fix(v)) for (k,v) in [(i, targets[0].problem_params[i]) for i in columns]]
+                def param_type(k, problem):
+                    v = problem.problem_params[k]
+                    if v == 'categorical':
+                        if hasattr(problem, 'categorical_cast'):
+                            v = problem.categorical_cast[k]
+                        else:
+                            v = 'str'
+                    if v == 'integer':
+                        v = 'int64'
+                    return v
+                dtypes = [(k,param_type(k, targets[0])) for k in columns]
                 random_data = []
                 for idx, cond in enumerate(conditions):
                     for _ in range(cond.num_rows):
