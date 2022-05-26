@@ -23,9 +23,9 @@ def build():
                         help='set seed')
     parser.add_argument('--top', type=float, default=0.1,
                         help='how much to train')
-    parser.add_argument('--inputs', type=str, nargs='+',
+    parser.add_argument('--inputs', type=str, nargs='+', required=True,
                         help='problems to use as input')
-    parser.add_argument('--targets', type=str, nargs='+',
+    parser.add_argument('--targets', type=str, nargs='+', required=True,
                         help='problems to use as target tasks')
     parser.add_argument('--model', choices=list(sdv_models.keys()),
                         default='GaussianCopula', help='SDV model')
@@ -91,7 +91,9 @@ def online(targets, data, inputs, args, fname):
                 )
     else:
         model = None
-    csv_fields = param_names+['objective','predicted','elapsed_sec']*len(targets)
+    csv_fields = param_names+['objective','predicted','elapsed_sec']
+    for i in range(len(targets)-1):
+        csv_fields.extend([f'objective_{i}',f'predicted_{i}',f'elapsed_sec_{i}'])
     # writing to csv file
     with open(fname, 'w') as csvfile:
         # creating a csv writer object
@@ -159,12 +161,6 @@ def online(targets, data, inputs, args, fname):
             stop = False
             while not stop:
                 for row in new_sdv.iterrows():
-                    if eval_update == N_REFIT:
-                        # update model
-                        if model is not None:
-                            model.fit(data)
-                        stop = True
-                        break
                     sample_point_val = row[1].values[1:]
                     sample_point = dict((pp,vv) for (pp,vv) in zip(param_names, sample_point_val))
                     # Search to see if this combination of parameter values AND
@@ -212,7 +208,15 @@ def online(targets, data, inputs, args, fname):
                         csvfile.flush()
                         eval_update += 1
                         eval_master += 1
-                if unique:
+                    # Important to run refit AFTER at least one evaluation is done, else we
+                    # infinite loop when N_REFIT=0 (never)
+                    if eval_update == N_REFIT:
+                        # update model
+                        if model is not None:
+                            model.fit(data)
+                        stop = True
+                        break
+                if unique or N_REFIT == 0:
                     stop = True
     csvfile.close()
 
