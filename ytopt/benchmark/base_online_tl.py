@@ -50,6 +50,17 @@ def bind_from_args(args):
 
 time_start = time.time()
 
+def param_type(k, problem):
+    v = problem.problem_params[k]
+    if v == 'categorical':
+        if hasattr(problem, 'categorical_cast'):
+            v = problem.categorical_cast[k]
+        else:
+            v = 'str'
+    if v == 'integer':
+        v = 'int64'
+    return v
+
 def online(targets, data, inputs, args, fname):
     global time_start
     sdv_model, max_retries, _, unique, \
@@ -127,16 +138,6 @@ def online(targets, data, inputs, args, fname):
             else:
                 # random model is achieved by sampling configurations from the target problem's input space
                 columns = ['input']+param_names+['runtime']
-                def param_type(k, problem):
-                    v = problem.problem_params[k]
-                    if v == 'categorical':
-                        if hasattr(problem, 'categorical_cast'):
-                            v = problem.categorical_cast[k]
-                        else:
-                            v = 'str'
-                    if v == 'integer':
-                        v = 'int64'
-                    return v
                 dtypes = [(k,param_type(k, targets[0])) for k in columns]
                 random_data = []
                 for idx, cond in enumerate(conditions):
@@ -164,9 +165,7 @@ def online(targets, data, inputs, args, fname):
                             model.fit(data)
                         stop = True
                         break
-                    # May not be safe to index like this lol
                     sample_point_val = row[1].values[1:]
-                    # Should be a chain expression or something
                     sample_point = dict((pp,vv) for (pp,vv) in zip(param_names, sample_point_val))
                     # Search to see if this combination of parameter values AND
                     # problem class already exist in the data frame.

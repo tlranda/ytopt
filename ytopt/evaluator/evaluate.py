@@ -54,6 +54,11 @@ class Evaluator:
         self.elapsed_times = {}
 
         self.problem = problem
+        # Save my sanity
+        if hasattr(problem, "request_output_prefix"):
+            self.output_prefix = problem.request_output_prefix
+        else:
+            self.output_prefix = "results"
         self.num_workers = 0
 
         if cache_key is not None:
@@ -225,7 +230,7 @@ class Evaluator:
         if not self.finished_evals:
             return
 
-        with open('results.json', 'w') as fp:
+        with open(self.output_prefix+'.json', 'w') as fp:
             json.dump(self.finished_evals, fp, indent=4,
                       sort_keys=True, cls=Encoder)
 
@@ -239,10 +244,10 @@ class Evaluator:
             result['elapsed_sec'] = self.elapsed_times[uid]
             resultsList.append(result)
 
-        with open('results.csv', 'w') as fp:
+        with open(self.output_prefix+'.csv', 'w') as fp:
             columns = resultsList[0].keys()
             writer = csv.DictWriter(fp, columns)
             writer.writeheader()
             writer.writerows(resultsList)
-         
-            
+
+

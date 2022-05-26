@@ -5,9 +5,15 @@ Features of the rework are detailed below, with usage examples and patterns deta
 
 Chapters:
 
-* [SIMPLIFIED DEVELOPMENT](plopperREADME.md#simplified-development)
-* [BENEFITS](plopperREADME.md#benefits)
-* [FULLY-IMPLEMENTED EXAMPLES](plopperREADME.md#fully-implemented-examples)
+* [Plopper Rework](plopperREADME.md#plopper-rework)
+  + [SIMPLIFIED DEVELOPMENT](plopperREADME.md#simplified-development)
+  + [BENEFITS](plopperREADME.md#benefits)
+  + [FULLY-IMPLEMENTED EXAMPLES](plopperREADME.md#fully-implemented-examples)
+* [Problem Rework](plopperREADME.md#problem-rework)
+* [Automatic Online Experiments](plopperREADME.md#automatic-online-experiments)
+* [Plotting/Analysis](plopperREADME.md#plotting-analysis)
+
+# Plopper Rework
 
 ## SIMPLIFIED DEVELOPMENT
 
@@ -128,5 +134,38 @@ mmm-block-tl: [OLD_PLOPPER](mmm-block-tl/plopper/plopper.py) --> [NEW\_PLOPPER](
 xsbench-omp-tl: [OLD\_PLOPPER](xsbench-omp-tl/plopper/plopper.py) --> [NEW\_PLOPPER](xsbench-omp-tl/plopper/newPlopper.py)
 * More advanced plopper that makes source code changes and optionally avoids the need to write per-problem-size `exe*.pl` scripts (maintains optional backwards compatiblity with such scripts)
 * Note that this plopper is capable of replacing _ALL_ of the plopper variants formerly used in this benchmark, merely by changing the problem size argument during object instantiation.
+
+# Problem Rework
+
+To make things even easier, similar work has been done for problems.
+Problem classes can derive from BaseProblem (to be integrated in the autotune package overriding the TuningProblem specification).
+
+In addition to the normal TuningProblem arguments, the problem rework requires:
+* Params: A dictionary defining the ConfigSpace transformations for each parameter in the input space
+  + Use `BaseProblem.configure_space()` to assist in creating ConfigSpace objects if desired
+* Problem Class: An integer defining the scale of this problem instance
+
+Optionally, one may specify:
+* Silent: Suppress objective print statements
+
+Reworked problems can automatically define useful output names, result destinations, etc.
+Typically, a subclass problem only needs to define its input/parameter/output spaces, models, class size and constraints to pass into the initializer.
+For examples, refer to [mmm-block-tl](mmm-block-tl/mmm_problem/NEW_s.py) and [xsbench-omp-tl](xsbench-omp-tl/xsbench/NEW_s.py) examples.
+The latter includes a special case objective override that is instructive if your problem makes use of the \*args, \*\*kwargs pattern for its objective.
+
+# Automatic Online Experiments
+
+Using all of the above, you can easily convert any set of previously executed offline problems into an online experiment using `base_online_tl.py`.
+Target problems do not need to be trained offline, and can be completely cold when evaluated.
+For the script to work, problems need to be compatible with BaseProblem, as internal data are referenced to ensure the online experiment is set up correctly.
+
+NOTE: If your problems are not available as python-installed modules, you may need to execute from the directory containing your modules in order to load them correctly.
+
+# Plotting Analysis
+
+The `plot_analysis.py` script interprets the _online_ traces of different experiments.
+`python plot_analysis.py --help` is instructive for running the script, but a few other handy items are detailed below.
+
+The script can calculate means/standard deviations automatically for experiments if they follow the same naming convention except for an integer near the end of the string (hard-coded to be before extension or '\_ALL' and the extension. Adding your seed value to output names for online learning will make this run much easier immediately after your experiment.
 
 

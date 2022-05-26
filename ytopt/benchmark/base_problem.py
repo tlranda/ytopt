@@ -32,6 +32,7 @@ class BaseProblem:
             self.name = name
         else:
             self.name = self.__class__.__name__+'_size_'+str(problem_class)
+        self.request_output_prefix = f"results_{problem_class}"
         # Spaces
         self.input_space = input_space
         self.parameter_space = parameter_space
