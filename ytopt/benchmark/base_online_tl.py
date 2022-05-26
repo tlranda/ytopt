@@ -80,7 +80,7 @@ def online(targets, data, inputs, args, fname):
                 )
     else:
         model = None
-    csv_fields = param_names+['exe_time','predicted','elapsed_sec']*len(targets)
+    csv_fields = param_names+['objective','predicted','elapsed_sec']*len(targets)
     # writing to csv file
     with open(fname, 'w') as csvfile:
         # creating a csv writer object

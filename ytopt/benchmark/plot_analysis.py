@@ -12,7 +12,10 @@ def build():
     prs.add_argument("--inputs", type=str, nargs="+", default=[], help="Files to read for plots")
     prs.add_argument("--show", action="store_true", help="Show figures rather than save to file")
     prs.add_argument("--no-legend", action="store_true", help="Omit legend from figures")
+    prs.add_argument("--minmax", action="store_true", help="Include min and max lines")
+    prs.add_argument("--stddev", action="store_true", help="Include stddev range area")
     prs.add_argument("--x-axis", choices=["evaluation", "walltime"], default="evaluation", help="Unit for x-axis")
+    prs.add_argument("--below-zero", action="store_true", help="Allow plotted values to be <0")
     prs.add_argument("--fig-dims", metavar=("Xinches", "Yinches"), nargs=2, type=float,
                      default=plt.rcParams["figure.figsize"], help="Figure size in inches "
                      f"(default is {plt.rcParams['figure.figsize']})")
@@ -100,7 +103,7 @@ def load_all(args):
     for fname in args.inputs:
         fd = pd.read_csv(fname)
         # Drop unnecessary parameters
-        d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'elapsed_sec']])
+        d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
         name = make_seed_invariant_name(fname)
         if name in inv_names:
             idx = inv_names.index(name)
@@ -121,25 +124,33 @@ def prepare_fig(args):
 def alter_color(color_tup, ratio=0.5, brighten=True):
     return tuple([ratio*(int(brighten)+_) for _ in color_tup])
 
-def plot_source(fig, ax, source, args):
+def plot_source(fig, ax, idx, source, args):
     data = source['data']
     # Color help
     colors = [mcolors.to_rgb(_['color']) for _ in list(plt.rcParams['axes.prop_cycle'])]
+    color = colors[idx % len(colors)]
     # Shaded area = stddev
-    ax.fill_between(data['exe'], data['obj']-data['std'], data['obj']+data['std'],
-                    label=f"Stddev {source['name']}",
-                    color=alter_color(colors[0]), zorder=-1)
+    # Prevent <0 unless arg says otherwise
+    if args.stddev:
+        lower_bound = pd.DataFrame(data['obj']-data['std'])
+        if not args.below_zero:
+            lower_bound = lower_bound.applymap(lambda x: max(x,0))
+        lower_bound = lower_bound[0]
+        ax.fill_between(data['exe'], lower_bound, data['obj']+data['std'],
+                        label=f"Stddev {source['name']}",
+                        color=alter_color(color), zorder=-1)
     # Main line = mean
     ax.plot(data['exe'], data['obj'],
             label=f"Mean {source['name']}",
-            color=colors[0], zorder=1)
+            color=color, zorder=1)
     # Flank lines = min/max
-    ax.plot(data['exe'], data['min'], linestyle='--',
-            label=f"Min {source['name']}",
-            color=alter_color(colors[0], brighten=False), zorder=0)
-    ax.plot(data['exe'], data['max'], linestyle='--',
-            label=f"Max {source['name']}",
-            color=alter_color(colors[0], brighten=False), zorder=0)
+    if args.minmax:
+        ax.plot(data['exe'], data['min'], linestyle='--',
+                label=f"Min {source['name']}",
+                color=alter_color(color, brighten=False), zorder=0)
+        ax.plot(data['exe'], data['max'], linestyle='--',
+                label=f"Max {source['name']}",
+                color=alter_color(color, brighten=False), zorder=0)
     # make x-axis data
     if args.x_axis == "evaluation":
         xname = "Evaluation #"
@@ -155,8 +166,8 @@ def plot_source(fig, ax, source, args):
 def main(args):
     data = load_all(args)
     fig, ax, name = prepare_fig(args)
-    for source in data:
-        plot_source(fig, ax, source, args)
+    for idx, source in enumerate(data):
+        plot_source(fig, ax, idx, source, args)
     if args.show:
         plt.show()
     else:
