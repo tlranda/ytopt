@@ -61,6 +61,26 @@ def param_type(k, problem):
         v = 'int64'
     return v
 
+class betweenCaster:
+    def __init__(self, constraint):
+        if type(constraint) is list:
+            constraint = constraint[0]
+        if type(constraint) is not sdv.constraints.Between:
+            raise ValueError("Only sdv.constraints.Between objects are supported")
+        self.low = constraint._low
+        self.high = constraint._high
+        self.range = self.high - self.low
+
+    def to_float(self, data):
+        return (data-self.low)/self.range
+
+    def from_float(self, data):
+        x = round((data*self.range)+self.low,0)
+        try:
+            return x.astype(int)
+        except AttributeError:
+            return int(x)
+
 def online(targets, data, inputs, args, fname):
     global time_start
     sdv_model, max_retries, _, unique, \
@@ -91,6 +111,7 @@ def online(targets, data, inputs, args, fname):
                 )
     else:
         model = None
+    cast = betweenCaster(targets[0].constraints)
     csv_fields = param_names+['objective','predicted','elapsed_sec']
     for i in range(len(targets)-1):
         csv_fields.extend([f'objective_{i}',f'predicted_{i}',f'elapsed_sec_{i}'])
@@ -104,15 +125,18 @@ def online(targets, data, inputs, args, fname):
         # Make conditions for each target
         conditions = []
         for target_problem in targets:
-            conditions.append(Condition({'input': int(target_problem.problem_class)},
+            conditions.append(Condition({'input': cast.to_float(target_problem.problem_class)},
                                         num_rows=max(100, MAX_EVALS)))
         evals_infer = []
         eval_master = 0
         # Initial fit
         if model is not None:
+            data['input'] = cast.to_float(data['input'])
             model.fit(data)
         while eval_master < MAX_EVALS:
             # Generate prospective points
+            import pdb
+            pdb.set_trace()
             if sdv_model == 'GaussianCopula':
                 ss1 = model.sample_conditions(conditions)
             elif sdv_model != 'random':
@@ -153,6 +177,8 @@ def online(targets, data, inputs, args, fname):
                 ss1 = np.array(random_data, dtype=dtypes)
                 ss1 = pd.DataFrame(ss1, columns=columns)
                 # Make dataframe from calling targets[i].input_space.sample_configuration.get_dictionary()
+            # Cast type back to integer
+            ss1['input'] = cast.from_float(ss1['input'])
             # Don't evaluate the exact same parameter configuration multiple times in a fitting round
             ss1 = ss1.drop_duplicates(subset=param_names, keep="first")
             ss = ss1.sort_values(by='runtime')#, ascending=False)
@@ -213,6 +239,8 @@ def online(targets, data, inputs, args, fname):
                     if eval_update == N_REFIT:
                         # update model
                         if model is not None:
+                            # Fix types just in case
+                            data['input'] = cast.to_float(data['input'])
                             model.fit(data)
                         stop = True
                         break

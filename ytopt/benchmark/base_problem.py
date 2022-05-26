@@ -41,7 +41,7 @@ class BaseProblem:
         # Add default known things to the params list for usage as field dict
         added_keys = ('input', 'runtime')
         if 'input' not in problem_params.keys():
-            problem_params['input'] = 'integer'
+            problem_params['input'] = 'float'
         if 'runtime' not in problem_params.keys():
             problem_params['runtime'] = 'float'
         self.problem_params = problem_params
