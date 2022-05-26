@@ -15,7 +15,10 @@ def build():
     prs.add_argument("--minmax", action="store_true", help="Include min and max lines")
     prs.add_argument("--stddev", action="store_true", help="Include stddev range area")
     prs.add_argument("--x-axis", choices=["evaluation", "walltime"], default="evaluation", help="Unit for x-axis")
+    prs.add_argument("--log-x", action="store_true", help="Logarithmic x axis")
+    prs.add_argument("--log-y", action="store_true", help="Logarithmic y axis")
     prs.add_argument("--below-zero", action="store_true", help="Allow plotted values to be <0")
+    prs.add_argument("--unname-prefix", type=str, default="", help="Prefix from filenames to remove from line labels")
     prs.add_argument("--fig-dims", metavar=("Xinches", "Yinches"), nargs=2, type=float,
                      default=plt.rcParams["figure.figsize"], help="Figure size in inches "
                      f"(default is {plt.rcParams['figure.figsize']})")
@@ -26,17 +29,20 @@ def parse(prs, args=None):
         args = prs.parse_args()
     return args
 
-def make_seed_invariant_name(name):
+def make_seed_invariant_name(name, args):
+    name = os.path.basename(name)
+    name_dot, ext = name.rsplit('.',1)
+    if name_dot.endswith("_ALL"):
+        name_dot = name_dot[:-4]
     try:
-        name = os.path.basename(name)
-        name_dot, ext = name.rsplit('.',1)
-        if name_dot.endswith("_ALL"):
-            name_dot = name_dot[:-4]
         base, seed = name_dot.rsplit('_',1)
         intval = int(seed)
-        return base
+        name = base
     except ValueError:
         return name
+    if args.unname_prefix != "" and name.startswith(args.unname_prefix):
+        name = name[len(args.unname_prefix):]
+    return name
 
 def combine_seeds(data, args):
     combined_data = []
@@ -104,7 +110,7 @@ def load_all(args):
         fd = pd.read_csv(fname)
         # Drop unnecessary parameters
         d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
-        name = make_seed_invariant_name(fname)
+        name = make_seed_invariant_name(fname, args)
         if name in inv_names:
             idx = inv_names.index(name)
             # Just put them side-by-side for now
@@ -146,10 +152,9 @@ def plot_source(fig, ax, idx, source, args):
     # Flank lines = min/max
     if args.minmax:
         ax.plot(data['exe'], data['min'], linestyle='--',
-                label=f"Min {source['name']}",
+                label=f"Min/Max {source['name']}",
                 color=alter_color(color, brighten=False), zorder=0)
         ax.plot(data['exe'], data['max'], linestyle='--',
-                label=f"Max {source['name']}",
                 color=alter_color(color, brighten=False), zorder=0)
     # make x-axis data
     if args.x_axis == "evaluation":
@@ -160,6 +165,10 @@ def plot_source(fig, ax, idx, source, args):
     yname = "Objective"
     ax.set_xlabel(xname)
     ax.set_ylabel(yname)
+    if args.log_x:
+        ax.set_xscale("log")
+    if args.log_y:
+        ax.set_yscale("log")
     if not args.no_legend:
         ax.legend(loc="upper right")
 
