@@ -65,7 +65,7 @@ class betweenCaster:
     def __init__(self, constraint):
         if type(constraint) is list:
             constraint = constraint[0]
-        if type(constraint) is not sdv.constraints.Between:
+        if type(constraint) is not Between:
             raise ValueError("Only sdv.constraints.Between objects are supported")
         self.low = constraint._low
         self.high = constraint._high
@@ -135,8 +135,6 @@ def online(targets, data, inputs, args, fname):
             model.fit(data)
         while eval_master < MAX_EVALS:
             # Generate prospective points
-            import pdb
-            pdb.set_trace()
             if sdv_model == 'GaussianCopula':
                 ss1 = model.sample_conditions(conditions)
             elif sdv_model != 'random':
@@ -176,6 +174,9 @@ def online(targets, data, inputs, args, fname):
                         random_data.append(tuple([cond.column_values['input']]+random_params+[inference]))
                 ss1 = np.array(random_data, dtype=dtypes)
                 ss1 = pd.DataFrame(ss1, columns=columns)
+                for col, dtype in zip(ss1.columns, dtypes):
+                    if dtype[1] == 'str':
+                        ss1[col] = ss1[col].astype('string')
                 # Make dataframe from calling targets[i].input_space.sample_configuration.get_dictionary()
             # Cast type back to integer
             ss1['input'] = cast.from_float(ss1['input'])

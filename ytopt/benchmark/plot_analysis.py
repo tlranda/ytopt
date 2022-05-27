@@ -9,7 +9,8 @@ from scipy.stats import pearsonr
 def build():
     prs = argparse.ArgumentParser()
     prs.add_argument("--output", type=str, default="fig", help="Prefix for output images")
-    prs.add_argument("--inputs", type=str, nargs="+", default=[], help="Files to read for plots")
+    prs.add_argument("--inputs", type=str, nargs="+", help="Files to read for plots")
+    prs.add_argument("--bests", type=str, nargs="*", help="Traces to treat as best-so-far")
     prs.add_argument("--show", action="store_true", help="Show figures rather than save to file")
     prs.add_argument("--no-legend", action="store_true", help="Omit legend from figures")
     prs.add_argument("--minmax", action="store_true", help="Include min and max lines")
@@ -55,15 +56,19 @@ def combine_seeds(data, args):
         try:
             while objective_priority[objective_col] not in entry['data'][0].columns:
                 objective_col += 1
+            objective_col = objective_priority[objective_col]
         except IndexError:
             raise ValueError(f"No known objective in {entry['name']} with columns {entry['data'][0].columns}")
-        objective_col = objective_priority[objective_col]
         last_step = np.full(len(entry['data']), np.inf)
         if args.x_axis == 'evaluation':
             n_points = max([max(_.index)+1 for _ in entry['data']])
             steps = range(n_points)
         else:
-            steps = pd.concat([_['elapsed_sec'] for _ in entry['data']]).unique()
+            steps = sorted(pd.concat([_['elapsed_sec'] for _ in entry['data']]).unique())
+            # Set "last" objective value for things that start later to their first value
+            for idx, frame in enumerate(entry['data']):
+                if frame['elapsed_sec'][0] != steps[0]:
+                    last_step[idx] = frame[objective_col][0]
             n_points = len(steps)
         new_columns = {'min': np.zeros(n_points),
                        'max': np.zeros(n_points),
@@ -106,6 +111,7 @@ def combine_seeds(data, args):
 def load_all(args):
     data = []
     inv_names = []
+    # Load all normal inputs
     for fname in args.inputs:
         fd = pd.read_csv(fname)
         # Drop unnecessary parameters
@@ -115,6 +121,26 @@ def load_all(args):
             idx = inv_names.index(name)
             # Just put them side-by-side for now
             data[idx]['data'].append(d)
+        else:
+            data.append({'name': name, 'data': [d]})
+            inv_names.append(name)
+    # Load best-so-far inputs
+    idx_offset = len(data) # Best-so-far have to be independent of normal inputs as the same file
+                           # may be in both lists, but it should be treated by BOTH standards if so
+    inv_names = []
+    for fname in args.bests:
+        fd = pd.read_csv(fname)
+        # Drop unnecessary parameters
+        d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
+        # Transform into best-so-far dataset
+        for col in ['objective', 'exe_time']:
+            if col in d.columns:
+                d[col] = [min(d[col][:_+1]) for _ in range(0,len(d[col]))]
+        name = "best_"+make_seed_invariant_name(fname, args)
+        if name in inv_names:
+            idx = inv_names.index(name)
+            # Just put them side-by-side for now
+            data[idx_offset+idx]['data'].append(d)
         else:
             data.append({'name': name, 'data': [d]})
             inv_names.append(name)
