@@ -89,7 +89,7 @@ class Syr2k_Problem(BaseProblem):
         # This particular plopper returns a LIST of points
         result = self.plopper.findRuntime(x, self.CAPITAL_PARAMS, self.dataset, *args, **kwargs)
         # Original script ignored the first value
-        final = float(np.mean(results[1:]))
+        final = float(np.mean(result[1:]))
         if not self.silent:
             print(f"OUTPUT: {result} --> {final}")
         return final
