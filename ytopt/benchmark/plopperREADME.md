@@ -150,6 +150,9 @@ Optionally, one may specify:
 
 Reworked problems can automatically define useful output names, result destinations, etc.
 Typically, a subclass problem only needs to define its input/parameter/output spaces, models, class size and constraints to pass into the initializer.
+
+NOTE: Any constraint expressed should relate to the problem class, and should be VALID for any valid problem class. As such, when deriving from base\_problem, it is recommended to supply a class-based constraint to apply to all class instances.
+
 For examples, refer to [mmm-block-tl](mmm-block-tl/mmm_problem/NEW_s.py) and [xsbench-omp-tl](xsbench-omp-tl/xsbench/NEW_s.py) examples.
 The latter includes a special case objective override that is instructive if your problem makes use of the \*args, \*\*kwargs pattern for its objective.
 

@@ -95,8 +95,8 @@ class Syr2k_Problem(BaseProblem):
         return final
 
 # Might not be like this, may be lows 60,80,130,160
-class_size = 20
-constraints = [Between(column='input', low=20, high=30)]
+class_size = 20 # to 30
+constraints = [Between(column='input', low=20, high=8000)]
 NProblem = Syr2k_Problem(input_space,
                         None,
                         output_space,
@@ -105,8 +105,7 @@ NProblem = Syr2k_Problem(input_space,
                         None,
                         constraints,
                         define=' -DMINI_DATASET')
-class_size = 60
-constraints = [Between(column='input', low=60, high=80)]
+class_size = 60 # to 80
 SProblem = Syr2k_Problem(input_space,
                         None,
                         output_space,
@@ -117,8 +116,7 @@ SProblem = Syr2k_Problem(input_space,
                         define=' -DSMALL_DATASET')
 Problem = SProblem
 
-class_size = 130
-constraints = [Between(column='input', low=130, high=160)]
+class_size = 130 # to 160
 SMProblem = Syr2k_Problem(input_space,
                         None,
                         output_space,
@@ -128,8 +126,7 @@ SMProblem = Syr2k_Problem(input_space,
                         constraints,
                         define=' -DSM_DATASET')
 
-class_size = 200
-constraints = [Between(column='input', low=200, high=240)]
+class_size = 200 # to 240
 MProblem = Syr2k_Problem(input_space,
                         None,
                         output_space,
@@ -139,8 +136,7 @@ MProblem = Syr2k_Problem(input_space,
                         constraints,
                         define=' -DMEDIUM_DATASET')
 
-class_size = 600
-constraints = [Between(column='input', low=600, high=720)]
+class_size = 600 # to 720
 MLProblem = Syr2k_Problem(input_space,
                         None,
                         output_space,
@@ -150,8 +146,7 @@ MLProblem = Syr2k_Problem(input_space,
                         constraints,
                         define=' -DML_DATASET')
 
-class_size = 1000
-constraints = [Between(column='input', low=1000, high=1200)]
+class_size = 1000 # to 1200
 LProblem = Syr2k_Problem(input_space,
                         None,
                         output_space,
@@ -161,8 +156,7 @@ LProblem = Syr2k_Problem(input_space,
                         constraints,
                         define=' -DLARGE_DATASET')
 
-class_size = 2000
-constraints = [Between(column='input', low=2000, high=2600)]
+class_size = 2000 # to 2600
 XLProblem = Syr2k_Problem(input_space,
                         None,
                         output_space,
@@ -172,8 +166,7 @@ XLProblem = Syr2k_Problem(input_space,
                         constraints,
                         define=' -DEXTRALARGE_DATASET')
 
-class_size = 3000
-constraints = [Between(column='input', low=3000, high=8000)]
+class_size = 3000 # to 8000
 HProblem = Syr2k_Problem(input_space,
                         None,
                         output_space,
