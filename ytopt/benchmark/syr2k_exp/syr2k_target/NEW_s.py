@@ -62,9 +62,9 @@ params = {'p0': 'categorical',
 categorical_cast = {'p0': 'str',
                     'p1': 'str',
                     'p2': 'str',
-                    'p3': 'integer',
-                    'p4': 'integer',
-                    'p5': 'integer'}
+                    'p3': 'str',#'integer',
+                    'p4': 'str',#'integer',
+                    'p5': 'str'}#'integer'}
 # Constraints are NOT global for this problem
 
 class Syr2k_Problem(BaseProblem):
