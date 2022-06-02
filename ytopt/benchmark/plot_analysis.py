@@ -11,6 +11,7 @@ def build():
     prs.add_argument("--output", type=str, default="fig", help="Prefix for output images")
     prs.add_argument("--inputs", type=str, nargs="+", help="Files to read for plots")
     prs.add_argument("--bests", type=str, nargs="*", help="Traces to treat as best-so-far")
+    prs.add_argument("--baseline-best", type=str, nargs="*", help="Traces to treat as BEST of best so far")
     prs.add_argument("--show", action="store_true", help="Show figures rather than save to file")
     prs.add_argument("--no-legend", action="store_true", help="Omit legend from figures")
     prs.add_argument("--minmax", action="store_true", help="Include min and max lines")
@@ -111,39 +112,64 @@ def combine_seeds(data, args):
 def load_all(args):
     data = []
     inv_names = []
-    # Load all normal inputs
-    for fname in args.inputs:
-        fd = pd.read_csv(fname)
-        # Drop unnecessary parameters
-        d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
-        name = make_seed_invariant_name(fname, args)
-        if name in inv_names:
-            idx = inv_names.index(name)
-            # Just put them side-by-side for now
-            data[idx]['data'].append(d)
-        else:
-            data.append({'name': name, 'data': [d]})
-            inv_names.append(name)
+    if args.inputs is not None:
+        # Load all normal inputs
+        for fname in args.inputs:
+            fd = pd.read_csv(fname)
+            # Drop unnecessary parameters
+            d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
+            name = make_seed_invariant_name(fname, args)
+            if name in inv_names:
+                idx = inv_names.index(name)
+                # Just put them side-by-side for now
+                data[idx]['data'].append(d)
+            else:
+                data.append({'name': name, 'data': [d]})
+                inv_names.append(name)
     # Load best-so-far inputs
     idx_offset = len(data) # Best-so-far have to be independent of normal inputs as the same file
                            # may be in both lists, but it should be treated by BOTH standards if so
     inv_names = []
-    for fname in args.bests:
-        fd = pd.read_csv(fname)
-        # Drop unnecessary parameters
-        d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
-        # Transform into best-so-far dataset
-        for col in ['objective', 'exe_time']:
-            if col in d.columns:
-                d[col] = [min(d[col][:_+1]) for _ in range(0,len(d[col]))]
-        name = "best_"+make_seed_invariant_name(fname, args)
-        if name in inv_names:
-            idx = inv_names.index(name)
-            # Just put them side-by-side for now
-            data[idx_offset+idx]['data'].append(d)
-        else:
-            data.append({'name': name, 'data': [d]})
-            inv_names.append(name)
+    if args.bests is not None:
+        for fname in args.bests:
+            fd = pd.read_csv(fname)
+            # Drop unnecessary parameters
+            d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
+            # Transform into best-so-far dataset
+            for col in ['objective', 'exe_time']:
+                if col in d.columns:
+                    d[col] = [min(d[col][:_+1]) for _ in range(0,len(d[col]))]
+            name = "best_"+make_seed_invariant_name(fname, args)
+            if name in inv_names:
+                idx = inv_names.index(name)
+                # Just put them side-by-side for now
+                data[idx_offset+idx]['data'].append(d)
+            else:
+                data.append({'name': name, 'data': [d]})
+                inv_names.append(name)
+    idx_offset = len(data) # Best-so-far have to be independent of normal inputs as the same file
+                           # may be in both lists, but it should be treated by BOTH standards if so
+    inv_names = []
+    if args.baseline_best is not None:
+        for fname in args.baseline_best:
+            fd = pd.read_csv(fname)
+            # Find ultimate best value to plot as horizontal line
+            d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
+            # Transform
+            minval = None
+            for col in ['objective', 'exe_time']:
+                if col in d.columns:
+                    minval = min(d[col])
+                    name = "best_offline_in_"+f"{d[col].idxmin()+1}/{max(d[col].index)+1}_evals"
+                    break
+            if name in inv_names:
+                idx = inv_names.index(name)
+                # Replace if lower
+                if minval < data[idx_offset+idx]['data'].iloc[0]:
+                    data[idx_offset+idx]['data'].iloc[0] = minval
+            else:
+                data.append({'name': name, 'data': [pd.DataFrame({col: minval, 'elapsed_sec': 0.0}, index=[0])]})
+                inv_names.append(name)
     # Fix across seeds
     return combine_seeds(data, args)
 
@@ -172,9 +198,14 @@ def plot_source(fig, ax, idx, source, args):
                         label=f"Stddev {source['name']}",
                         color=alter_color(color), zorder=-1)
     # Main line = mean
-    ax.plot(data['exe'], data['obj'],
-            label=f"Mean {source['name']}",
-            color=color, zorder=1)
+    if len(data['obj']) > 1:
+        ax.plot(data['exe'], data['obj'],
+                label=f"Mean {source['name']}",
+                color=color, zorder=1)
+    else:
+        ax.plot([0,int(ax.get_xlim()[1])], [data['obj'], data['obj']],
+                label=f"Mean {source['name']}",
+                color=color, zorder=1)
     # Flank lines = min/max
     if args.minmax:
         ax.plot(data['exe'], data['min'], linestyle='--',
