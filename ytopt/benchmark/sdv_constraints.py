@@ -196,7 +196,7 @@ def test(seed, silent=False):
     if pre_float:
         predata = [[np.random.rand() for _ in range(rows)] for col in range(cols)]
     else:
-        predata = [[np.random.randint(0,100) for _ in range(rows)] for col in range(cols)]
+        predata = [[np.random.randint(abs_min, abs_max) for _ in range(rows)] for col in range(cols)]
     data = pd.DataFrame(dict((charify(col), predata[col]) for col in range(cols)))
     # This step is for testing verification only -- to ensure random data is OK in constraints
     data = sdv_fitter.clean(data)
