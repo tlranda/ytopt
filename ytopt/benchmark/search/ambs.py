@@ -8,8 +8,10 @@ import signal
 from ytopt.search.optimizer import Optimizer
 from ytopt.search import Search
 from ytopt.search import util
+from ytopt.evaluator.evaluate import Evaluator
 
-import os
+import os, time
+from pprint import pformat
 import numpy as np, pandas as pd
 from sdv.tabular import GaussianCopula, CopulaGAN, CTGAN, TVAE
 sdv_models = {'GaussianCopula': GaussianCopula,
@@ -20,6 +22,7 @@ sdv_models = {'GaussianCopula': GaussianCopula,
 sdv_default = list(sdv_models.keys())[0]
 from sdv.constraints import Between
 from sdv.sampling.tabular import Condition
+import pdb
 
 logger = util.conf_logger('ytopt.search.hps.ambs')
 
@@ -33,9 +36,34 @@ def on_exit(signum, stack):
 
 class AMBS(Search):
     def __init__(self, learner='RF', liar_strategy='cl_max', acq_func='gp_hedge', set_KAPPA=1.96,
-                       set_SEED=12345, set_NI=10, max_evals=10, n_refit=0, top=0.1,
-                       inputs=None, targets=None, sdv_model=sdv_default, n_generate=1000, **kwargs):
-        super().__init__(**kwargs)
+                       set_SEED=12345, set_NI=10, top=0.1,
+                       inputs=None, sdv_model=sdv_default, n_generate=1000, **kwargs):
+        # The import logic is fragile, hot-glue it here and let ytopt team deal with it otherwise
+        # Since we don't define problem / evaluator / cache_key, these are all set nicely by default
+        settings = kwargs
+        # But assert their presence since we won't be fixing it otherwise
+        for rkey in ('problem', 'evaluator', 'cache_key', 'redis_address'):
+            if rkey not in settings.keys():
+                settings[rkey] = None
+        # ONLY MAKES SENSE TO TRANSFER TO ONE PROBLEM SIZE AT A TIME HERE
+        if settings['problem'].endswith('.py'):
+            attr = "Problem"
+        else:
+            settings['problem'], attr = settings['problem'].rsplit('.',1)
+        self.problem = util.load_from_file(settings['problem'], attr)
+        self.targets = [self.problem]
+        self.evaluator = Evaluator.create(self.problem,
+                                          method=settings['evaluator'],
+                                          cache_key=settings['cache_key'],
+                                          redis_address=settings['redis_address'])
+        self.max_evals = settings['max_evals']
+        self.eval_timeout_minutes = settings['eval_timeout_minutes']
+        self.num_workers = self.evaluator.num_workers
+        logger.info(f"Options: {pformat(dict(settings), indent=4)}")
+        logger.info(f"Hyperparameter space definition: {pformat(self.problem.input_space, indent=4)}")
+        logger.info(f'Created "{settings["evaluator"]}" evaluator')
+        logger.info(f"Evaluator: num_workers is {self.num_workers}")
+        # END super.__init__()
 
         logger.info("Initializing AMBS")
         self.optimizer = Optimizer(
@@ -51,7 +79,6 @@ class AMBS(Search):
 
         # Additional things for SDV lies to optimizer
         self.n_generate = n_generate
-        self.n_refit = n_refit
         self.top = top
         self.sdv_model = sdv_model
 
@@ -63,14 +90,6 @@ class AMBS(Search):
                 problemName, attr = problemName.split('.')
                 problemName += '.py'
             self.inputs.append(util.load_from_file(problemName, attr))
-        self.targets = []
-        for idx, problemName in enumerate(targets):
-            if problemName.endswith('.py'):
-                attr = "Problem"
-            else:
-                problemName, attr = problemName.split('.')
-                problemName += '.py'
-            self.targets.append(util.load_from_file(problemName, attr))
 
     @staticmethod
     def _extend_parser(parser):
@@ -106,10 +125,9 @@ class AMBS(Search):
         )
         # Additional things for SDV lies to optimizer
         parser.add_argument('--n_generate', type=int, default=1000, help="Rows to generate from SDV")
-        parser.add_argument('--n_refit', type=int, default=0, help="Refit the model")
         parser.add_argument('--top', type=float, default=0.1, help="How much to train")
         parser.add_argument('--inputs', type=str, nargs='+', required=True, help="Problems for input")
-        parser.add_argument('--targets', type=str, nargs='+', required=True, help="Problems to target")
+        #parser.add_argument('--targets', type=str, nargs='+', required=True, help="Problems to target")
         parser.add_argument('--model', choices=list(sdv_models.keys()), default=sdv_default, help="SDV model")
         parser.add_argument('--unique', action='store_true', help="Do not re-evaluate points seen since last dataset generation")
         return parser
@@ -125,26 +143,24 @@ class AMBS(Search):
         return sorted(initial_param_names)
 
     def make_arbitrary_evals(self, df):
-        # Request the evaluations
+        # Request the evaluations and make results to tell back
+        y = self.optimizer._get_lie()
+        mass_x = []
+        mass_y = []
+        results = []
+        cols = df.columns[1:]
         for row in df.iterrows():
             x = list(row[1].values[1:-1])
-            y = self.optimizer._get_lie()
             key = tuple(x)
             if key not in self.optimizer.evals:
-                self.optimizer.counter += 1
-                try:
-                    self.optimizer._optimizer.tell(x,y)
-                except Exception as e:
-                    import pdb
-                    pdb.set_trace()
-                    self.optimizer._optimizer.tell(x,y)
                 self.optimizer.evals[key] = y
+                mass_x.append(x)
+                mass_y.append(y)
+                results.append(tuple([dict((c,k) for (c,k) in zip(cols, key)), row[1].values[-1]]))
+        # Mass-scale fake
+        self.optimizer.counter += len(mass_x)
+        self.optimizer._optimizer.tell(mass_x,mass_y)
         # Inform of results
-        results = []
-        for row in df.iterrows():
-            x = tuple(row[1].values[1:-1])
-            y = row[1].values[-1]
-            results.append((x,y))
         self.optimizer.tell(results)
 
     def main(self):
@@ -196,7 +212,7 @@ class AMBS(Search):
         conditions = []
         for target in self.targets:
             conditions.append(Condition({'input': target.problem_class}, # cast(target.problem_class, direction='float')},
-                                         num_rows=max(500, self.n_generate)))
+                                         num_rows=max(1, self.n_generate)))
 
 
         # Make model predictions
@@ -211,11 +227,12 @@ class AMBS(Search):
         # Have optimizer ingest results from SDV's predictions
         self.make_arbitrary_evals(sampled)
 
+        # MAKE TIMING FAIR BETWEEN THIS AND ONLINE
+        self.evaluator._start_sec = time.time()
         # BACK TO OLD, but slightly tweaked
         logger.info(f"Generating {self.num_workers} initial points...")
         for batch in self.optimizer.ask(n_points=self.num_workers):
             self.evaluator.add_eval_batch(batch)
-
 
         # MAIN LOOP
         for elapsed_str in timer:

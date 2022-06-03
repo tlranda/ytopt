@@ -50,8 +50,6 @@ def bind_from_args(args):
     return args.model, args.retries, args.single_target, args.unique, \
            args.max_evals, args.n_refit, args.top, args.seed
 
-time_start = time.time()
-
 def param_type(k, problem):
     v = problem.problem_params[k]
     if v == 'categorical':
@@ -343,6 +341,7 @@ def online(targets, data, inputs, args, fname):
         if model is not None:
             data['input'] = cast(data['input'], direction='float')
             model.fit(data)
+        time_start = time.time()
         while eval_master < MAX_EVALS:
             # Generate prospective points
             if sdv_model == 'GaussianCopula':
@@ -469,8 +468,6 @@ def main(args=None):
           'seed', RANDOM_SEED)
     # Seed control
     np.random.seed(RANDOM_SEED)
-    global time_start
-    time_start = time.time()
 
     X_opt = []
     print ('----------------------------- how much data to use?', TOP)
