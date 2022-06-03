@@ -4,7 +4,7 @@ import numpy as np, pandas as pd, copy, os, argparse, matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.offsetbox import AnchoredOffsetbox
-legend_codes = list(AnchoredOffsetbox.codes.keys())
+legend_codes = list(AnchoredOffsetbox.codes.keys())+['best']
 from sklearn.metrics import r2_score
 from scipy.stats import pearsonr
 import pdb
@@ -24,6 +24,7 @@ def build():
     prs.add_argument("--log-y", action="store_true", help="Logarithmic y axis")
     prs.add_argument("--below-zero", action="store_true", help="Allow plotted values to be <0")
     prs.add_argument("--unname-prefix", type=str, default="", help="Prefix from filenames to remove from line labels")
+    prs.add_argument("--trim", action="store_true", help="Trim to where objective changes")
     prs.add_argument("--fig-dims", metavar=("Xinches", "Yinches"), nargs=2, type=float,
                      default=plt.rcParams["figure.figsize"], help="Figure size in inches "
                      f"(default is {plt.rcParams['figure.figsize']})")
@@ -85,6 +86,7 @@ def combine_seeds(data, args):
                        'obj': np.zeros(n_points),
                        'exe': np.zeros(n_points),
                       }
+        prev_mean = None
         for idx, step in enumerate(steps):
             # Get the step data based on x-axis needs
             if args.x_axis == 'evaluation':
@@ -107,19 +109,23 @@ def combine_seeds(data, args):
                     step_data.append(last_step[idx2])
             # Make data entries for new_columns, ignoring NaN/Inf values
             finite = [_ for _ in step_data if np.isfinite(_)]
-            new_columns['obj'][idx] = np.mean(finite)
-            new_columns['exe'][idx] = step
-            new_columns['min'][idx] = min(finite)
-            new_columns['max'][idx] = max(finite)
-            if new_data['type'] == 'best':
-                new_columns['std_low'][idx] = new_columns['obj'][idx]-min(finite)
-                new_columns['std_high'][idx] = max(finite)-new_columns['obj'][idx]
-            else:
-                stddev = np.std(finite)
-                new_columns['std_low'][idx] = stddev
-                new_columns['std_high'][idx] = stddev
+            mean = np.mean(finite)
+            if not args.trim or new_data['type'] != 'best' or prev_mean is None or mean != prev_mean:
+                new_columns['obj'][idx] = mean
+                prev_mean = mean
+                new_columns['exe'][idx] = step
+                new_columns['min'][idx] = min(finite)
+                new_columns['max'][idx] = max(finite)
+                if new_data['type'] == 'best':
+                    new_columns['std_low'][idx] = new_columns['obj'][idx]-min(finite)
+                    new_columns['std_high'][idx] = max(finite)-new_columns['obj'][idx]
+                else:
+                    stddev = np.std(finite)
+                    new_columns['std_low'][idx] = stddev
+                    new_columns['std_high'][idx] = stddev
         # Make new dataframe
         new_data['data'] = pd.DataFrame(new_columns).sort_values('exe')
+        new_data['data'] = new_data['data'][new_data['data']['obj'] > 0]
         combined_data.append(new_data)
     return combined_data
 
@@ -219,14 +225,14 @@ def plot_source(fig, ax, idx, source, args, ntypes):
     if len(data['obj']) > 1:
         ax.plot(data['exe'], data['obj'],
                 label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
-                color=color, zorder=1)
+                marker='x', color=color, zorder=1)
     else:
         x_lims = [int(v) for v in ax.get_xlim()]
         if x_lims[1]-x_lims[0] == 0:
             x_lims[1] = x_lims[0]+1
         ax.plot(x_lims, [data['obj'], data['obj']],
                 label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
-                color=color, zorder=1)
+                marker='x', color=color, zorder=1)
     # Flank lines = min/max
     if args.minmax:
         ax.plot(data['exe'], data['min'], linestyle='--',
