@@ -3,8 +3,11 @@ import numpy as np, pandas as pd, copy, os, argparse, matplotlib
 # matplotlib.use_backend()
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib.offsetbox import AnchoredOffsetbox
+legend_codes = list(AnchoredOffsetbox.codes.keys())
 from sklearn.metrics import r2_score
 from scipy.stats import pearsonr
+import pdb
 
 def build():
     prs = argparse.ArgumentParser()
@@ -13,7 +16,7 @@ def build():
     prs.add_argument("--bests", type=str, nargs="*", help="Traces to treat as best-so-far")
     prs.add_argument("--baseline-best", type=str, nargs="*", help="Traces to treat as BEST of best so far")
     prs.add_argument("--show", action="store_true", help="Show figures rather than save to file")
-    prs.add_argument("--no-legend", action="store_true", help="Omit legend from figures")
+    prs.add_argument("--legend", choices=legend_codes, nargs="*", default=None, help="Legend location (default none). Two-word legends should be quoted on command line")
     prs.add_argument("--minmax", action="store_true", help="Include min and max lines")
     prs.add_argument("--stddev", action="store_true", help="Include stddev range area")
     prs.add_argument("--x-axis", choices=["evaluation", "walltime"], default="evaluation", help="Unit for x-axis")
@@ -46,10 +49,14 @@ def make_seed_invariant_name(name, args):
         name = name[len(args.unname_prefix):]
     return name
 
+def make_baseline_name(name, args, df, col):
+    name = make_seed_invariant_name(name, args)
+    return name + f"_using_eval_{df[col].idxmin()+1}/{max(df[col].index)+1}"
+
 def combine_seeds(data, args):
     combined_data = []
     for entry in data:
-        new_data = {'name': entry['name']}
+        new_data = {'name': entry['name'], 'type': entry['type']}
         # Change objective column to be the average
         # Add min, max, and stddev columns for each point
         objective_priority = ['objective', 'exe_time']
@@ -73,7 +80,8 @@ def combine_seeds(data, args):
             n_points = len(steps)
         new_columns = {'min': np.zeros(n_points),
                        'max': np.zeros(n_points),
-                       'std': np.zeros(n_points),
+                       'std_low': np.zeros(n_points),
+                       'std_high': np.zeros(n_points),
                        'obj': np.zeros(n_points),
                        'exe': np.zeros(n_points),
                       }
@@ -99,11 +107,17 @@ def combine_seeds(data, args):
                     step_data.append(last_step[idx2])
             # Make data entries for new_columns, ignoring NaN/Inf values
             finite = [_ for _ in step_data if np.isfinite(_)]
-            new_columns['min'][idx] = min(finite)
-            new_columns['max'][idx] = max(finite)
-            new_columns['std'][idx] = np.std(finite)
             new_columns['obj'][idx] = np.mean(finite)
             new_columns['exe'][idx] = step
+            new_columns['min'][idx] = min(finite)
+            new_columns['max'][idx] = max(finite)
+            if new_data['type'] == 'best':
+                new_columns['std_low'][idx] = new_columns['obj'][idx]-min(finite)
+                new_columns['std_high'][idx] = max(finite)-new_columns['obj'][idx]
+            else:
+                stddev = np.std(finite)
+                new_columns['std_low'][idx] = stddev
+                new_columns['std_high'][idx] = stddev
         # Make new dataframe
         new_data['data'] = pd.DataFrame(new_columns).sort_values('exe')
         combined_data.append(new_data)
@@ -124,7 +138,7 @@ def load_all(args):
                 # Just put them side-by-side for now
                 data[idx]['data'].append(d)
             else:
-                data.append({'name': name, 'data': [d]})
+                data.append({'name': name, 'data': [d], 'type': 'input'})
                 inv_names.append(name)
     # Load best-so-far inputs
     idx_offset = len(data) # Best-so-far have to be independent of normal inputs as the same file
@@ -145,7 +159,7 @@ def load_all(args):
                 # Just put them side-by-side for now
                 data[idx_offset+idx]['data'].append(d)
             else:
-                data.append({'name': name, 'data': [d]})
+                data.append({'name': name, 'data': [d], 'type': 'best'})
                 inv_names.append(name)
     idx_offset = len(data) # Best-so-far have to be independent of normal inputs as the same file
                            # may be in both lists, but it should be treated by BOTH standards if so
@@ -160,16 +174,19 @@ def load_all(args):
             for col in ['objective', 'exe_time']:
                 if col in d.columns:
                     minval = min(d[col])
-                    name = "best_offline_in_"+f"{d[col].idxmin()+1}/{max(d[col].index)+1}_evals"
+                    name = "baseline_"+make_baseline_name(fname, args, d, col)
+                    matchname = 'baseline_'+make_seed_invariant_name(fname, args)
                     break
-            if name in inv_names:
-                idx = inv_names.index(name)
+            if matchname in inv_names:
+                idx = inv_names.index(matchname)
                 # Replace if lower
-                if minval < data[idx_offset+idx]['data'].iloc[0]:
-                    data[idx_offset+idx]['data'].iloc[0] = minval
+                if minval < data[idx_offset+idx]['data'][0].iloc[0][col]:
+                    data[idx_offset+idx]['data'][0].iloc[0][col] = minval
             else:
-                data.append({'name': name, 'data': [pd.DataFrame({col: minval, 'elapsed_sec': 0.0}, index=[0])]})
-                inv_names.append(name)
+                data.append({'name': name, 'type': 'baseline',
+                             'matchname': matchname,
+                             'data': [pd.DataFrame({col: minval, 'elapsed_sec': 0.0}, index=[0])]})
+                inv_names.append(matchname)
     # Fix across seeds
     return combine_seeds(data, args)
 
@@ -182,7 +199,7 @@ def prepare_fig(args):
 def alter_color(color_tup, ratio=0.5, brighten=True):
     return tuple([ratio*(int(brighten)+_) for _ in color_tup])
 
-def plot_source(fig, ax, idx, source, args):
+def plot_source(fig, ax, idx, source, args, ntypes):
     data = source['data']
     # Color help
     colors = [mcolors.to_rgb(_['color']) for _ in list(plt.rcParams['axes.prop_cycle'])]
@@ -190,21 +207,25 @@ def plot_source(fig, ax, idx, source, args):
     # Shaded area = stddev
     # Prevent <0 unless arg says otherwise
     if args.stddev:
-        lower_bound = pd.DataFrame(data['obj']-data['std'])
+        lower_bound = pd.DataFrame(data['obj']-data['std_low'])
         if not args.below_zero:
             lower_bound = lower_bound.applymap(lambda x: max(x,0))
         lower_bound = lower_bound[0]
-        ax.fill_between(data['exe'], lower_bound, data['obj']+data['std'],
+        ax.fill_between(data['exe'], lower_bound, data['obj']+data['std_high'],
                         label=f"Stddev {source['name']}",
+                        alpha=0.4,
                         color=alter_color(color), zorder=-1)
     # Main line = mean
     if len(data['obj']) > 1:
         ax.plot(data['exe'], data['obj'],
-                label=f"Mean {source['name']}",
+                label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
                 color=color, zorder=1)
     else:
-        ax.plot([0,int(ax.get_xlim()[1])], [data['obj'], data['obj']],
-                label=f"Mean {source['name']}",
+        x_lims = [int(v) for v in ax.get_xlim()]
+        if x_lims[1]-x_lims[0] == 0:
+            x_lims[1] = x_lims[0]+1
+        ax.plot(x_lims, [data['obj'], data['obj']],
+                label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
                 color=color, zorder=1)
     # Flank lines = min/max
     if args.minmax:
@@ -213,6 +234,12 @@ def plot_source(fig, ax, idx, source, args):
                 color=alter_color(color, brighten=False), zorder=0)
         ax.plot(data['exe'], data['max'], linestyle='--',
                 color=alter_color(color, brighten=False), zorder=0)
+def main(args):
+    data = load_all(args)
+    fig, ax, name = prepare_fig(args)
+    ntypes = len(set([_['type'] for _ in data]))
+    for idx, source in enumerate(data):
+        plot_source(fig, ax, idx, source, args, ntypes)
     # make x-axis data
     if args.x_axis == "evaluation":
         xname = "Evaluation #"
@@ -226,14 +253,9 @@ def plot_source(fig, ax, idx, source, args):
         ax.set_xscale("log")
     if args.log_y:
         ax.set_yscale("log")
-    if not args.no_legend:
-        ax.legend(loc="upper right")
+    if args.legend is not None:
+        ax.legend(loc=" ".join(args.legend))
 
-def main(args):
-    data = load_all(args)
-    fig, ax, name = prepare_fig(args)
-    for idx, source in enumerate(data):
-        plot_source(fig, ax, idx, source, args)
     if args.show:
         plt.show()
     else:
