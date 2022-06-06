@@ -37,7 +37,7 @@ def on_exit(signum, stack):
 class AMBS(Search):
     def __init__(self, learner='RF', liar_strategy='cl_max', acq_func='gp_hedge', set_KAPPA=1.96,
                        set_SEED=12345, set_NI=10, top=0.1,
-                       inputs=None, sdv_model=sdv_default, n_generate=1000, **kwargs):
+                       inputs=None, model=sdv_default, n_generate=1000, **kwargs):
         # The import logic is fragile, hot-glue it here and let ytopt team deal with it otherwise
         # Since we don't define problem / evaluator / cache_key, these are all set nicely by default
         settings = kwargs
@@ -80,7 +80,7 @@ class AMBS(Search):
         # Additional things for SDV lies to optimizer
         self.n_generate = n_generate
         self.top = top
-        self.sdv_model = sdv_model
+        self.sdv_model = model
 
         self.inputs = []
         for idx, problemName in enumerate(inputs):
@@ -180,6 +180,7 @@ class AMBS(Search):
         # POTENTIALLY NEED WORKAROUND
         # cast = sdv_workaround(constraints)
         # Get SDV online ready to go for TL
+        pdb.set_trace()
         model = sdv_models[self.sdv_model](
                         field_names = ['input']+param_names+['runtime'],
                         field_transformers = self.targets[0].problem_params, # cast.replace_transformers(self.targets[0].problem_params),
@@ -218,6 +219,7 @@ class AMBS(Search):
             # multiple hits per index looked up
             data = data.append(repeated_data).reset_index().drop(columns='index')
 
+        pdb.set_trace()
         model.fit(data)
 
         # Make conditions for each target
@@ -269,6 +271,7 @@ class AMBS(Search):
 
 if __name__ == "__main__":
     args = AMBS.parse_args()
+    pdb.set_trace()
     search = AMBS(**vars(args))
     signal.signal(signal.SIGINT, on_exit)
     signal.signal(signal.SIGTERM, on_exit)
