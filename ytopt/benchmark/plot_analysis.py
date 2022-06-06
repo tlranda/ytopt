@@ -24,7 +24,7 @@ def build():
     prs.add_argument("--log-y", action="store_true", help="Logarithmic y axis")
     prs.add_argument("--below-zero", action="store_true", help="Allow plotted values to be <0")
     prs.add_argument("--unname-prefix", type=str, default="", help="Prefix from filenames to remove from line labels")
-    prs.add_argument("--trim", action="store_true", help="Trim to where objective changes")
+    prs.add_argument("--trim", type=str, nargs="*", help="Trim these files to where the objective changes")
     prs.add_argument("--fig-dims", metavar=("Xinches", "Yinches"), nargs=2, type=float,
                      default=plt.rcParams["figure.figsize"], help="Figure size in inches "
                      f"(default is {plt.rcParams['figure.figsize']})")
@@ -33,6 +33,8 @@ def build():
 def parse(prs, args=None):
     if args is None:
         args = prs.parse_args()
+    if args.trim is None:
+        args.trim = list()
     return args
 
 def make_seed_invariant_name(name, args):
@@ -110,10 +112,13 @@ def combine_seeds(data, args):
             # Make data entries for new_columns, ignoring NaN/Inf values
             finite = [_ for _ in step_data if np.isfinite(_)]
             mean = np.mean(finite)
-            if not args.trim or new_data['type'] != 'best' or prev_mean is None or mean != prev_mean:
+            trimmed = entry['fname'] in args.trim
+            if not trimmed or new_data['type'] != 'best' or prev_mean is None or mean != prev_mean:
                 new_columns['obj'][idx] = mean
                 prev_mean = mean
                 new_columns['exe'][idx] = step
+                if args.x_axis == 'evaluation' and args.log_x:
+                    new_columns['exe'][idx] = step+1
                 new_columns['min'][idx] = min(finite)
                 new_columns['max'][idx] = max(finite)
                 if new_data['type'] == 'best':
@@ -144,7 +149,7 @@ def load_all(args):
                 # Just put them side-by-side for now
                 data[idx]['data'].append(d)
             else:
-                data.append({'name': name, 'data': [d], 'type': 'input'})
+                data.append({'name': name, 'data': [d], 'type': 'input', 'fname': fname})
                 inv_names.append(name)
     # Load best-so-far inputs
     idx_offset = len(data) # Best-so-far have to be independent of normal inputs as the same file
@@ -165,7 +170,7 @@ def load_all(args):
                 # Just put them side-by-side for now
                 data[idx_offset+idx]['data'].append(d)
             else:
-                data.append({'name': name, 'data': [d], 'type': 'best'})
+                data.append({'name': name, 'data': [d], 'type': 'best', 'fname': fname})
                 inv_names.append(name)
     idx_offset = len(data) # Best-so-far have to be independent of normal inputs as the same file
                            # may be in both lists, but it should be treated by BOTH standards if so
@@ -191,7 +196,8 @@ def load_all(args):
             else:
                 data.append({'name': name, 'type': 'baseline',
                              'matchname': matchname,
-                             'data': [pd.DataFrame({col: minval, 'elapsed_sec': 0.0}, index=[0])]})
+                             'data': [pd.DataFrame({col: minval, 'elapsed_sec': 0.0}, index=[0])],
+                             'fname': fname})
                 inv_names.append(matchname)
     # Fix across seeds
     return combine_seeds(data, args)

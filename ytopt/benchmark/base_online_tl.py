@@ -453,6 +453,9 @@ def online(targets, data, inputs, args, fname):
                             model.fit(data)
                         stop = True
                         break
+                    if eval_master >= MAX_EVALS:
+                        stop = True
+                        break
                 if unique or N_REFIT == 0:
                     stop = True
     csvfile.close()

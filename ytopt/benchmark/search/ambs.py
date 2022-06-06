@@ -205,6 +205,18 @@ class AMBS(Search):
             selected = selected.drop(columns=['elapsed_sec', 'objective'])
             frames.append(selected)
         data = pd.concat(frames).reset_index().drop(columns=['index'])
+        # SDV implicitly REQUIRES 10 rows to fit non-GaussianCopula models
+        # While it may not work as intended, you can duplicate data in the set to reach/exceed 10
+        # and allow a fit to occur
+        while len(data) < 10 and self.sdv_model != 'GaussianCopula':
+            # You can write this in one line, but split it up for sanity's sake
+            # Get index ids for as much data exists or the remainder to get to 10 entries
+            repeated_data = [data.index[_] for _ in range(max(1,min(10-len(data), len(data))))]
+            # Extract this portion to duplicate it
+            repeated_data = data.loc[repeated_data]
+            # Append it to the original frame and fix the index column so future loops don't get
+            # multiple hits per index looked up
+            data = data.append(repeated_data).reset_index().drop(columns='index')
 
         model.fit(data)
 
