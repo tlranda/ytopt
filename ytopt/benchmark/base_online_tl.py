@@ -13,6 +13,7 @@ sdv_models = {'GaussianCopula': GaussianCopula,
 from sdv.constraints import CustomConstraint, Between
 from sdv.sampling.tabular import Condition
 from ytopt.search.util import load_from_file
+import pdb
 
 
 def build():
@@ -61,229 +62,6 @@ def param_type(k, problem):
         v = 'int64'
     return v
 
-class sdv_workaround:
-    # Static information you don't need to recalculate
-    eps_min = 2*np.finfo(float).eps
-    eps_max = 1.0 - eps_min
-    int_types = [int, np.int64]
-    float_types = [float, np.float32, np.float64]
-    interpret_types = [pd.DataFrame, pd.Series]
-    casting_types = int_types + float_types + interpret_types
-
-    def __init__(self, constraints, data=None, idx=None):
-        if type(constraints) != list:
-            constraints = [constraints]
-        # Only support Between
-        for cons in constraints:
-            if type(cons) != Between:
-                raise ValueError
-        self.cols = [_.constraint_column for _ in constraints]
-        if len(set(self.cols)) < len(self.cols):
-            multis = [_ for _ in self.cols if self.cols.count(_) > 1]
-            raise ValueError(f"Double-constrained column(s): {multis}")
-        # Set up casting
-        self.lows = [_._low for _ in constraints]
-        self.highs = [_._high for _ in constraints]
-        self.ranges = [h-l for (l,h) in zip(self.lows, self.highs)]
-        self.replace_constraints = [Between(col, low=0, high=1) for col in self.cols]
-        # Set up auto-index for trimming
-        self.known_indices = [set() for col in self.cols]
-        if data is not None:
-            if idx is None and type(data) not in self.interpret_types:
-                raise ValueError("Unsure how to attribute data to columns")
-            try:
-                # DataFrame like
-                for column in data.columns:
-                    try:
-                        idx = self.cols.index(column)
-                    except ValueError:
-                        # Unknown column is ignored
-                        continue
-                    self.known_indices[idx].update([_ for _ in data[column].index])
-            except AttributeError:
-                # Series like
-                column = data.name
-                idx = self.cols.index(column)
-                self.known_indices[idx].update([_ for _ in data.index])
-
-    def __call__(self, data, direction=None, idx=None, force=True, ignore_index=False):
-        # Automate transformation, can give hint to limit work
-        if type(data) not in self.casting_types:
-            raise ValueError(f"Unknown casting type {type(data)}")
-        if direction is not None:
-            if direction == 'int':
-                return self.from_float(data, idx=idx, ignore_index=ignore_index)
-            elif direction == 'float':
-                return self.to_float(data, idx=idx, ignore_index=ignore_index)
-            else:
-                raise ValueError(f"Unknown direction {direction}")
-        if type(data) in self.int_types:
-            if direction == 'int' and not force:
-                return data
-            return self.to_float(data, idx=idx, ignore_index=ignore_index)
-        elif type(data) in self.float_types:
-            if direction == 'float' and not force:
-                return data
-            return self.from_float(data, idx=idx, ignore_index=ignore_index)
-        else:
-            # Automatic approximate type check for affected data
-            try:
-                # DataFrame
-                dtype = data.dtypes[self.cols].all().kind
-            except KeyError:
-                # Series
-                dtype = data.dtypes.kind
-            if dtype == 'i':
-                if direction == 'int' and not force:
-                    return data
-                return self.to_float(data, idx=idx, ignore_index=ignore_index)
-            elif dtype == 'f':
-                if direction == 'float' and not force:
-                    return data
-                return self.from_float(data, idx=idx, ignore_index=ignore_index)
-            else:
-                raise ValueError(f"Unknown type {dtype} in interpretable object")
-
-    def __str__(self):
-        per_cons = []
-        for c, l, h, r in zip(self.cols, self.lows, self.highs, self.ranges):
-            con_repr = ", ".join([f"Column: {c}", f"Low: {l}", f"High: {h}", f"Range: {r}"])
-            per_cons.append("["+con_repr+"]")
-        return "\n".join(per_cons)
-
-    def to_float(self, data, idx=None, ignore_index=False):
-        if type(data) not in self.interpret_types + self.int_types:
-            if type(data) in self.float_types:
-                return data
-            raise ValueError(f"Unknown type {type(data)}."
-                             f"Prefer types {self.interpret_types} and {self.int_types}")
-        else:
-            if type(data) not in self.interpret_types:
-                if idx is None:
-                    idx = 0
-                l = self.lows[idx]
-                r = self.ranges[idx]
-                data = float((data - l) / r)
-                if data == 0.0:
-                    data = self.eps_min
-                elif data == 1.0:
-                    data = self.eps_max
-            else:
-                data = dcpy(data)
-                try:
-                    # DataFrame
-                    # Should be per data column
-                    for c, l, r in zip(self.cols, self.lows, self.ranges):
-                        # Identify new indices
-                        col_index = self.cols.index(c)
-                        if ignore_index:
-                            old_indices = set()
-                        else:
-                            old_indices = self.known_indices[col_index]
-                        current_indices = set([_ for _ in data[c].index])
-                        new_indices = list(current_indices.difference(old_indices))
-                        for i in new_indices:
-                            val = (data.loc[i, c] - l) / r
-                            # Fix SDV hating an exact match on bound regardless of strictness
-                            if val == 0.0:
-                                val = self.eps_min
-                            elif val == 1.0:
-                                val = self.eps_max
-                            data.loc[i,c] = val
-                        # Explicit type fix
-                        data[c] = data[c].astype(float)
-                        # Update known indices
-                        if not ignore_index:
-                            self.known_indices[col_index].update(new_indices)
-                except KeyError:
-                    # Series
-                    if idx is None:
-                        idx = self.cols.index(data.name)
-                    l = self.lows[idx]
-                    r = self.ranges[idx]
-                    # Identify new indices
-                    if ignore_index:
-                        old_indices = set()
-                    else:
-                        old_indices = self.known_indices[idx]
-                    current_indices = set([_ for _ in data.index])
-                    new_indices = list(current_indices.difference(old_indices))
-                    for i in new_indices:
-                        val = (data.loc[i] - l)/r
-                        if val == 0.0:
-                            val = self.eps_min
-                        elif val == 1.0:
-                            val = self.eps_max
-                        data.loc[i] = val
-                    # Explicit type fix
-                    data = data.astype(float)
-                    # Update known indices
-                    if not ignore_index:
-                        self.known_indices[idx].update(new_indices)
-            return data
-
-    def from_float(self, data, idx=None, ignore_index=False):
-        if type(data) not in self.interpret_types + self.float_types:
-            if type(data) in self.int_types:
-                return data
-            raise ValueError(f"Unknown type {type(data)}."
-                             f"Prefer types {self.interpret_types} and {self.float_types}")
-        if type(data) not in self.interpret_types:
-            if idx is None:
-                idx = 0
-            l = self.lows[idx]
-            r = self.ranges[idx]
-            data = int(round((data*r)+l,0))
-        else:
-            # Should be per data column
-            data = dcpy(data)
-            try:
-                # DataFrame
-                for c, l, r in zip(self.cols, self.lows, self.ranges):
-                    # Identify new indices
-                    col_index = self.cols.index(c)
-                    if ignore_index:
-                        old_indices = set()
-                    else:
-                        old_indices = self.known_indices[col_index]
-                    current_indices = set([_ for _ in data[c].index])
-                    new_indices = list(current_indices.difference(old_indices))
-                    for i in new_indices:
-                        # Soft rounding for very small floating-point errors
-                        data.loc[i,c] = round((data.loc[i,c]*r)+l, 0)
-                    # Explicit type fix
-                    data[c] = data[c].astype(int)
-                    # Update known indices
-                    if not ignore_index:
-                        self.known_indices[col_index].update(new_indices)
-            except KeyError:
-                # Series
-                if idx is None:
-                    idx = self.cols.index(data.name)
-                l = self.lows[idx]
-                r = self.ranges[idx]
-                # Identify new indices
-                if ignore_index:
-                    old_indices = set()
-                else:
-                    old_indices = self.known_indices[idx]
-                current_indices = set([_ for _ in data.index])
-                new_indices = list(current_indices.difference(old_indices))
-                for i in new_indices:
-                    data.loc[i] = round((data.loc[i]*r)+l, 0)
-                data = data.astype(int)
-                # Update known indices
-                if not ignore_index:
-                    self.known_indices[idx].update(new_indices)
-        return data
-
-    def replace_transformers(self, param_dict):
-        # Make separate object to preserve original, then change necessary keys based on workaround
-        pcopy = dict((k,v) for (k,v) in param_dict.items())
-        for col in self.cols:
-            pcopy[col] = 'float'
-        return pcopy
-
 def online(targets, data, inputs, args, fname):
     global time_start
     sdv_model, max_retries, _, unique, \
@@ -308,12 +86,11 @@ def online(targets, data, inputs, args, fname):
     constraints = []
     for target in targets:
         constraints.extend(target.constraints)
-    cast = sdv_workaround(constraints)
     if sdv_model != 'random':
         model = sdv_models[sdv_model](
                   field_names = ['input']+param_names+['runtime'],
-                  field_transformers = cast.replace_transformers(targets[0].problem_params),
-                  constraints = cast.replace_constraints,
+                  field_transformers = targets[0].problem_params,
+                  constraints = constraints,
                   min_value = None,
                   max_value = None
                 )
@@ -333,13 +110,15 @@ def online(targets, data, inputs, args, fname):
         # Make conditions for each target
         conditions = []
         for target_problem in targets:
-            conditions.append(Condition({'input': cast(target_problem.problem_class, direction='float')},
+            conditions.append(Condition({'input': target_problem.problem_class},
                                         num_rows=max(100, MAX_EVALS)))
         evals_infer = []
         eval_master = 0
         # Initial fit
         if model is not None:
-            data['input'] = cast(data['input'], direction='float')
+            import warnings
+            warnings.simplefilter("ignore")
+            print(f"Fitting with {len(data)} rows")
             model.fit(data)
         time_start = time.time()
         while eval_master < MAX_EVALS:
@@ -386,8 +165,6 @@ def online(targets, data, inputs, args, fname):
                 for col, dtype in zip(ss1.columns, dtypes):
                     if dtype[1] == 'str':
                         ss1[col] = ss1[col].astype('string')
-            # Cast type back to integer -- ignore cached indices
-            ss1['input'] = cast(ss1['input'], direction='int', ignore_index=True)
             # Don't evaluate the exact same parameter configuration multiple times in a fitting round
             ss1 = ss1.drop_duplicates(subset=param_names, keep="first")
             ss = ss1.sort_values(by='runtime')#, ascending=False)
@@ -448,8 +225,6 @@ def online(targets, data, inputs, args, fname):
                     if eval_update == N_REFIT:
                         # update model
                         if model is not None:
-                            # Fix types just in case
-                            data['input'] = cast(data['input'], direction='float')
                             model.fit(data)
                         stop = True
                         break
@@ -497,12 +272,11 @@ def main(args=None):
                              "\nYou may need to run this problem or rename its output "
                              "as above for the script to locate it")
         dataframe = pd.read_csv(results_file)
-        dataframe['runtime'] = np.log(dataframe['objective']) # log(run time)
+        dataframe['runtime'] = dataframe['objective'] # log(run time)
         dataframe['input'] = pd.Series(int(inputs[-1].problem_class) for _ in range(len(dataframe.index)))
         q_10_s = np.quantile(dataframe.runtime.values, TOP)
         real_df = dataframe.loc[dataframe['runtime'] <= q_10_s]
-        real_data = real_df.drop(columns=['elapsed_sec'])
-        real_data = real_data.drop(columns=['objective'])
+        real_data = real_df.drop(columns=['elapsed_sec', 'objective'])
         frames.append(real_data)
     # Have to reset the index in case included frames have same index from their original frames
     # Drop the legacy index column as we will not care to recover it and it bothers the shape when
