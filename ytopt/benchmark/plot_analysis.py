@@ -28,6 +28,7 @@ def build():
     prs.add_argument("--fig-dims", metavar=("Xinches", "Yinches"), nargs=2, type=float,
                      default=plt.rcParams["figure.figsize"], help="Figure size in inches "
                      f"(default is {plt.rcParams['figure.figsize']})")
+    prs.add_argument("--synchronous", action="store_true", help="Synchronize mean time across seeds for wall-time plots")
     return prs
 
 def parse(prs, args=None):
@@ -75,11 +76,18 @@ def combine_seeds(data, args):
             n_points = max([max(_.index)+1 for _ in entry['data']])
             steps = range(n_points)
         else:
-            steps = sorted(pd.concat([_['elapsed_sec'] for _ in entry['data']]).unique())
-            # Set "last" objective value for things that start later to their first value
-            for idx, frame in enumerate(entry['data']):
-                if frame['elapsed_sec'][0] != steps[0]:
-                    last_step[idx] = frame[objective_col][0]
+            seconds = pd.concat([_['elapsed_sec'] for _ in entry['data']])
+            if args.synchronous:
+                steps = seconds.groupby(seconds.index).mean()
+                lookup_steps = [dict((agg,personal) for agg, personal in \
+                                    zip(steps, seconds.groupby(seconds.index).nth(idx))) \
+                                        for idx in range(len(entry['data']))]
+            else:
+                steps = sorted(seconds.unique())
+                # Set "last" objective value for things that start later to their first value
+                for idx, frame in enumerate(entry['data']):
+                    if frame['elapsed_sec'][0] != steps[0]:
+                        last_step[idx] = frame[objective_col][0]
             n_points = len(steps)
         new_columns = {'min': np.zeros(n_points),
                        'max': np.zeros(n_points),
@@ -99,6 +107,12 @@ def combine_seeds(data, args):
                     # Drop to infinity if shorter than the longest dataframe
                     else:
                         last_step[idx2] = np.inf
+                    step_data.append(last_step[idx2])
+            elif args.synchronous:
+                step_data = []
+                for idx2, df in enumerate(entry['data']):
+                    local_step = df[df['elapsed_sec'] == lookup_steps[idx2][step]].index[0]
+                    last_step[idx2] = df.iloc[local_step][objective_col]
                     step_data.append(last_step[idx2])
             else:
                 step_data = []
