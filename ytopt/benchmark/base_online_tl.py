@@ -1,6 +1,7 @@
 import numpy as np, pandas as pd
 #from autotune.space import *
 import os, sys, time, argparse
+import inspect
 from csv import writer
 from copy import deepcopy as dcpy
 from sdv.tabular import GaussianCopula, CopulaGAN, CTGAN, TVAE
@@ -10,6 +11,21 @@ sdv_models = {'GaussianCopula': GaussianCopula,
               'CTGAN': CTGAN,
               'TVAE': TVAE,
               'random': None}
+def check_conditional_sampling(objectlike):
+    # Check source code on the _sample() method for the NotImplementedError
+    # Not very robust, but relatively lightweight check that should be good enough
+    # to find SDV's usual pattern for models that do not have conditional sampling yet
+    try:
+        source = inspect.getsource(objectlike._sample)
+    except AttributeError:
+        print(f"WARNING: {objectlike} could not determine conditional sampling status")
+        return False
+    return not("raise NotImplementedError" in source and
+               "doesn't support conditional sampling" in source)
+
+conditonal_sampling_support = dict((k,check_conditional_sampling(v)) for (k,v) in sdv_models.items())
+
+
 from sdv.constraints import CustomConstraint, Between
 from sdv.sampling.tabular import Condition
 from ytopt.search.util import load_from_file
@@ -62,6 +78,53 @@ def param_type(k, problem):
         v = 'int64'
     return v
 
+def close_enough(frame, rows, column, target, criterion):
+    out = []
+    # Eliminate rows that are too far from EVER being selected
+    if target > criterion[-1]:
+        possible = frame[frame[column] > criterion[-1]]
+    elif target < criterion[0]:
+        possible = frame[frame[column] < criterion[0]]
+    else:
+        # Find target in the middle using sign change detection in difference
+        sign_index = list(np.sign(pd.Series(criterion)-target).diff()[1:].ne(0)).index(True)
+        lower, upper = criterion[sign_index:sign_index+2]
+        possible = frame[(frame[column] > lower) & (frame[column] < upper)]
+    # Prioritize closest rows first
+    dists = (possible[column]-target).abs().sort_values().index[:rows]
+    return possible.loc[dists].reset_index(drop=True)
+
+def sample_approximate_conditions(sdv_model, model, conditions, criterion, param_names):
+    # If model supports conditional sampling, just utilize that
+    if conditonal_sampling_support[sdv_model]:
+        return model.sample_conditions(conditions)
+    # Otherwise, it can be hard to conditionally sample using reject sampling.
+    # As such, we do our own reject strategy
+    criterion = sorted(criterion)
+    requested_rows = sum([_.get_num_rows() for _ in conditions])
+    selected = []
+    prev_len = -1
+    cur_len = 0
+    # Use lack of change as indication that no additional rows could be found
+    while prev_len < requested_rows and cur_len != prev_len:
+        prev_len = cur_len
+        samples = model.sample(num_rows=requested_rows)
+        candidate = []
+        for cond in conditions:
+            n_rows = cond.get_num_rows()
+            for (col, target) in cond.get_column_values().items():
+                candidate.append(close_enough(samples, n_rows, col, target, criterion))
+        candidate = pd.concat(candidate).drop_duplicates(subset=param_names)
+        selected.append(candidate)
+        cur_len = sum(map(len, selected))
+    selected = pd.concat(selected).drop_duplicates(subset=param_names)
+    # FORCE conditions to be held in this data
+    for cond in conditions:
+        for (col, target) in cond.get_column_values().items():
+            selected[col] = target
+    return selected
+
+
 def online(targets, data, inputs, args, fname):
     global time_start
     sdv_model, max_retries, _, unique, \
@@ -74,7 +137,9 @@ def online(targets, data, inputs, args, fname):
         if len(param_names.difference(other_names)) > 0:
             raise ValueError(f"Targets {targets[0].name} and "
                              f"{target_problem.name} utilize different parameters")
+    criterion = []
     for input_problem in inputs:
+        criterion.append(input_problem.problem_class)
         other_names = set(input_problem.params)
         if len(param_names.difference(other_names)) > 0:
             raise ValueError(f"Target {targets[0].name} and "
@@ -116,37 +181,24 @@ def online(targets, data, inputs, args, fname):
         eval_master = 0
         # Initial fit
         if model is not None:
+            print(f"Fitting with {len(data)} rows")
             import warnings
             warnings.simplefilter("ignore")
-            print(f"Fitting with {len(data)} rows")
             model.fit(data)
+            warnings.simplefilter('default')
         time_start = time.time()
         while eval_master < MAX_EVALS:
             # Generate prospective points
-            if sdv_model == 'GaussianCopula':
-                ss1 = model.sample_conditions(conditions)
-            elif sdv_model != 'random':
-                # Reject sampling means you may have to repeatedly try
-                # in order to generate the requested number of rows
-                max_attempts = 100
-                attempts = 0
-                old_ss_len = 0
-                new_ss_len = 0
-                # Should be a way to sample all conditions at once until
-                # they have all met their row requirement, but IDK so we're
-                # going to do them one at a time for now
-                for cond in conditions:
-                    while attempts < max_attempts and cond.num_rows > 0 and new_ss_len < cond.num_rows:
-                        attempts += 1
-                        print(f"Reject strategy attempt {attempts}. {cond.num_rows} data to be retrieved")
-                        ss = model.sample_conditions([cond], max_tries=max_retries)
-                        new_ss_len += len(ss.index)
-                        if attempts == 1:
-                            ss1 = ss
-                        else:
-                            ss1 = ss1.append(ss, ignore_index=True)
-                        cond.num_rows -= new_ss_len - old_ss_len
-                        old_ss_len = new_ss_len
+            if sdv_model != 'random':
+                # Some SDV models don't realllllly support the kind of conditional sampling we need
+                # So this call will bend the condition rules a bit to help them produce usable data
+                # until SDV fully supports conditional sampling for those models
+                # For any model where SDV has conditional sampling support, this SHOULD utilize SDV's
+                # real conditional sampling and bypass the approximation entirely
+                ss1 = sample_approximate_conditions(sdv_model, model, conditions,
+                                                        sorted(criterion), param_names)
+                for col in param_names:
+                    ss1[col] = ss1[col].astype(str)
             else:
                 # random model is achieved by sampling configurations from the target problem's input space
                 columns = ['input']+param_names+['runtime']

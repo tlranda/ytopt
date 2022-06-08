@@ -3,6 +3,7 @@ Asynchronous Model-Based Search. (WITH LIES FROM SDV)
 """
 
 
+import pdb
 import signal
 
 from ytopt.search.optimizer import Optimizer
@@ -11,6 +12,7 @@ from ytopt.search import util
 from ytopt.evaluator.evaluate import Evaluator
 
 import os, time
+import inspect
 from pprint import pformat
 import numpy as np, pandas as pd
 from sdv.tabular import GaussianCopula, CopulaGAN, CTGAN, TVAE
@@ -19,11 +21,22 @@ sdv_models = {'GaussianCopula': GaussianCopula,
               'CTGAN': CTGAN,
               'TVAE': TVAE,
              }
+def check_conditional_sampling(objectlike):
+    # Check source code on the _sample() method for the NotImplementedError
+    # Not very robust, but relatively lightweight check that should be good enough
+    # to find SDV's usual pattern for models that do not have conditional sampling yet
+    try:
+        source = inspect.getsource(objectlike._sample)
+    except AttributeError:
+        print(f"WARNING: {objectlike} could not determine conditional sampling status")
+        return False
+    return not("raise NotImplementedError" in source and
+               "doesn't support conditional sampling" in source)
+
+conditonal_sampling_support = dict((k,check_conditional_sampling(v)) for (k,v) in sdv_models.items())
 sdv_default = list(sdv_models.keys())[0]
 from sdv.constraints import Between
 from sdv.sampling.tabular import Condition
-import pdb
-
 logger = util.conf_logger('ytopt.search.hps.ambs')
 
 SERVICE_PERIOD = 2          # Delay (seconds) between main loop iterations
@@ -139,8 +152,55 @@ class AMBS(Search):
         for problem in problems[1:]:
             other_param_names = set(problem.params)
             if len(initial_param_names.difference(other_param_names)) > 0:
-                raise ValueError(f"Problems {problems[0].name} and {problem.name} utilize different parameters")
+                raise ValueError(f"Problems {problems[0].name} and {problem.name} "
+                                  "utilize different parameters")
         return sorted(initial_param_names)
+
+    def close_enough(self, frame, rows, column, target, criterion):
+        out = []
+        # Eliminate rows that are too far from EVER being selected
+        if target > criterion[-1]:
+            possible = frame[frame[column] > criterion[-1]]
+        elif target < criterion[0]:
+            possible = frame[frame[column] < criterion[0]]
+        else:
+            # Find target in the middle using sign change detection in difference
+            sign_index = list(np.sign(pd.Series(criterion)-target).diff()[1:].ne(0)).index(True)
+            lower, upper = criterion[sign_index:sign_index+2]
+            possible = frame[(frame[column] > lower) & (frame[column] < upper)]
+        # Prioritize closest rows first
+        dists = (possible[column]-target).abs().sort_values().index[:rows]
+        return possible.loc[dists].reset_index(drop=True)
+
+    def sample_approximate_conditions(self, model, conditions, criterion):
+        # If model supports conditional sampling, just utilize that
+        if conditonal_sampling_support[self.sdv_model]:
+            return model.sample_conditions(conditions)
+        # Otherwise, it can be hard to conditionally sample using reject sampling.
+        # As such, we do our own reject strategy
+        criterion = sorted(criterion)
+        requested_rows = sum([_.get_num_rows() for _ in conditions])
+        selected = []
+        prev_len = -1
+        cur_len = 0
+        # Use lack of change as indication that no additional rows could be found
+        while prev_len < requested_rows and cur_len != prev_len:
+            prev_len = cur_len
+            samples = model.sample(num_rows=requested_rows)
+            candidate = []
+            for cond in conditions:
+                n_rows = cond.get_num_rows()
+                for (col, target) in cond.get_column_values().items():
+                    candidate.append(self.close_enough(samples, n_rows, col, target, criterion))
+            candidate = pd.concat(candidate).drop_duplicates(subset=self.param_names)
+            selected.append(candidate)
+            cur_len = sum(map(len, selected))
+        selected = pd.concat(selected).drop_duplicates(subset=self.param_names)
+        # FORCE conditions to be held in this data
+        for cond in conditions:
+            for (col, target) in cond.get_column_values().items():
+                selected[col] = target
+        return selected
 
     def make_arbitrary_evals(self, df):
         # Request the evaluations and make results to tell back
@@ -171,27 +231,26 @@ class AMBS(Search):
         # NEW
         logger.info(f"Generating {self.n_generate} transferred points with SDV...")
         # Assume parameter names match
-        param_names = self.get_validated_param_names()
-        n_params = len(param_names)
+        self.param_names = self.get_validated_param_names()
+        n_params = len(self.param_names)
         # Get constraints
         constraints = []
         for target in self.targets:
             constraints.extend(target.constraints)
-        # POTENTIALLY NEED WORKAROUND
-        # cast = sdv_workaround(constraints)
         # Get SDV online ready to go for TL
-        pdb.set_trace()
         model = sdv_models[self.sdv_model](
-                        field_names = ['input']+param_names+['runtime'],
-                        field_transformers = self.targets[0].problem_params, # cast.replace_transformers(self.targets[0].problem_params),
-                        constraints = constraints, # cast.replace_constraints,
+                        field_names = ['input']+self.param_names+['runtime'],
+                        field_transformers = self.targets[0].problem_params,
+                        constraints = constraints,
                         min_value = None,
                         max_value = None)
 
         # Get training data
         frames = []
+        criterion = []
         for idx, problem in enumerate(self.inputs):
             # Load the best top x%
+            criterion.append(problem.problem_class)
             results_file = problem.plopper.kernel_dir+"/results_"+str(problem.problem_class)+".csv"
             if not os.path.exists(results_file):
                 raise ValueError(f"Could not find {results_file} for '{problem.name}' "
@@ -219,24 +278,26 @@ class AMBS(Search):
             # multiple hits per index looked up
             data = data.append(repeated_data).reset_index().drop(columns='index')
 
-        pdb.set_trace()
         model.fit(data)
 
         # Make conditions for each target
         conditions = []
         for target in self.targets:
-            conditions.append(Condition({'input': target.problem_class}, # cast(target.problem_class, direction='float')},
+            conditions.append(Condition({'input': target.problem_class},
                                          num_rows=max(1, self.n_generate)))
 
 
         # Make model predictions
-        # Non-Gaussian-Copula may need multiple attempts
-        sampled = model.sample_conditions(conditions)
-        # sampled = cast(sampled['input'], direction='int', ignore_index=True)
-        sampled = sampled.drop_duplicates(subset=param_names, keep="first")
+        # Some SDV models don't realllllly support the kind of conditional sampling we need
+        # So this call will bend the condition rules a bit to help them produce usable data
+        # until SDV fully supports conditional sampling for those models
+        # For any model where SDV has conditional sampling support, this SHOULD utilize SDV's
+        # real conditional sampling and bypass the approximation entirely
+        sampled = self.sample_approximate_conditions(model, conditions, sorted(criterion))
+        sampled = sampled.drop_duplicates(subset=self.param_names, keep="first")
         sampled = sampled.sort_values(by='runtime')
         sampled = sampled[:self.n_generate]
-        for col in param_names:
+        for col in self.param_names:
             sampled[col] = sampled[col].astype(str)
         # Have optimizer ingest results from SDV's predictions
         self.make_arbitrary_evals(sampled)
@@ -271,7 +332,6 @@ class AMBS(Search):
 
 if __name__ == "__main__":
     args = AMBS.parse_args()
-    pdb.set_trace()
     search = AMBS(**vars(args))
     signal.signal(signal.SIGINT, on_exit)
     signal.signal(signal.SIGTERM, on_exit)
