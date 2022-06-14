@@ -194,10 +194,11 @@ def load_all(args):
             fd = pd.read_csv(fname)
             # Find ultimate best value to plot as horizontal line
             d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
-            # Transform
+            # Transform into best-so-far dataset
             minval = None
             for col in ['objective', 'exe_time']:
                 if col in d.columns:
+                    d[col] = [min(d[col][:_+1]) for _ in range(0, len(d[col]))]
                     minval = min(d[col])
                     name = "baseline_"+make_baseline_name(fname, args, d, col)
                     matchname = 'baseline_'+make_seed_invariant_name(fname, args)
@@ -205,12 +206,13 @@ def load_all(args):
             if matchname in inv_names:
                 idx = inv_names.index(matchname)
                 # Replace if lower
-                if minval < data[idx_offset+idx]['data'][0].iloc[0][col]:
-                    data[idx_offset+idx]['data'][0].iloc[0][col] = minval
+                if minval < data[idx_offset+idx]['minval']:
+                    data[idx_offset+idx]['data'][0] = d
             else:
                 data.append({'name': name, 'type': 'baseline',
                              'matchname': matchname,
-                             'data': [pd.DataFrame({col: minval, 'elapsed_sec': 0.0}, index=[0])],
+                             'minval': minval,
+                             'data': [d],
                              'fname': fname})
                 inv_names.append(matchname)
     # Fix across seeds

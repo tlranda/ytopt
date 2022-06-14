@@ -63,10 +63,10 @@ done;
 
 ######## PLOTS ########
 echo "PLOTS"
-invoke="python ../../plot_analysis.py --output syr2k_walltime --best syr2k_*.csv ~/ytune_2022/experiments/syr2k-tl/results_1000.csv --x-axis walltime --log-y --log-x --unname syr2k_ --trim ~/ytune_2022/experiments/syr2k-tl/results_1000.csv --legend best"
+invoke="python ../../plot_analysis.py --output syr2k_walltime --best syr2k_*.csv --baseline ~/ytune_2022/experiments/syr2k-tl/results_1000.csv --x-axis walltime --log-y --log-x --unname syr2k_ --trim ~/ytune_2022/experiments/syr2k-tl/results_1000.csv --legend best"
 echo "${invoke}";
 eval "${invoke}";
-invoke="python ../../plot_analysis.py --output syr2k_evaluation --best syr2k_*.csv ~/ytune_2022/experiments/syr2k-tl/results_1000.csv --x-axis evaluation --log-y --log-x --unname syr2k_ --trim ~/ytune_2022/experiments/syr2k-tl/results_1000.csv --legend best"
+invoke="python ../../plot_analysis.py --output syr2k_evaluation --best syr2k_*.csv --baseline ~/ytune_2022/experiments/syr2k-tl/results_1000.csv --x-axis evaluation --log-y --log-x --unname syr2k_ --trim ~/ytune_2022/experiments/syr2k-tl/results_1000.csv --legend best"
 echo "${invoke}";
 eval "${invoke}";
 
