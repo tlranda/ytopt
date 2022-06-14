@@ -6,6 +6,13 @@ Asynchronous Model-Based Search. (WITH LIES FROM SDV)
 import pdb
 import signal
 
+"""
+    TEMPORARY DEBUG: FOR HISTOGRAMS
+"""
+import matplotlib
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+
 from ytopt.search.optimizer import Optimizer
 from ytopt.search import Search
 from ytopt.search import util
@@ -202,6 +209,23 @@ class AMBS(Search):
                 selected[col] = target
         return selected
 
+    def greedy_sampling(self, model, conditions, criterion):
+        quantiles = [0.1, 0.25, 0.5]
+        weights = [1, 0.2, 0.02]
+        requested_rows = sum([_.get_num_rows() for _ in conditions])
+        agg = []
+        while sum(map(len, agg)) < requested_rows:
+            # Push distribution towards optimal results in successive sampling iterations
+            sampled = self.sample_approximate_conditions(model, conditions, sorted(criterion))
+            # Get quantiles
+            q_values = [0]+[np.quantile(sampled.runtime.values, q) for q in quantiles]
+            frames = [sampled[(sampled['runtime'] > q0) & (sampled['runtime'] < q1)].sort_values(by='runtime') for q0,q1 in zip(q_values, q_values[1:])]
+            # Trim to weights
+            frames = [f[:max(1,int(w*len(f)))] for w,f in zip(weights, frames)]
+            # Stack in agg
+            agg.append(pd.concat(frames))
+        return pd.concat(agg)
+
     def make_arbitrary_evals(self, df):
         # Request the evaluations and make results to tell back
         y = self.optimizer._get_lie()
@@ -293,12 +317,20 @@ class AMBS(Search):
         # until SDV fully supports conditional sampling for those models
         # For any model where SDV has conditional sampling support, this SHOULD utilize SDV's
         # real conditional sampling and bypass the approximation entirely
-        sampled = self.sample_approximate_conditions(model, conditions, sorted(criterion))
+        sampled = self.greedy_sampling(model, conditions, sorted(criterion))
         sampled = sampled.drop_duplicates(subset=self.param_names, keep="first")
         sampled = sampled.sort_values(by='runtime')
         sampled = sampled[:self.n_generate]
         for col in self.param_names:
             sampled[col] = sampled[col].astype(str)
+        """
+            TEMPORARY: Make histogram
+        """
+        fig, ax = plt.subplots()
+        histogram = sampled.hist(bins=20, column=['runtime'], ax=ax)
+        fname = f'hist_{len(sampled)}.png'
+        plt.savefig(fname)
+        print(f"Saved figure to {fname}.")
         # Have optimizer ingest results from SDV's predictions
         self.make_arbitrary_evals(sampled)
 
