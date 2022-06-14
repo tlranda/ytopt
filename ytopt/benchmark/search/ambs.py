@@ -210,8 +210,10 @@ class AMBS(Search):
         return selected
 
     def greedy_sampling(self, model, conditions, criterion):
-        quantiles = [0.1, 0.25, 0.5]
-        weights = [1, 0.2, 0.02]
+        quantiles = [0.8]
+        weights = [1]
+        #quantiles = [0.1, 0.25, 0.5]
+        #weights = [1, 0.2, 0.02]
         requested_rows = sum([_.get_num_rows() for _ in conditions])
         agg = []
         while sum(map(len, agg)) < requested_rows:
@@ -329,10 +331,28 @@ class AMBS(Search):
         fig, ax = plt.subplots()
         histogram = sampled.hist(bins=20, column=['runtime'], ax=ax)
         fname = f'hist_{len(sampled)}.png'
-        plt.savefig(fname)
-        print(f"Saved figure to {fname}.")
+        all_preds = []
+        all_real = []
+        def compare_beliefs(results, columns, dtypes, input_size, model, ax):
+            dfcolumns = set(list(columns)+['input'])
+            dfcolumns.remove('runtime')
+            for (di, realtime) in results:
+                df = pd.DataFrame(di, columns=dfcolumns, index=[0])
+                df['input'] = input_size
+                for c,v in zip(columns, dtypes):
+                    if c in df.columns and v != 'O':
+                        df[c] = df[c].astype(v)
+                try:
+                    prediction = model.sample_remaining_columns(df)['runtime'][0]
+                    print(f"predict {prediction} actual {realtime}")
+                    all_preds.append(prediction)
+                    all_real.append(realtime)
+                except ValueError:
+                    print(f"Unable to recover prediction")
+
         # Have optimizer ingest results from SDV's predictions
         self.make_arbitrary_evals(sampled)
+
 
         # MAKE TIMING FAIR BETWEEN THIS AND ONLINE
         self.evaluator._start_sec = time.time()
@@ -348,8 +368,18 @@ class AMBS(Search):
             num_evals += len(results)
             chkpoint_counter += len(results)
             if EXIT_FLAG or num_evals >= self.max_evals:
+                """
+                    TEMPORARY: Compare eval to model belief
+                """
+                compare_beliefs(results, data.columns, data.dtypes, self.targets[0].problem_class,
+                                model, ax)
                 break
             if results:
+                """
+                    TEMPORARY: Compare eval to model belief
+                """
+                compare_beliefs(results, data.columns, data.dtypes, self.targets[0].problem_class,
+                                model, ax)
                 logger.info(f"Refitting model with batch of {len(results)} evals")
                 self.optimizer.tell(results)
                 logger.info(f"Drawing {len(results)} points with strategy {self.optimizer.liar_strategy}")
@@ -359,6 +389,11 @@ class AMBS(Search):
                 self.evaluator.dump_evals()
                 chkpoint_counter = 0
 
+        fig2, ax2 = plt.subplots()
+        ax2.scatter(all_preds, all_real)
+        ax2.set_xlabel("Prediction")
+        ax2.set_ylabel("Actual")
+        plt.show()
         logger.info('Hyperopt driver finishing')
         self.evaluator.dump_evals()
 
