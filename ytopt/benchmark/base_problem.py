@@ -35,6 +35,23 @@ class BaseProblem:
         self.request_output_prefix = f"results_{problem_class}"
         # Spaces
         self.input_space = input_space
+        # Find input space size
+        prod = 1
+        for param in self.input_space.get_hyperparameters():
+            if type(param) == CS.CategoricalHyperparameter:
+                prod *= len(param.choices)
+            elif type(param) == CS.OrdinalHyperparameter:
+                prod *= len(param.sequence)
+            elif type(param) == CS.Constant:
+                pass
+            elif type(param) == CS.UniformIntegerHyperparameter:
+                prod *= param.upper - param.lower
+            else:
+                # Could warn here, but it'll generate way too much output
+                # This catches when we don't know how to get a # of configurations
+                # As Normal range is not necessarily defined with strict ranges and floats are floats
+                pass
+        self.input_space_size = prod
         self.parameter_space = parameter_space
         self.output_space = output_space
         # Attributes
