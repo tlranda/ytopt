@@ -1,8 +1,6 @@
 import os, uuid, re, time, subprocess
-import torch # Currently used for serialization
 import atexit # Python < 3.10 bugfix for LazyPloppers
 import itertools # Chain fix for LazyPloppers
-
 
 """
     Expected usage:
@@ -273,75 +271,83 @@ class Plopper:
         # Evaluation
         return self.execute(interimfile, dictVal, *args, **kwargs)
 
-class LazyPlopper(Plopper):
-    def __init__(self, *args, cachefile=None, randomizeCacheName=False, lazySaveInterval=5, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Make cache available
-        if cachefile is None:
-            cachefile = "lazyplopper_cache"
-            if randomizeCacheName:
-                cachefile += "_"+str(uuid.uuid4())
-            cachefile += ".cache"
-        self.cachefile = cachefile
-        # Load cache
-        if os.path.exists(self.cachefile):
-            self.load()
-            self.lastSaved = dict((k,v) for (k,v) in self.cache.items())
-        else:
-            self.cache = dict()
-            self.lastSaved = dict()
-        # Define a checkpoint interval to save new information at prior to object deletion
-        self.lazySaveInterval = lazySaveInterval
-        # Bug fix for Python < 3.10: Make sure there is a save before python deletes the open() method
-        atexit.register(self.__del__)
+def __getattr__(name):
+    if name == 'Plopper':
+        return Plopper
+    if name == 'findReplaceRegex':
+        return findReplaceRegex
+    if name == 'LazyPlopper':
+        import torch # Currently used for serialization
+        class LazyPlopper(Plopper):
+            def __init__(self, *args, cachefile=None, randomizeCacheName=False, lazySaveInterval=5, **kwargs):
+                super().__init__(*args, **kwargs)
+                # Make cache available
+                if cachefile is None:
+                    cachefile = "lazyplopper_cache"
+                    if randomizeCacheName:
+                        cachefile += "_"+str(uuid.uuid4())
+                    cachefile += ".cache"
+                self.cachefile = cachefile
+                # Load cache
+                if os.path.exists(self.cachefile):
+                    self.load()
+                    self.lastSaved = dict((k,v) for (k,v) in self.cache.items())
+                else:
+                    self.cache = dict()
+                    self.lastSaved = dict()
+                # Define a checkpoint interval to save new information at prior to object deletion
+                self.lazySaveInterval = lazySaveInterval
+                # Bug fix for Python < 3.10: Make sure there is a save before python deletes the open() method
+                atexit.register(self.__del__)
 
-    @property
-    def nSaved(self):
-        return len(self.lastSaved.keys())
+            @property
+            def nSaved(self):
+                return len(self.lastSaved.keys())
 
-    @property
-    def nCached(self):
-        return len(self.cache.keys())
+            @property
+            def nCached(self):
+                return len(self.cache.keys())
 
-    def __str__(self):
-        return super().__str__()+"\n"+str({'cachefile': self.cachefile,
-                                           'saved': self.nSaved,
-                                           'cached': self.nCached,
-                                           'lazySaveInterval': self.lazySaveInterval})
+            def __str__(self):
+                return super().__str__()+"\n"+str({'cachefile': self.cachefile,
+                                                   'saved': self.nSaved,
+                                                   'cached': self.nCached,
+                                                   'lazySaveInterval': self.lazySaveInterval})
 
-    def __del__(self):
-        # Prevent redundant saves
-        if self.nSaved != self.nCached:
-            self.save()
+            def __del__(self):
+                # Prevent redundant saves
+                if self.nSaved != self.nCached:
+                    self.save()
 
-    # Currently implemented using Pytorch serialization. Override these functions to use something else
-    def load(self):
-        self.cache = torch.load(self.cachefile)
+            # Currently implemented using Pytorch serialization. Override these functions to use something else
+            def load(self):
+                self.cache = torch.load(self.cachefile)
 
-    def save(self):
-        try:
-            torch.save(self.cache, self.cachefile)
-        except NameError:
-            missing_entries = self.nCached - self.nSaved
-            if missing_entries == 1:
-                print(f"!WARNING: FAILED to save final cache entry (garbage collection misordering likely)")
-            elif missing_entries > 1:
-                print(f"!WARNING: FAILED to save final {missing_entries} cache entries (garbage collection misordering likely)")
-        else:
-            self.lastSaved = dict((k,v) for (k,v) in self.cache.items())
+            def save(self):
+                try:
+                    torch.save(self.cache, self.cachefile)
+                except NameError:
+                    missing_entries = self.nCached - self.nSaved
+                    if missing_entries == 1:
+                        print(f"!WARNING: FAILED to save final cache entry (garbage collection misordering likely)")
+                    elif missing_entries > 1:
+                        print(f"!WARNING: FAILED to save final {missing_entries} cache entries (garbage collection misordering likely)")
+                else:
+                    self.lastSaved = dict((k,v) for (k,v) in self.cache.items())
 
-    def findRuntime(self, x, params, *args, **kwargs):
-        searchtup = tuple(list(itertools.chain.from_iterable([xx,pp] for (xx,pp) in zip(x, params)))+
-                          list(args)+
-                          list(kwargs.values()))
-        # Lazy evaluation doesn't call findRuntime() when it has seen the runtime before
-        if searchtup in self.cache.keys():
-            return self.cache[searchtup]
-        else:
-            rval = super().findRuntime(x, params, *args, **kwargs)
-            self.cache[searchtup] = rval
-            # Checkpoint new save values every interval to avoid catastrophic loss
-            if self.nCached - self.nSaved >= self.lazySaveInterval:
-                self.save()
-            return rval
+            def findRuntime(self, x, params, *args, **kwargs):
+                searchtup = tuple(list(itertools.chain.from_iterable([xx,pp] for (xx,pp) in zip(x, params)))+
+                                  list(args)+
+                                  list(kwargs.values()))
+                # Lazy evaluation doesn't call findRuntime() when it has seen the runtime before
+                if searchtup in self.cache.keys():
+                    return self.cache[searchtup]
+                else:
+                    rval = super().findRuntime(x, params, *args, **kwargs)
+                    self.cache[searchtup] = rval
+                    # Checkpoint new save values every interval to avoid catastrophic loss
+                    if self.nCached - self.nSaved >= self.lazySaveInterval:
+                        self.save()
+                    return rval
+        return LazyPlopper
 
