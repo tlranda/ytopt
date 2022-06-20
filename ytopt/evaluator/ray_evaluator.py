@@ -88,7 +88,7 @@ class RayEvaluator(Evaluator):
             infos = None
             while infos is None: # Raylets can take some time to register
                 try:
-                    infos = ray.init(redis_address=redis_address)
+                    infos = ray.init(redis_address=redis_address, ignore_reinit_error=True)
                     logger.info(infos)
                 except ConnectionError:
                     logger.info('Quitting driver start-up...', exc_info=True)
@@ -97,7 +97,7 @@ class RayEvaluator(Evaluator):
                     logger.info('Failed to init driver... sleeping for 1sec...', exc_info=True)
                     time.sleep(sleep_time)
         else:
-            infos = ray.init()
+            infos = ray.init(ignore_reinit_error=True)
 
         self.num_workers = len(ray.nodes())
 

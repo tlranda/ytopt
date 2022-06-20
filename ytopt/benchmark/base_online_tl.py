@@ -108,7 +108,7 @@ def sample_approximate_conditions(sdv_model, model, conditions, criterion, param
     # Use lack of change as indication that no additional rows could be found
     while prev_len < requested_rows and cur_len != prev_len:
         prev_len = cur_len
-        samples = model.sample(num_rows=requested_rows)
+        samples = model.sample(num_rows=requested_rows, randomize_samples=False)
         candidate = []
         for cond in conditions:
             n_rows = cond.get_num_rows()

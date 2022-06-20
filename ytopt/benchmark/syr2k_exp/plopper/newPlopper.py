@@ -3,13 +3,11 @@ FETCH_PLOPPER = os.path.abspath(os.path.dirname(os.path.abspath(__file__))+"/../
 if FETCH_PLOPPER not in sys.path:
     sys.path.append(FETCH_PLOPPER)
 import base_plopper
-
 # Params take the form 'p#' (ie: p0, p1)... and are expressed in template code as '#P0', '#P1', '#P2'...
 # So the P should be part of the capturing group to lookup values, and the template # should be removed as a prefix
 find = r"#(P[0-9]+)"
 prefix_transform = tuple(["#", ""])
 regexObject = base_plopper.findReplaceRegex(find, prefix=prefix_transform)
-
 # No runtime args
 
 class Syr2k_Plopper(base_plopper.Plopper):

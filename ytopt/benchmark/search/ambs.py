@@ -85,18 +85,6 @@ class AMBS(Search):
         logger.info(f"Evaluator: num_workers is {self.num_workers}")
         # END super.__init__()
 
-        logger.info("Initializing AMBS")
-        self.optimizer = Optimizer(
-            num_workers=self.num_workers,
-            space=self.problem.input_space,
-            learner=learner,
-            acq_func=acq_func,
-            liar_strategy=liar_strategy,
-            set_KAPPA=set_KAPPA,
-            set_SEED=set_SEED,
-            set_NI=set_NI,
-        )
-
         # Additional things for SDV lies to optimizer
         self.n_generate = n_generate
         self.top = top
@@ -110,6 +98,21 @@ class AMBS(Search):
                 problemName, attr = problemName.split('.')
                 problemName += '.py'
             self.inputs.append(util.load_from_file(problemName, attr))
+
+        self.make_liar_model()
+
+        logger.info("Initializing AMBS")
+        self.optimizer = Optimizer(
+            num_workers=self.num_workers,
+            space=self.problem.input_space,
+            learner=learner,
+            acq_func=acq_func,
+            liar_strategy=liar_strategy,
+            set_KAPPA=set_KAPPA,
+            set_SEED=set_SEED,
+            set_NI=set_NI,
+            model_sdv=self.model,
+        )
 
     @staticmethod
     def _extend_parser(parser):
@@ -144,7 +147,7 @@ class AMBS(Search):
             help='Set n inital points'
         )
         # Additional things for SDV lies to optimizer
-        parser.add_argument('--n_generate', type=int, default=1000, help="Rows to generate from SDV")
+        parser.add_argument('--n-generate', type=int, default=1000, help="Rows to generate from SDV")
         parser.add_argument('--top', type=float, default=0.1, help="How much to train")
         parser.add_argument('--inputs', type=str, nargs='+', required=True, help="Problems for input")
         #parser.add_argument('--targets', type=str, nargs='+', required=True, help="Problems to target")
@@ -210,7 +213,7 @@ class AMBS(Search):
         return selected
 
     def greedy_sampling(self, model, conditions, criterion):
-        quantiles = [0.8]
+        quantiles = [1]
         weights = [1]
         #quantiles = [0.1, 0.25, 0.5]
         #weights = [1, 0.2, 0.02]
@@ -245,15 +248,58 @@ class AMBS(Search):
                 results.append(tuple([dict((c,k) for (c,k) in zip(cols, key)), row[1].values[-1]]))
         # Mass-scale fake
         self.optimizer.counter += len(mass_x)
+        print(f"# Arbitrary evals: {len(mass_x)}")
         self.optimizer._optimizer.tell(mass_x,mass_y)
         # Inform of results
         self.optimizer.tell(results)
 
-    def main(self):
-        timer = util.DelayTimer(max_minutes=None, period=SERVICE_PERIOD)
-        chkpoint_counter = 0
-        num_evals = 0
+    def bootstrap_lies(self):
+        # Make conditions for each target
+        conditions = []
+        for target in self.targets:
+            conditions.append(Condition({'input': target.problem_class},
+                                         num_rows=max(1, self.n_generate)))
+        # Make model predictions
+        # Some SDV models don't realllllly support the kind of conditional sampling we need
+        # So this call will bend the condition rules a bit to help them produce usable data
+        # until SDV fully supports conditional sampling for those models
+        # For any model where SDV has conditional sampling support, this SHOULD utilize SDV's
+        # real conditional sampling and bypass the approximation entirely
+        sampled = self.greedy_sampling(self.model, conditions, sorted(criterion))
+        sampled = sampled.drop_duplicates(subset=self.param_names, keep="first")
+        sampled = sampled.sort_values(by='runtime')
+        sampled = sampled[:self.n_generate]
+        for col in self.param_names:
+            sampled[col] = sampled[col].astype(str)
+        """
+            TEMPORARY: Make histogram
+        """
+        #fig, ax = plt.subplots()
+        #histogram = sampled.hist(bins=20, column=['runtime'], ax=ax)
+        fname = f'hist_{len(sampled)}.png'
+        all_preds = []
+        all_real = []
+        #def compare_beliefs(results, columns, dtypes, input_size, model, ax):
+        #    dfcolumns = set(list(columns)+['input'])
+        #    dfcolumns.remove('runtime')
+        #    for (di, realtime) in results:
+        #        df = pd.DataFrame(di, columns=dfcolumns, index=[0])
+        #        df['input'] = input_size
+        #        for c,v in zip(columns, dtypes):
+        #            if c in df.columns and v != 'O':
+        #                df[c] = df[c].astype(v)
+        #        try:
+        #            prediction = model.sample_remaining_columns(df)['runtime'][0]
+        #            print(f"predict {prediction} actual {realtime}")
+        #            all_preds.append(prediction)
+        #            all_real.append(realtime)
+        #        except ValueError:
+        #            print(f"Unable to recover prediction")
 
+        # Have optimizer ingest results from SDV's predictions
+        self.make_arbitrary_evals(sampled)
+
+    def make_liar_model(self):
         # NEW
         logger.info(f"Generating {self.n_generate} transferred points with SDV...")
         # Assume parameter names match
@@ -305,54 +351,15 @@ class AMBS(Search):
             data = data.append(repeated_data).reset_index().drop(columns='index')
 
         model.fit(data)
+        self.model = model
 
-        # Make conditions for each target
-        conditions = []
-        for target in self.targets:
-            conditions.append(Condition({'input': target.problem_class},
-                                         num_rows=max(1, self.n_generate)))
+    def main(self):
+        timer = util.DelayTimer(max_minutes=None, period=SERVICE_PERIOD)
+        chkpoint_counter = 0
+        num_evals = 0
 
-
-        # Make model predictions
-        # Some SDV models don't realllllly support the kind of conditional sampling we need
-        # So this call will bend the condition rules a bit to help them produce usable data
-        # until SDV fully supports conditional sampling for those models
-        # For any model where SDV has conditional sampling support, this SHOULD utilize SDV's
-        # real conditional sampling and bypass the approximation entirely
-        sampled = self.greedy_sampling(model, conditions, sorted(criterion))
-        sampled = sampled.drop_duplicates(subset=self.param_names, keep="first")
-        sampled = sampled.sort_values(by='runtime')
-        sampled = sampled[:self.n_generate]
-        for col in self.param_names:
-            sampled[col] = sampled[col].astype(str)
-        """
-            TEMPORARY: Make histogram
-        """
-        fig, ax = plt.subplots()
-        histogram = sampled.hist(bins=20, column=['runtime'], ax=ax)
-        fname = f'hist_{len(sampled)}.png'
-        all_preds = []
-        all_real = []
-        def compare_beliefs(results, columns, dtypes, input_size, model, ax):
-            dfcolumns = set(list(columns)+['input'])
-            dfcolumns.remove('runtime')
-            for (di, realtime) in results:
-                df = pd.DataFrame(di, columns=dfcolumns, index=[0])
-                df['input'] = input_size
-                for c,v in zip(columns, dtypes):
-                    if c in df.columns and v != 'O':
-                        df[c] = df[c].astype(v)
-                try:
-                    prediction = model.sample_remaining_columns(df)['runtime'][0]
-                    print(f"predict {prediction} actual {realtime}")
-                    all_preds.append(prediction)
-                    all_real.append(realtime)
-                except ValueError:
-                    print(f"Unable to recover prediction")
-
-        # Have optimizer ingest results from SDV's predictions
-        self.make_arbitrary_evals(sampled)
-
+        if hasattr(self, 'bootstrap') and self.bootstrap:
+            self.bootstrap_lies()
 
         # MAKE TIMING FAIR BETWEEN THIS AND ONLINE
         self.evaluator._start_sec = time.time()
@@ -371,15 +378,15 @@ class AMBS(Search):
                 """
                     TEMPORARY: Compare eval to model belief
                 """
-                compare_beliefs(results, data.columns, data.dtypes, self.targets[0].problem_class,
-                                model, ax)
+                #compare_beliefs(results, data.columns, data.dtypes, self.targets[0].problem_class,
+                #                model, ax)
                 break
             if results:
                 """
                     TEMPORARY: Compare eval to model belief
                 """
-                compare_beliefs(results, data.columns, data.dtypes, self.targets[0].problem_class,
-                                model, ax)
+                #compare_beliefs(results, data.columns, data.dtypes, self.targets[0].problem_class,
+                #                model, ax)
                 logger.info(f"Refitting model with batch of {len(results)} evals")
                 self.optimizer.tell(results)
                 logger.info(f"Drawing {len(results)} points with strategy {self.optimizer.liar_strategy}")
@@ -389,11 +396,11 @@ class AMBS(Search):
                 self.evaluator.dump_evals()
                 chkpoint_counter = 0
 
-        fig2, ax2 = plt.subplots()
-        ax2.scatter(all_preds, all_real)
-        ax2.set_xlabel("Prediction")
-        ax2.set_ylabel("Actual")
-        plt.show()
+        #fig2, ax2 = plt.subplots()
+        #ax2.scatter(all_preds, all_real)
+        #ax2.set_xlabel("Prediction")
+        #ax2.set_ylabel("Actual")
+        #plt.show()
         logger.info('Hyperopt driver finishing')
         self.evaluator.dump_evals()
 

@@ -229,6 +229,8 @@ def alter_color(color_tup, ratio=0.5, brighten=True):
 
 def plot_source(fig, ax, idx, source, args, ntypes):
     data = source['data']
+    # Announce the line's best result
+    print(f"{source['name']} BEST RESULT: {min(data['obj'])} at x = {data['exe'].iloc[data['obj'].to_list().index(min(data['obj']))]}")
     # Color help
     colors = [mcolors.to_rgb(_['color']) for _ in list(plt.rcParams['axes.prop_cycle'])]
     color = colors[idx % len(colors)]

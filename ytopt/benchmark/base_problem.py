@@ -4,6 +4,7 @@ from autotune.space import *
 from skopt.space import Real, Integer, Categorical
 import ConfigSpace as CS
 import ConfigSpace.hyperparameters as CSH
+
 parameter_lookups = {'UniformInt': CSH.UniformIntegerHyperparameter,
                      'NormalInt': CSH.NormalIntegerHyperparameter,
                      'UniformFloat': CSH.UniformFloatHyperparameter,
@@ -115,5 +116,4 @@ class BaseProblem:
             params_list.append(parameter_lookups[p_type](**p_kwargs))
         space.add_hyperparameters(params_list)
         return space
-
 
