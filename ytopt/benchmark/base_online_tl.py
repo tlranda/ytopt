@@ -298,6 +298,10 @@ def main(args=None):
           'seed', RANDOM_SEED)
     # Seed control
     np.random.seed(RANDOM_SEED)
+    #import random
+    #random.seed(RANDOM_SEED)
+    import torch
+    torch.manual_seed(RANDOM_SEED)
 
     X_opt = []
     print ('----------------------------- how much data to use?', TOP)

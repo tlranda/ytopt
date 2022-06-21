@@ -240,7 +240,7 @@ class Plopper:
                 times.append(duration)
         # Unable to evaluate this execution
         if failures > self.retries:
-            return self.infinity
+            return self.metric([self.infinity])
         return self.metric(times)
 
     # Function to find the execution time of the interim file, and return the execution time as cost to the search module
@@ -267,7 +267,7 @@ class Plopper:
                 # and len(compilation_status.stderr) == 0: # Second condition is to check for warnings
                     print(compilation_status.stderr)
                     print("Compile failed")
-                    return self.infinity
+                    return self.metric([self.infinity])
         # Evaluation
         return self.execute(interimfile, dictVal, *args, **kwargs)
 
