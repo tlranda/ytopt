@@ -116,3 +116,8 @@ venv.bak/
 *-old/
 *.csv
 *.json
+*.bin
+*.tmp
+*.cache
+tmp_files/
+
