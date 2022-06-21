@@ -1,0 +1,7 @@
+959,962c959
+<                     if x.probabilities is not None:
+<                         prior = list(x.probabilities)
+<                     else:
+<                         prior = [1.0 / x.num_choices for _ in range(x.num_choices)]
+---
+>                     prior = list(x.probabilities)
