@@ -32,14 +32,13 @@ class Optimizer:
         self.KAPPA = set_KAPPA
         self.SEED  = set_SEED
         self.NI    = set_NI
-#         n_init = set_NI 
         print ('............self.KAPPA',self.KAPPA)
         print ('............self.learner',self.learner)
         print ('............self.acq_func',self.acq_func)
         print ('............self.SEED',self.SEED)
 
         n_init = inf if learner=='DUMMY' else self.NI #num_workers
-        print ('............n_init',n_init)        
+        print ('............n_init',n_init)
         if isinstance(self.space, CS.ConfigurationSpace) or (ccs_active and isinstance(self.space, CCS.ConfigurationSpace)):
             self._optimizer = SkOptimizer(
                 dimensions=self.space,
@@ -59,7 +58,7 @@ class Optimizer:
                 acq_func_kwargs={'kappa':self.KAPPA},
                 random_state=self.SEED,
                 n_initial_points=n_init
-            )           
+            )
 
         self.evals = {}
         self.counter = 0
@@ -151,3 +150,4 @@ class Optimizer:
             f"where len(self._optimizer.Xi)=={len(self._optimizer.Xi)}, "
             f"len(self._optimizer.yi)=={len(self._optimizer.yi)},"
             f"self.counter=={self.counter}")
+
