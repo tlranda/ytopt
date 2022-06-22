@@ -111,8 +111,11 @@ def combine_seeds(data, args):
             elif args.synchronous:
                 step_data = []
                 for idx2, df in enumerate(entry['data']):
-                    local_step = df[df['elapsed_sec'] == lookup_steps[idx2][step]].index[0]
-                    last_step[idx2] = df.iloc[local_step][objective_col]
+                    try:
+                        local_step = df[df['elapsed_sec'] == lookup_steps[idx2][step]].index[0]
+                        last_step[idx2] = df.iloc[local_step][objective_col]
+                    except (KeyError, IndexError):
+                        pass
                     step_data.append(last_step[idx2])
             else:
                 step_data = []

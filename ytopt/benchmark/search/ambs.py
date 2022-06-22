@@ -99,7 +99,61 @@ class AMBS(Search):
                 problemName += '.py'
             self.inputs.append(util.load_from_file(problemName, attr))
 
-        self.make_liar_model()
+        # NEW
+        logger.info(f"Generating {self.n_generate} transferred points with SDV...")
+        # Assume parameter names match
+        self.param_names = self.get_validated_param_names()
+        n_params = len(self.param_names)
+        # Get constraints
+        constraints = []
+        for target in self.targets:
+            constraints.extend(target.constraints)
+        # Get SDV online ready to go for TL
+        model = sdv_models[self.sdv_model](
+                        field_names = ['input']+self.param_names+['runtime'],
+                        field_transformers = self.targets[0].problem_params,
+                        constraints = constraints,
+                        min_value = None,
+                        max_value = None)
+
+        # Get training data
+        frames = []
+        criterion = []
+        for idx, problem in enumerate(self.inputs):
+            # Load the best top x%
+            criterion.append(problem.problem_class)
+            results_file = problem.plopper.kernel_dir+"/results_"+str(problem.problem_class)+".csv"
+            if not os.path.exists(results_file):
+                raise ValueError(f"Could not find {results_file} for '{problem.name}' "
+                                 "\nYou may need to run this problem or rename its output "
+                                 "as above for the script to locate it")
+            dataframe = pd.read_csv(results_file)
+            # dataframe['runtime'] = np.log(dataframe['objective'])
+            dataframe['runtime'] = dataframe['objective']
+            dataframe['input'] = pd.Series(int(problem.problem_class) for _ in range(len(dataframe.index)))
+            q_10_s = np.quantile(dataframe.runtime.values, self.top)
+            selected = dataframe.loc[dataframe['runtime'] <= q_10_s]
+            selected = selected.drop(columns=['elapsed_sec', 'objective'])
+            frames.append(selected)
+        data = pd.concat(frames).reset_index().drop(columns=['index'])
+        # SDV implicitly REQUIRES 10 rows to fit non-GaussianCopula models
+        # While it may not work as intended, you can duplicate data in the set to reach/exceed 10
+        # and allow a fit to occur
+        while len(data) < 10 and self.sdv_model != 'GaussianCopula':
+            # You can write this in one line, but split it up for sanity's sake
+            # Get index ids for as much data exists or the remainder to get to 10 entries
+            repeated_data = [data.index[_] for _ in range(max(1,min(10-len(data), len(data))))]
+            # Extract this portion to duplicate it
+            repeated_data = data.loc[repeated_data]
+            # Append it to the original frame and fix the index column so future loops don't get
+            # multiple hits per index looked up
+            data = data.append(repeated_data).reset_index().drop(columns='index')
+
+        for col in data.columns:
+            if col in self.targets[0].params:
+                data[col] = data[col].astype(str)
+        model.fit(data)
+        self.model = model
 
         logger.info("Initializing AMBS")
         self.optimizer = Optimizer(
@@ -111,7 +165,7 @@ class AMBS(Search):
             set_KAPPA=set_KAPPA,
             set_SEED=set_SEED,
             set_NI=set_NI,
-            model_sdv=self.model,
+            sdv_model=self.model,
         )
 
     @staticmethod
@@ -298,60 +352,6 @@ class AMBS(Search):
 
         # Have optimizer ingest results from SDV's predictions
         self.make_arbitrary_evals(sampled)
-
-    def make_liar_model(self):
-        # NEW
-        logger.info(f"Generating {self.n_generate} transferred points with SDV...")
-        # Assume parameter names match
-        self.param_names = self.get_validated_param_names()
-        n_params = len(self.param_names)
-        # Get constraints
-        constraints = []
-        for target in self.targets:
-            constraints.extend(target.constraints)
-        # Get SDV online ready to go for TL
-        model = sdv_models[self.sdv_model](
-                        field_names = ['input']+self.param_names+['runtime'],
-                        field_transformers = self.targets[0].problem_params,
-                        constraints = constraints,
-                        min_value = None,
-                        max_value = None)
-
-        # Get training data
-        frames = []
-        criterion = []
-        for idx, problem in enumerate(self.inputs):
-            # Load the best top x%
-            criterion.append(problem.problem_class)
-            results_file = problem.plopper.kernel_dir+"/results_"+str(problem.problem_class)+".csv"
-            if not os.path.exists(results_file):
-                raise ValueError(f"Could not find {results_file} for '{problem.name}' "
-                                 "\nYou may need to run this problem or rename its output "
-                                 "as above for the script to locate it")
-            dataframe = pd.read_csv(results_file)
-            # dataframe['runtime'] = np.log(dataframe['objective'])
-            dataframe['runtime'] = dataframe['objective']
-            dataframe['input'] = pd.Series(int(problem.problem_class) for _ in range(len(dataframe.index)))
-            q_10_s = np.quantile(dataframe.runtime.values, self.top)
-            selected = dataframe.loc[dataframe['runtime'] <= q_10_s]
-            selected = selected.drop(columns=['elapsed_sec', 'objective'])
-            frames.append(selected)
-        data = pd.concat(frames).reset_index().drop(columns=['index'])
-        # SDV implicitly REQUIRES 10 rows to fit non-GaussianCopula models
-        # While it may not work as intended, you can duplicate data in the set to reach/exceed 10
-        # and allow a fit to occur
-        while len(data) < 10 and self.sdv_model != 'GaussianCopula':
-            # You can write this in one line, but split it up for sanity's sake
-            # Get index ids for as much data exists or the remainder to get to 10 entries
-            repeated_data = [data.index[_] for _ in range(max(1,min(10-len(data), len(data))))]
-            # Extract this portion to duplicate it
-            repeated_data = data.loc[repeated_data]
-            # Append it to the original frame and fix the index column so future loops don't get
-            # multiple hits per index looked up
-            data = data.append(repeated_data).reset_index().drop(columns='index')
-
-        model.fit(data)
-        self.model = model
 
     def main(self):
         timer = util.DelayTimer(max_minutes=None, period=SERVICE_PERIOD)

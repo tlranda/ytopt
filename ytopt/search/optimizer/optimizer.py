@@ -3,7 +3,6 @@ from sys import float_info
 import numpy as np
 from numpy import inf
 from skopt import Optimizer as SkOptimizer
-
 from ytopt.search import util
 
 import ConfigSpace as CS
@@ -21,7 +20,7 @@ class Optimizer:
     SEED = 12345
     KAPPA = 1.96
 
-    def __init__(self, num_workers: int, space, learner, acq_func, liar_strategy, set_KAPPA, set_SEED, set_NI, **kwargs):
+    def __init__(self, num_workers: int, space, learner, acq_func, liar_strategy, set_KAPPA, set_SEED, set_NI, sdv_model, **kwargs):
         assert learner in ["RF", "ET", "GBRT", "GP", "DUMMY"], f"Unknown scikit-optimize base_estimator: {learner}"
         assert liar_strategy in "cl_min cl_mean cl_max".split()
 
@@ -32,6 +31,7 @@ class Optimizer:
         self.KAPPA = set_KAPPA
         self.SEED  = set_SEED
         self.NI    = set_NI
+        self.model = sdv_model
         print ('............self.KAPPA',self.KAPPA)
         print ('............self.learner',self.learner)
         print ('............self.acq_func',self.acq_func)
@@ -47,7 +47,8 @@ class Optimizer:
                 acq_func=self.acq_func,
                 acq_func_kwargs={'kappa':self.KAPPA},
                 random_state=self.SEED,
-                n_initial_points=n_init
+                n_initial_points=n_init,
+                model_sdv = self.model,
             )
         else:
              self._optimizer = SkOptimizer(
@@ -57,7 +58,8 @@ class Optimizer:
                 acq_func=self.acq_func,
                 acq_func_kwargs={'kappa':self.KAPPA},
                 random_state=self.SEED,
-                n_initial_points=n_init
+                n_initial_points=n_init,
+                model_sdv = self.model,
             )
 
         self.evals = {}
