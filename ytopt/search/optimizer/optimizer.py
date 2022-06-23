@@ -102,6 +102,7 @@ class Optimizer:
         if key not in self.evals:
             self.counter += 1
             self._optimizer.tell(x,y)
+            self._optimizer._n_initial_points += 1 # LIES DO NOT COUNT
             self.evals[key] = y
             logger.debug(f'_ask: {x} lie: {y}')
         else:
@@ -129,6 +130,7 @@ class Optimizer:
             if key not in self.evals:
                 self.counter += 1
                 self._optimizer.tell(x,y)
+                self._optimizer._n_initial_points += 1 # LIES DO NOT COUNT
                 self.evals[key] = y
         return [self.to_dict(x) for x in XX]
 
