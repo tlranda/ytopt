@@ -30,6 +30,8 @@ def build():
                      default=plt.rcParams["figure.figsize"], help="Figure size in inches "
                      f"(default is {plt.rcParams['figure.figsize']})")
     prs.add_argument("--synchronous", action="store_true", help="Synchronize mean time across seeds for wall-time plots")
+    prs.add_argument("--no-plots", action="store_true", help="Skip plot generation")
+    prs.add_argument("--no-text", action="store_true", help="Skip text generation")
     return prs
 
 def parse(prs, args=None):
@@ -233,8 +235,6 @@ def alter_color(color_tup, ratio=0.5, brighten=True):
 
 def plot_source(fig, ax, idx, source, args, ntypes):
     data = source['data']
-    # Announce the line's best result
-    print(f"{source['name']} BEST RESULT: {min(data['obj'])} at x = {data['exe'].iloc[data['obj'].to_list().index(min(data['obj']))]}")
     # Color help
     colors = [mcolors.to_rgb(_['color']) for _ in list(plt.rcParams['axes.prop_cycle'])]
     color = colors[idx % len(colors)]
@@ -268,32 +268,80 @@ def plot_source(fig, ax, idx, source, args, ntypes):
                 color=alter_color(color, brighten=False), zorder=0)
         ax.plot(data['exe'], data['max'], linestyle='--',
                 color=alter_color(color, brighten=False), zorder=0)
+
+def text_analysis(all_data):
+    best_results = {}
+    for source in all_data:
+        data = source['data']
+        # Announce the line's best result
+        min_y = min(data['obj'])
+        min_x = data['exe'].iloc[data['obj'].to_list().index(min_y)]
+        best_results[source['name']] = {'min_y': min_y,
+                                        'min_x': min_x}
+    for k,v in best_results.items():
+        print(f"{k} BEST RESULT: {v['min_y']} at x = {v['min_x']}")
+        if 'DEFAULT' not in k:
+            best_results[k]['advantage'] = 0
+        for k2,v2 in best_results.items():
+            if k2 == k:
+                continue
+            improvement = v2['min_y'] / v['min_y']
+            improved = improvement > 1
+            if not improved:
+                improvement = 1 / improvement
+            print("\t"+f"{'Better than' if improved else 'Worse than'} {k2}'s best by {improvement}")
+            speedup = v2['min_x'] / v['min_x']
+            speed = speedup > 1
+            if not speed:
+                speedup = 1 / speedup
+            print("\t\t"+f"{'Speedup' if speed else 'Slowdown'} to best solution of {speedup}")
+            if not improved:
+                improvement *= -1
+            if not speed:
+                speedup *= -1
+            print("\t\t"+f"Advantage: {improvement + speedup}")
+            if 'DEFAULT' not in k:
+                best_results[k]['advantage'] += improvement + speedup
+    winners, advantages = [], []
+    for k,v in best_results.items():
+        if 'advantage' not in v.keys():
+            continue
+        winners.append(k)
+        advantages.append(v['advantage'])
+        print(f"{k} sum advantage {v['advantage']}")
+    advantage = max(advantages)
+    winner = winners[advantages.index(advantage)]
+    print(f"Most advantaged {winner} with sum advantage {advantage}")
+
 def main(args):
     data = load_all(args)
     fig, ax, name = prepare_fig(args)
     ntypes = len(set([_['type'] for _ in data]))
-    for idx, source in enumerate(data):
-        plot_source(fig, ax, idx, source, args, ntypes)
-    # make x-axis data
-    if args.x_axis == "evaluation":
-        xname = "Evaluation #"
-    else:
-        xname = "Elapsed Time (seconds)"
-    # make y-axis data
-    yname = "Objective"
-    ax.set_xlabel(xname)
-    ax.set_ylabel(yname)
-    if args.log_x:
-        ax.set_xscale("log")
-    if args.log_y:
-        ax.set_yscale("log")
-    if args.legend is not None:
-        ax.legend(loc=" ".join(args.legend))
+    if not args.no_text:
+        text_analysis(data)
+    if not args.no_plots:
+        for idx, source in enumerate(data):
+            plot_source(fig, ax, idx, source, args, ntypes)
+        # make x-axis data
+        if args.x_axis == "evaluation":
+            xname = "Evaluation #"
+        else:
+            xname = "Elapsed Time (seconds)"
+        # make y-axis data
+        yname = "Objective"
+        ax.set_xlabel(xname)
+        ax.set_ylabel(yname)
+        if args.log_x:
+            ax.set_xscale("log")
+        if args.log_y:
+            ax.set_yscale("log")
+        if args.legend is not None:
+            ax.legend(loc=" ".join(args.legend))
 
-    if args.show:
-        plt.show()
-    else:
-        plt.savefig("_".join([args.output,name]))
+        if args.show:
+            plt.show()
+        else:
+            plt.savefig("_".join([args.output,name]))
 
 if __name__ == '__main__':
     main(parse(build()))
