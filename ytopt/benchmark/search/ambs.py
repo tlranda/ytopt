@@ -6,13 +6,6 @@ Asynchronous Model-Based Search. (WITH LIES FROM SDV)
 import pdb
 import signal
 
-"""
-    TEMPORARY DEBUG: FOR HISTOGRAMS
-"""
-import matplotlib
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-
 from ytopt.search.optimizer import Optimizer
 from ytopt.search import Search
 from ytopt.search import util
@@ -39,7 +32,6 @@ def check_conditional_sampling(objectlike):
         return False
     return not("raise NotImplementedError" in source and
                "doesn't support conditional sampling" in source)
-
 conditonal_sampling_support = dict((k,check_conditional_sampling(v)) for (k,v) in sdv_models.items())
 sdv_default = list(sdv_models.keys())[0]
 from sdv.constraints import Between
@@ -57,7 +49,8 @@ def on_exit(signum, stack):
 class AMBS(Search):
     def __init__(self, learner='RF', liar_strategy='cl_max', acq_func='gp_hedge', set_KAPPA=1.96,
                        set_SEED=12345, set_NI=10, top=0.1,
-                       inputs=None, model=sdv_default, n_generate=1000, **kwargs):
+                       inputs=None, model=sdv_default, n_generate=1000,
+                       no_approximate_bias = False, **kwargs):
         # The import logic is fragile, hot-glue it here and let ytopt team deal with it otherwise
         # Since we don't define problem / evaluator / cache_key, these are all set nicely by default
         settings = kwargs
@@ -99,7 +92,6 @@ class AMBS(Search):
                 problemName += '.py'
             self.inputs.append(util.load_from_file(problemName, attr))
 
-        # NEW
         logger.info(f"Generating {self.n_generate} transferred points with SDV...")
         # Assume parameter names match
         self.param_names = self.get_validated_param_names()
@@ -166,7 +158,7 @@ class AMBS(Search):
         self.model = model
 
         # Use Approximate Sampling?
-        if True:
+        if not no_approximate_bias:
             # Make approximate conditions available in the input space
             approximate_conds = {'criterion': sorted([p.problem_class for p in self.inputs]),
                                  'conditions': [Condition({'input': t.problem_class},
@@ -227,6 +219,7 @@ class AMBS(Search):
         parser.add_argument('--inputs', type=str, nargs='+', required=True, help="Problems for input")
         #parser.add_argument('--targets', type=str, nargs='+', required=True, help="Problems to target")
         parser.add_argument('--model', choices=list(sdv_models.keys()), default=sdv_default, help="SDV model")
+        parser.add_argument('--no-approximate-bias', action='store_true', help="Use normal .sample() instead of .sample_conditions() or an approximation of .sample_conditions()")
         parser.add_argument('--unique', action='store_true', help="Do not re-evaluate points seen since last dataset generation")
         return parser
 
@@ -346,31 +339,6 @@ class AMBS(Search):
         sampled = sampled[:self.n_generate]
         for col in self.param_names:
             sampled[col] = sampled[col].astype(str)
-        """
-            TEMPORARY: Make histogram
-        """
-        #fig, ax = plt.subplots()
-        #histogram = sampled.hist(bins=20, column=['runtime'], ax=ax)
-        fname = f'hist_{len(sampled)}.png'
-        all_preds = []
-        all_real = []
-        #def compare_beliefs(results, columns, dtypes, input_size, model, ax):
-        #    dfcolumns = set(list(columns)+['input'])
-        #    dfcolumns.remove('runtime')
-        #    for (di, realtime) in results:
-        #        df = pd.DataFrame(di, columns=dfcolumns, index=[0])
-        #        df['input'] = input_size
-        #        for c,v in zip(columns, dtypes):
-        #            if c in df.columns and v != 'O':
-        #                df[c] = df[c].astype(v)
-        #        try:
-        #            prediction = model.sample_remaining_columns(df)['runtime'][0]
-        #            print(f"predict {prediction} actual {realtime}")
-        #            all_preds.append(prediction)
-        #            all_real.append(realtime)
-        #        except ValueError:
-        #            print(f"Unable to recover prediction")
-
         # Have optimizer ingest results from SDV's predictions
         self.make_arbitrary_evals(sampled)
 
@@ -396,18 +364,8 @@ class AMBS(Search):
             num_evals += len(results)
             chkpoint_counter += len(results)
             if EXIT_FLAG or num_evals >= self.max_evals:
-                """
-                    TEMPORARY: Compare eval to model belief
-                """
-                #compare_beliefs(results, data.columns, data.dtypes, self.targets[0].problem_class,
-                #                model, ax)
                 break
             if results:
-                """
-                    TEMPORARY: Compare eval to model belief
-                """
-                #compare_beliefs(results, data.columns, data.dtypes, self.targets[0].problem_class,
-                #                model, ax)
                 logger.info(f"Refitting model with batch of {len(results)} evals")
                 self.optimizer.tell(results)
                 logger.info(f"Drawing {len(results)} points with strategy {self.optimizer.liar_strategy}")
@@ -417,11 +375,6 @@ class AMBS(Search):
                 self.evaluator.dump_evals()
                 chkpoint_counter = 0
 
-        #fig2, ax2 = plt.subplots()
-        #ax2.scatter(all_preds, all_real)
-        #ax2.set_xlabel("Prediction")
-        #ax2.set_ylabel("Actual")
-        #plt.show()
         logger.info('Hyperopt driver finishing')
         self.evaluator.dump_evals()
 
