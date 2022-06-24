@@ -1,1 +1,0 @@
-python -m ytopt.search.ambs --evaluator ray --learner RF  --problem problem.Problem --max-evals=10
