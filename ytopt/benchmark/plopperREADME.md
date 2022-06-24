@@ -19,26 +19,9 @@ Chapters:
 
 Most of the heavy lifting is done by the Plopper class, so just subclass it and change the few parts you need.
 
-### Initialization, One-and-Done Checks
-
-If your problem needs to make some initialization changes, it is recommended to make them by overriding `initChecks()`:
-```python
-class myPlopper(base_plopper.Plopper):
-    def initChecks(self, **kwargs):
-        if 'myAttr' in kwargs.keys():
-            # Do things based on this attribute passed to __init__()
-        # Can also do one-off environment checks here
-        import os
-        try:
-            self.device = 'cuda:'+os.environ['CUDA_VISIBLE_DEVICES'].split(',')[0]
-        except KeyError:
-            self.device = 'cpu'
-        ...
-```
-
 ### Parameterization of Source Files
 
-When changing values in a source file, use a `findReplaceRegex` object and bind it to your class instances during the `initChecks()` call
+When changing values in a source file, use a `findReplaceRegex` object and bind it to your class instances after the `super().__init__()` call
 ```python
 # Source file contains strings to replaced that look like '#P0', '#P1', etc
 # The group is used to form the parameter value that informs which of the problem parameters replaces this string in the file's text
@@ -55,8 +38,10 @@ regexObject = base_plopper.findReplaceRegex(find, prefix=prefix_transform, suffi
 ...
 
 class myPlopper(base_plopper.Plopper):
-    def initChecks(self, **kwargs):
-        self.findReplace = regexObject
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.findReplace is None:
+            self.findReplace = regexObject
         ...
 ```
 
@@ -81,7 +66,7 @@ def metric(self, timing_list):
 ### Simply Compile (if needed) and Run
 
 Define a `compileString()` method if you need to utilize compilation.
-Default behavior skips a compilation attempt unless the method returns a nonempty string.
+Default behavior skips a compilation attempt unless the method returns a string.
 ```python
 def compileString(self, outfile, dictVal, *args, **kwargs):
     # May reference dictVal parameterization or other args as needed to customize compilation
@@ -146,7 +131,8 @@ In addition to the normal TuningProblem arguments, the problem rework requires:
 * Problem Class: An integer defining the scale of this problem instance
 
 Optionally, one may specify:
-* Silent: Suppress objective print statements
+* silent: Suppress objective print statements
+* use\_capital\_params: For when the placeholder in files use capitalized param names but elsewhere they are lowercase
 
 Reworked problems can automatically define useful output names, result destinations, etc.
 Typically, a subclass problem only needs to define its input/parameter/output spaces, models, class size and constraints to pass into the initializer.
@@ -170,5 +156,4 @@ The `plot_analysis.py` script interprets the _online_ traces of different experi
 `python plot_analysis.py --help` is instructive for running the script, but a few other handy items are detailed below.
 
 The script can calculate means/standard deviations automatically for experiments if they follow the same naming convention except for an integer near the end of the string (hard-coded to be before extension or '\_ALL' and the extension. Adding your seed value to output names for online learning will make this run much easier immediately after your experiment.
-
 
