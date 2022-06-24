@@ -1,8 +1,4 @@
-import os, sys
-FETCH_PLOPPER = os.path.abspath(os.path.dirname(os.path.abspath(__file__))+"/../../")
-if FETCH_PLOPPER not in sys.path:
-    sys.path.append(FETCH_PLOPPER)
-import base_plopper
+from ytopt.benchmark import base_plopper
 # Params take the form 'p#' (ie: p0, p1)... and are expressed in template code as '#P0', '#P1', '#P2'...
 # So the P should be part of the capturing group to lookup values, and the template # should be removed as a prefix
 find = r"#(P[0-9]+)"
@@ -33,15 +29,12 @@ class Syr2k_Plopper(base_plopper.Plopper):
     def runString(self, outfile, dictVal, *args, **kwargs):
         # Extension was dropped for executable name
         # Base version was set to go via srun
-        return "srun -n 1 "+outfile[:-len(self.output_extension)]
+        return outfile[:-len(self.output_extension)]
 
     def getTime(self, process, dictVal, *args, **kwargs):
         # Base version extracted objective from the process itself
-        try:
-            exe_time_run = [float(s) for s in process.stdout.decode('utf-8').split('\n')[-4:-1]]
-        except (IndexError, ValueError):
-            print(f"Failed to get time for {dictVal}")
-            return None
-        # Seems likely to be bad this shouldn't be a list right lol
+        exe_time_run = [float(s) for s in process.stdout.decode('utf-8').split('\n')[-4:-1]]
+        # May raise IndexError or ValueError if the process cannot be properly read
+        # Never returns None, as we ALWAYS want to use the internal timing for precision
         return exe_time_run
 

@@ -1,6 +1,4 @@
 import os, uuid, re, time, subprocess
-import atexit # Python < 3.10 bugfix for LazyPloppers
-import itertools # Chain fix for LazyPloppers
 
 """
     Expected usage:
@@ -15,7 +13,7 @@ import itertools # Chain fix for LazyPloppers
                 + As of now, only static strings are supported (not regexes)
                 + The first string is matched from the original input (removed)
                 + The second string is replaced in the new output (substitution for removed)
-    * If your benchmark needs to make startup checks for any of the following, override initChecks():
+    * Startup checks should be run after super().__init__(*args, **kwargs), for checking things like:
         + Host or GPU architecture
         + Presence of CUDA in source code (cache in self.buffer if you don't mind)
         + Compiler availability or dependent default flags for the compiler
@@ -138,11 +136,6 @@ class Plopper:
         self.force_plot = force_plot # Always utilize plotValues() even if there is no compilation string
 
         self.buffer = None
-        # If your plopper requires additional startup checks or attribute initialization, just override
-        # the initChecks() call below with any necessary arguments coming from keyword arguments
-        # This may include things such as checking for CUDA in the source file (go ahead and cache it in self.buffer if so),
-        # tracking the host architecture, GPU architecture, or determining what compiler or basic compiler options to use
-        self.initChecks(**kwargs)
 
     def seed(self, SEED):
         pass
@@ -159,14 +152,11 @@ class Plopper:
                     'force_plot': self.force_plot,
                     'buffer': self.buffer is not None})
 
-    def initChecks(self, **kwargs):
-        pass
-
     def compileString(self, outfile, dictVal, *args, **kwargs):
-        # Return empty string to skip compilation
+        # Return None to skip compilation
         # Override with compiling string rules to make a particular compilation occur (includes plotValues)
         # Final executable MUST be written to `outfile`
-        return ""
+        return None
 
     def runString(self, outfile, dictVal, *args, **kwargs):
         # Return the string used to execute the attempt
@@ -174,8 +164,6 @@ class Plopper:
         # Override as needed
         return outfile
 
-    # PLANNED CHANGES:
-    # Use regex for all changes (similar to commented out section), requires API change to supply REGEX from/to somewhere
     # Replace the Markers in the source file with the corresponding values
     def plotValues(self, outputfile, dictVal, *args, findReplace=None, **kwargs):
         if findReplace is None:
@@ -231,13 +219,18 @@ class Plopper:
             execution_status = subprocess.run(run_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             duration = time.time() - start
             # Find the execution time
-            derived_time = self.getTime(execution_status, dictVal, *args, **kwargs)
-            if derived_time is not None:
-                duration = derived_time
-            if duration == 0.0:
+            try:
+                derived_time = self.getTime(execution_status, dictVal, *args, **kwargs)
+                if derived_time is not None:
+                    duration = derived_time
+            except:
+                # Any exception in the getTime call should be treated as an evaluation failure
                 failures += 1
             else:
-                times.append(duration)
+                if duration == 0.0:
+                    failures += 1
+                else:
+                    times.append(duration)
         # Unable to evaluate this execution
         if failures > self.retries:
             return self.metric([self.infinity])
@@ -257,10 +250,10 @@ class Plopper:
         dictVal = dict((k,v) for (k,v) in zip(params, x))
         # If there is a compiling string, we need to run plotValues
         compile_str = self.compileString(interimfile, dictVal, *args, **kwargs)
-        if self.force_plot or compile_str != "":
+        if self.force_plot or compile_str is not None:
             self.plotValues(interimfile, dictVal, *args, **kwargs)
             # Compilation
-            if compile_str != "":
+            if compile_str is not None:
                 compilation_status = subprocess.run(compile_str, shell=True, stderr=subprocess.PIPE)
                 # Find execution time ONLY when the compiler return code is zero, else return infinity
                 if compilation_status.returncode != 0:
@@ -278,6 +271,8 @@ def __getattr__(name):
         return findReplaceRegex
     if name == 'LazyPlopper':
         import torch # Currently used for serialization
+        import atexit # Python < 3.10 bugfix for LazyPloppers
+        import itertools # Chain fix for LazyPloppers
         class LazyPlopper(Plopper):
             def __init__(self, *args, cachefile=None, randomizeCacheName=False, lazySaveInterval=5, **kwargs):
                 super().__init__(*args, **kwargs)
