@@ -23,7 +23,7 @@ def check_conditional_sampling(objectlike):
     return not("raise NotImplementedError" in source and
                "doesn't support conditional sampling" in source)
 
-conditonal_sampling_support = dict((k,check_conditional_sampling(v)) for (k,v) in sdv_models.items())
+conditional_sampling_support = dict((k,check_conditional_sampling(v)) for (k,v) in sdv_models.items())
 
 
 from sdv.constraints import CustomConstraint, Between
@@ -96,7 +96,7 @@ def close_enough(frame, rows, column, target, criterion):
 
 def sample_approximate_conditions(sdv_model, model, conditions, criterion, param_names):
     # If model supports conditional sampling, just utilize that
-    if conditonal_sampling_support[sdv_model]:
+    if conditional_sampling_support[sdv_model]:
         return model.sample_conditions(conditions)
     # Otherwise, it can be hard to conditionally sample using reject sampling.
     # As such, we do our own reject strategy
@@ -322,11 +322,19 @@ def main(args=None):
         # Load the best top x%
         results_file = inputs[-1].plopper.kernel_dir+"/results_"+str(inputs[-1].problem_class)+".csv"
         if not os.path.exists(results_file):
-            # Execute the input problem and move its results files to the above directory
-            raise ValueError(f"Could not find {results_file} for '{problemName}' "
-                             f"[{inputs[-1].name}]"
-                             "\nYou may need to run this problem or rename its output "
-                             "as above for the script to locate it")
+            backup_results_file = results_file.rsplit('/',1)
+            backup_results_file.insert(1, '/data/')
+            backup_results_file = "".join(backup_results_file)
+            if not os.path.exists(backup_results_file):
+                # Execute the input problem and move its results files to the above directory
+                raise ValueError(f"Could not find {results_file} for '{problemName}' "
+                                 f"[{inputs[-1].name}] and no backup at {backup_results_file}"
+                                 "\nYou may need to run this problem or rename its output "
+                                 "as above for the script to locate it")
+                else:
+                    print(f"WARNING! {problemName} [{inputs[-1].name}] is using backup data rather "
+                            "than original data")
+                    results_file = backup_results_file
         dataframe = pd.read_csv(results_file)
         dataframe['runtime'] = dataframe['objective'] # log(run time)
         dataframe['input'] = pd.Series(int(inputs[-1].problem_class) for _ in range(len(dataframe.index)))
