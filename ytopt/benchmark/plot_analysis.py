@@ -1,8 +1,9 @@
-import numpy as np, pandas as pd, copy, os, argparse, matplotlib
+import numpy as np, pandas as pd, os, argparse, matplotlib
 # Change backend if need be
 # matplotlib.use_backend()
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+# Get legend names from matplotlib
 from matplotlib.offsetbox import AnchoredOffsetbox
 legend_codes = list(AnchoredOffsetbox.codes.keys())+['best']
 from sklearn.metrics import r2_score
