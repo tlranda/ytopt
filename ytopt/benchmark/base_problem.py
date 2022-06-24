@@ -135,11 +135,20 @@ class BaseProblem:
 
 def import_method_builder(clsref, lookup, default):
     def getattr_fn(name):
-        name = name.lstrip("_").lstrip("class").rstrip("Problem")
+        prefixes = ["_", "class"]
+        suffixes = ["Problem"]
+        for pre in prefixes:
+            if name.startswith(pre):
+                name = name[len(pre):]
+        for suf in suffixes:
+            if name.endswith(suf):
+                name = name[:-len(suf)]
         if name in lookup.keys():
             class_size = lookup[name]
             return clsref(class_size)
         elif name == "":
             return clsref(default)
+        else:
+            raise AttributeError(f"module defining {clsref.__name__} has no attribute '{name}'")
     return getattr_fn
 

@@ -1,11 +1,11 @@
-import os, sys
 import numpy as np
-HERE = os.path.dirname(os.path.abspath(__file__))
-from ytopt.benchmark.base_problem import BaseProblem
+from sdv.constraints import Between
+from ytopt.benchmark.base_problem import BaseProblem, import_method_builder
 from autotune.space import *
 from skopt.space import Real, Integer, Categorical
 from ytopt.benchmark.covariance_exp.plopper.newPlopper import Covariance_Plopper as Plopper
-from sdv.constraints import Between
+import os, sys
+HERE = os.path.dirname(os.path.abspath(__file__))
 import pdb
 
 # Keys based on values of N, third tuple value is value of M
@@ -68,30 +68,11 @@ class Covariance_Problem(BaseProblem):
             kwargs['constraints'] = self.constraints
         if 'categorical_cast' not in kwargs.keys():
             kwargs['categorical_cast'] = self.categorical_cast
+        kwargs['use_capital_params'] = True
         super().__init__(*args, **kwargs)
-        # Transform names between check finite and finding runtime
-        self.CAPITAL_PARAMS = [_.capitalize() for _ in self.params]
 
     def objective(self, point: dict, *args, **kwargs):
-        x = np.asarray_chkfinite([point[k] for k in self.params]) # ValueError if any NaN or Inf
-        if not self.silent:
-            print(f"CONFIG: {point}")
-        result = self.plopper.findRuntime(x, self.CAPITAL_PARAMS, self.dataset, *args, **kwargs)
-        final = float(np.mean(result))
-        if not self.silent:
-            print(f"OUTPUT: {result} --> {final}")
-        return final
+        return super().objective(point, self.dataset)
 
-def __getattr__(name):
-    if name.startswith("_"):
-        name = name[1:]
-    if name.startswith("class"):
-        name = name[4:]
-    if name.endswith("Problem"):
-        name = name[:-7]
-    if name in inv_lookup.keys():
-        class_size = inv_lookup[name]
-        return Covariance_Problem(class_size)
-    elif name == "":
-        return Covariance_Problem(260) # Default .Problem attribute
+__getattr__ = import_method_builder(Covariance_Problem, inv_lookup, 260)
 
