@@ -130,11 +130,11 @@ class AMBS(Search):
                 if not os.path.exists(backup_results_file):
                     # Execute the input problem and move its results files to the above directory
                     raise ValueError(f"Could not find {results_file} for '{problemName}' "
-                                     f"[{inputs[-1].name}] and no backup at {backup_results_file}"
+                                     f"[{problem.name}] and no backup at {backup_results_file}"
                                      "\nYou may need to run this problem or rename its output "
                                      "as above for the script to locate it")
                 else:
-                    print(f"WARNING! {problemName} [{inputs[-1].name}] is using backup data rather "
+                    print(f"WARNING! {problemName} [{problem.name}] is using backup data rather "
                             "than original data")
                     results_file = backup_results_file
             dataframe = pd.read_csv(results_file)
