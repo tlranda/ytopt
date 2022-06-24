@@ -124,9 +124,19 @@ class AMBS(Search):
             criterion.append(problem.problem_class)
             results_file = problem.plopper.kernel_dir+"/results_"+str(problem.problem_class)+".csv"
             if not os.path.exists(results_file):
-                raise ValueError(f"Could not find {results_file} for '{problem.name}' "
-                                 "\nYou may need to run this problem or rename its output "
-                                 "as above for the script to locate it")
+                backup_results_file = results_file.rsplit('/',1)
+                backup_results_file.insert(1, '/data/')
+                backup_results_file = "".join(backup_results_file)
+                if not os.path.exists(backup_results_file):
+                    # Execute the input problem and move its results files to the above directory
+                    raise ValueError(f"Could not find {results_file} for '{problemName}' "
+                                     f"[{inputs[-1].name}] and no backup at {backup_results_file}"
+                                     "\nYou may need to run this problem or rename its output "
+                                     "as above for the script to locate it")
+                else:
+                    print(f"WARNING! {problemName} [{inputs[-1].name}] is using backup data rather "
+                            "than original data")
+                    results_file = backup_results_file
             dataframe = pd.read_csv(results_file)
             # dataframe['runtime'] = np.log(dataframe['objective'])
             dataframe['runtime'] = dataframe['objective']
@@ -154,6 +164,17 @@ class AMBS(Search):
                 data[col] = data[col].astype(str)
         model.fit(data)
         self.model = model
+
+        # Use Approximate Sampling?
+        if True:
+            # Make approximate conditions available in the input space
+            approximate_conds = {'criterion': sorted([p.problem_class for p in self.inputs]),
+                                 'conditions': [Condition({'input': t.problem_class},
+                                                          num_rows=max(1,self.n_generate))
+                                                     for t in self.targets],
+                                 'param_names': sorted(self.targets[0].params),
+                                }
+            self.problem.input_space.approximate_conditions_dict = approximate_conds
 
         logger.info("Initializing AMBS")
         self.optimizer = Optimizer(
