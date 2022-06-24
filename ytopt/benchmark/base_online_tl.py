@@ -1,9 +1,8 @@
 import numpy as np, pandas as pd
 #from autotune.space import *
-import os, sys, time, argparse
+import os, time, argparse
 import inspect
 from csv import writer
-from copy import deepcopy as dcpy
 from sdv.tabular import GaussianCopula, CopulaGAN, CTGAN, TVAE
 # Will only use one of these, make a selection dictionary
 sdv_models = {'GaussianCopula': GaussianCopula,
@@ -22,9 +21,7 @@ def check_conditional_sampling(objectlike):
         return False
     return not("raise NotImplementedError" in source and
                "doesn't support conditional sampling" in source)
-
 conditional_sampling_support = dict((k,check_conditional_sampling(v)) for (k,v) in sdv_models.items())
-
 
 from sdv.constraints import CustomConstraint, Between
 from sdv.sampling.tabular import Condition
@@ -245,13 +242,11 @@ def online(targets, data, inputs, args, fname):
                             elapsed = now - time_start
                             if ss == []:
                                 ss = [sample_point[k] for k in param_names]
-                                ss += [evals_infer[-1]]
-                                ss += [sample_point_val[-1]]
+                                ss += [evals_infer[-1]]+[sample_point_val[-1]]
                                 ss += [elapsed]
                             else:
                                 # Append new target data to the CSV row
-                                ss2 = [evals_infer[-1]]
-                                ss2 += [sample_point_val[-1]]
+                                ss2 = [evals_infer[-1]]+[sample_point_val[-1]]
                                 ss2 += [elapsed]
                                 ss.extend(ss2)
                             # Basically: problem parameters, np.log(time), problem_class
@@ -287,7 +282,6 @@ def online(targets, data, inputs, args, fname):
                     stop = True
     csvfile.close()
 
-
 def main(args=None):
     args = parse(build(), args)
     sdv_model, max_retries, one_target, _, \
@@ -298,8 +292,7 @@ def main(args=None):
           'seed', RANDOM_SEED)
     # Seed control
     np.random.seed(RANDOM_SEED)
-    #import random
-    #random.seed(RANDOM_SEED)
+    # SDV MAY USE TORCH IN LOWER-LEVEL MODULES. CONTROL ITS RNG
     import torch
     torch.manual_seed(RANDOM_SEED)
 
