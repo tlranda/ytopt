@@ -28,6 +28,7 @@ class BaseProblem:
                  name = None,
                  constants = None,
                  silent = False,
+                 use_capital_params = None,
                  **kwargs):
         if name is not None:
             self.name = name
@@ -64,6 +65,8 @@ class BaseProblem:
             problem_params['runtime'] = 'float'
         self.problem_params = problem_params
         self.params = list([k for k in problem_params.keys() if k not in added_keys])
+        self.CAPITAL_PARAMS = [_.capitalize() for _ in self.params]
+        self.use_capital_params = use_capital_params
         self.n_params = len(self.params)
         self.problem_class = problem_class
         self.plopper = plopper
@@ -98,14 +101,27 @@ class BaseProblem:
             except AttributeError:
                 pass
 
+    def condense_results(self, results):
+        return float(np.mean(results[1:]))
+
     def objective(self, point: dict, *args, **kwargs):
         x = np.asarray_chkfinite([point[k] for k in self.params]) # ValueError if any NaN or Inf
         if not self.silent:
             print(f"CONFIG: {point}")
-        result = self.plopper.findRuntime(x, self.params, *args, **kwargs)
+        if self.use_capital_params is not None and self.use_capital_params:
+            result = self.plopper.findRuntime(x, self.CAPITAL_PARAMS, *args, **kwargs)
+        else:
+            result = self.plopper.findRuntime(x, self.params, *args, **kwargs)
+        if hasattr(result, '__iter__'):
+            final = self.condense_results(result)
+        else:
+            final = result
         if not self.silent:
-            print(f"OUTPUT: {result}")
-        return result
+            if final == result:
+                print(f"OUTPUT: {final}")
+            else:
+                print(f"OUTPUT: {result} --> {final}")
+        return final
 
     @staticmethod
     def configure_space(parameterization, seed=None):
@@ -116,4 +132,14 @@ class BaseProblem:
             params_list.append(parameter_lookups[p_type](**p_kwargs))
         space.add_hyperparameters(params_list)
         return space
+
+def import_method_builder(clsref, lookup, default):
+    def getattr_fn(name):
+        name = name.lstrip("_").lstrip("class").rstrip("Problem")
+        if name in lookup.keys():
+            class_size = lookup[name]
+            return clsref(class_size)
+        elif name == "":
+            return clsref(default)
+    return getattr_fn
 
