@@ -45,24 +45,24 @@ def build():
                         help='problems to use as target tasks')
     parser.add_argument('--model', choices=list(sdv_models.keys()),
                         default='GaussianCopula', help='SDV model')
-    parser.add_argument('--retries', type=int, default=1000,
-                        help='#retries given to SDV row generation')
     parser.add_argument('--single-target', action='store_true',
                         help='Treat each target as a unique problem (default: solve all targets at once)')
     parser.add_argument('--unique', action='store_true',
                         help='Do not re-evaluate points seen since the last dataset generation')
     parser.add_argument('--output-prefix', type=str, default='results_sdv',
                         help='Output files are created using this prefix (default: [results_sdv]*.csv)')
+    parser.add_argument('--no-log-objective', action='store_true',
+                        help="Avoid using logarithm on objective values")
+    parser.add_argument('--load-log', action='store_true',
+                        help="Apply logarithm to loaded TL data")
+    parser.add_argument('--speedup', default=None, type=str,
+                        help="File to refer to for base speed value")
     return parser
 
 def parse(prs, args=None):
     if args is None:
         args = prs.parse_args()
     return args
-
-def bind_from_args(args):
-    return args.model, args.retries, args.single_target, args.unique, \
-           args.max_evals, args.n_refit, args.top, args.seed
 
 def param_type(k, problem):
     v = problem.problem_params[k]
@@ -122,10 +122,8 @@ def sample_approximate_conditions(sdv_model, model, conditions, criterion, param
     return selected
 
 
-def online(targets, data, inputs, args, fname):
+def online(targets, data, inputs, args, fname, speed = None):
     global time_start
-    sdv_model, max_retries, _, unique, \
-               MAX_EVALS, N_REFIT, TOP, _ = bind_from_args(args)
 
     # All problems (input and target alike) must utilize the same parameters or this is not going to work
     param_names = set(targets[0].params)
@@ -148,8 +146,8 @@ def online(targets, data, inputs, args, fname):
     constraints = []
     for target in targets:
         constraints.extend(target.constraints)
-    if sdv_model != 'random':
-        model = sdv_models[sdv_model](
+    if args.sdv_model != 'random':
+        model = sdv_models[args.sdv_model](
                   field_names = ['input']+param_names+['runtime'],
                   field_transformers = targets[0].problem_params,
                   constraints = constraints,
@@ -173,7 +171,7 @@ def online(targets, data, inputs, args, fname):
         conditions = []
         for target_problem in targets:
             conditions.append(Condition({'input': target_problem.problem_class},
-                                        num_rows=max(100, MAX_EVALS)))
+                                        num_rows=max(100, args.max_evals)))
         evals_infer = []
         eval_master = 0
         # Initial fit
@@ -184,15 +182,15 @@ def online(targets, data, inputs, args, fname):
             model.fit(data)
             warnings.simplefilter('default')
         time_start = time.time()
-        while eval_master < MAX_EVALS:
+        while eval_master < args.max_evals:
             # Generate prospective points
-            if sdv_model != 'random':
+            if args.sdv_model != 'random':
                 # Some SDV models don't realllllly support the kind of conditional sampling we need
                 # So this call will bend the condition rules a bit to help them produce usable data
                 # until SDV fully supports conditional sampling for those models
                 # For any model where SDV has conditional sampling support, this SHOULD utilize SDV's
                 # real conditional sampling and bypass the approximation entirely
-                ss1 = sample_approximate_conditions(sdv_model, model, conditions,
+                ss1 = sample_approximate_conditions(args.sdv_model, model, conditions,
                                                         sorted(criterion), param_names)
                 for col in param_names:
                     ss1[col] = ss1[col].astype(str)
@@ -217,7 +215,7 @@ def online(targets, data, inputs, args, fname):
             # Don't evaluate the exact same parameter configuration multiple times in a fitting round
             ss1 = ss1.drop_duplicates(subset=param_names, keep="first")
             ss = ss1.sort_values(by='runtime')#, ascending=False)
-            new_sdv = ss[:MAX_EVALS]
+            new_sdv = ss[:args.max_evals]
             eval_update = 0
             stop = False
             while not stop:
@@ -232,11 +230,14 @@ def online(targets, data, inputs, args, fname):
                     n_matching_columns = (data[list(problem_tuple)] == search_equals).sum(1)
                     full_match_idx = np.where(n_matching_columns == n_params+1)[0]
                     matching_data = data.iloc[full_match_idx]
-                    if matching_data.empty or not unique:
+                    if matching_data.empty or not args.unique:
                         ss = []
                         for target_problem in targets:
                             # Use the target problem's .objective() call to generate an evaluation
-                            evals_infer.append(target_problem.objective(sample_point))
+                            if speed is None:
+                                evals_infer.append(target_problem.objective(sample_point))
+                            else:
+                                evals_infer.append(speed / target_problem.objective(sample_point))
                             print(target_problem.name, sample_point, evals_infer[-1])
                             now = time.time()
                             elapsed = now - time_start
@@ -252,7 +253,10 @@ def online(targets, data, inputs, args, fname):
                             # Basically: problem parameters, np.log(time), problem_class
                             evaluated = list(search_equals)
                             # Insert runtime before the problem class size
-                            evaluated.insert(-1, float(np.log(evals_infer[-1])))
+                            if args.no_log_objective:
+                                evaluated.insert(-1, float(evals_infer[-1]))
+                            else:
+                                evaluated.insert(-1, float(np.log(evals_infer[-1])))
                             # For each problem we want to denote the actual result in
                             # our dataset to improve future data generation
                             if matching_data.empty:
@@ -268,36 +272,40 @@ def online(targets, data, inputs, args, fname):
                         eval_update += 1
                         eval_master += 1
                     # Important to run refit AFTER at least one evaluation is done, else we
-                    # infinite loop when N_REFIT=0 (never)
-                    if eval_update == N_REFIT:
+                    # infinite loop when args.n_refit=0 (never)
+                    if eval_update == args.n_refit:
                         # update model
                         if model is not None:
                             model.fit(data)
                         stop = True
                         break
-                    if eval_master >= MAX_EVALS:
+                    if eval_master >= args.max_evals:
                         stop = True
                         break
-                if unique or N_REFIT == 0:
+                if args.unique or args.n_refit == 0:
                     stop = True
     csvfile.close()
 
 def main(args=None):
     args = parse(build(), args)
-    sdv_model, max_retries, one_target, _, \
-               MAX_EVALS, N_REFIT, TOP, RANDOM_SEED = bind_from_args(args)
     output_prefix = args.output_prefix
-    print(f"USING {sdv_model} for constraints with {max_retries} allotted retries")
-    print('max_evals', MAX_EVALS, 'number of refit', N_REFIT, 'how much to train', TOP,
-          'seed', RANDOM_SEED)
+    print(f"USING {args.sdv_model} for constraints with {args.max_retries} allotted retries")
+    print('max_evals', args.max_evals, 'number of refit', args.n_refit, 'how much to train', args.top,
+          'seed', args.seed)
     # Seed control
-    np.random.seed(RANDOM_SEED)
+    np.random.seed(args.seed)
     # SDV MAY USE TORCH IN LOWER-LEVEL MODULES. CONTROL ITS RNG
     import torch
-    torch.manual_seed(RANDOM_SEED)
+    torch.manual_seed(args.seed)
 
     X_opt = []
-    print ('----------------------------- how much data to use?', TOP)
+    print ('----------------------------- how much data to use?', args.top)
+
+    # Different objective for speedup
+    if args.speedup is not None:
+        speed = pd.read_csv(args.speedup)['objective'][0]
+    else:
+        speed = None
 
     # Load the input and target problems
     inputs, targets, frames = [], [], []
@@ -329,9 +337,14 @@ def main(args=None):
                         "than original data")
                 results_file = backup_results_file
         dataframe = pd.read_csv(results_file)
-        dataframe['runtime'] = np.log(dataframe['objective']) # log(run time)
+        if args.speedup is not None:
+            dataframe['runtime'] = speed / dataframe['objective']
+        else:
+            dataframe['runtime'] = dataframe['objective']
+        if args.load_log:
+            dataframe['runtime'] = np.log(dataframe['runtime'])
         dataframe['input'] = pd.Series(int(inputs[-1].problem_class) for _ in range(len(dataframe.index)))
-        q_10_s = np.quantile(dataframe.runtime.values, TOP)
+        q_10_s = np.quantile(dataframe.runtime.values, args.top)
         real_df = dataframe.loc[dataframe['runtime'] <= q_10_s]
         real_data = real_df.drop(columns=['elapsed_sec', 'objective'])
         frames.append(real_data)
@@ -350,12 +363,12 @@ def main(args=None):
         # make target evaluations silent as we'll report them on our own
         targets[-1].silent = True
         # Seed control
-        targets[-1].seed(RANDOM_SEED)
+        targets[-1].seed(args.seed)
         # Single-target mode
-        if one_target:
-            online([targets[-1]], real_data, inputs, args, f"{output_prefix}_{targets[-1].name}.csv")
-    if not one_target:
-        online(targets, real_data, inputs, args, f"{output_prefix}_ALL.csv")
+        if args.single_target:
+            online([targets[-1]], real_data, inputs, args, f"{output_prefix}_{targets[-1].name}.csv", speed)
+    if not args.single_target:
+        online(targets, real_data, inputs, args, f"{output_prefix}_ALL.csv", speed)
 
 if __name__ == '__main__':
     main()
