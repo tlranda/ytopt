@@ -130,8 +130,8 @@ class AMBS(Search):
                             "than original data")
                     results_file = backup_results_file
             dataframe = pd.read_csv(results_file)
-            # dataframe['runtime'] = np.log(dataframe['objective'])
-            dataframe['runtime'] = dataframe['objective']
+            dataframe['runtime'] = np.log(dataframe['objective'])
+            #dataframe['runtime'] = dataframe['objective']
             dataframe['input'] = pd.Series(int(problem.problem_class) for _ in range(len(dataframe.index)))
             q_10_s = np.quantile(dataframe.runtime.values, self.top)
             selected = dataframe.loc[dataframe['runtime'] <= q_10_s]
@@ -367,6 +367,7 @@ class AMBS(Search):
                 break
             if results:
                 logger.info(f"Refitting model with batch of {len(results)} evals")
+                results = [(r[0], np.log(r[1])) for r in results]
                 self.optimizer.tell(results)
                 logger.info(f"Drawing {len(results)} points with strategy {self.optimizer.liar_strategy}")
                 for batch in self.optimizer.ask(n_points=len(results)):
