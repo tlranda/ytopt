@@ -324,12 +324,12 @@ def main(args=None):
                                  f"[{inputs[-1].name}] and no backup at {backup_results_file}"
                                  "\nYou may need to run this problem or rename its output "
                                  "as above for the script to locate it")
-                else:
-                    print(f"WARNING! {problemName} [{inputs[-1].name}] is using backup data rather "
-                            "than original data")
-                    results_file = backup_results_file
+            else:
+                print(f"WARNING! {problemName} [{inputs[-1].name}] is using backup data rather "
+                        "than original data")
+                results_file = backup_results_file
         dataframe = pd.read_csv(results_file)
-        dataframe['runtime'] = dataframe['objective'] # log(run time)
+        dataframe['runtime'] = np.log(dataframe['objective']) # log(run time)
         dataframe['input'] = pd.Series(int(inputs[-1].problem_class) for _ in range(len(dataframe.index)))
         q_10_s = np.quantile(dataframe.runtime.values, TOP)
         real_df = dataframe.loc[dataframe['runtime'] <= q_10_s]
