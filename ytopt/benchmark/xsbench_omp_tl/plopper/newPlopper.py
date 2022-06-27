@@ -1,8 +1,4 @@
-import os, sys
-FETCH_PLOPPER = os.path.abspath(os.path.dirname(os.path.abspath(__file__))+"/../../")
-if FETCH_PLOPPER not in sys.path:
-    sys.path.append(FETCH_PLOPPER)
-import base_plopper
+from ytopt.benchmark import base_plopper
 
 # Params take the form 'P#' (ie: P0, P1...) but are expressed in template code as '#P0', '#P1', ....
 # So the P should be part of the capturing group to lookup values, and the template # should be removed as a prefix
@@ -23,13 +19,13 @@ class XSBench_Plopper(base_plopper.Plopper):
         Call to findRuntime should be:
             (x, params)
     """
-
-    def initChecks(self, **kwargs):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         # Automatically load the desired findReplaceRegex we created above unless overridden
         if self.findReplace is None:
             self.findReplace = regexObject
-        self.use_exe_perl = self.evaluation_tries == 1
         # Track the size for the right completion to the perl script name
+        self.use_exe_perl = self.evaluation_tries == 1
         if 'exe_size' in kwargs.keys():
             self.exe_size = kwargs['exe_size']
         else:

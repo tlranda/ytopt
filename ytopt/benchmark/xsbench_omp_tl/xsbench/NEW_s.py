@@ -1,3 +1,13 @@
+import numpy as np
+from sdv.constraints import Between
+
+from ytopt.benchmark.base_problem import BaseProblem, import_method_builder
+#from autotune.problem import BaseProblem
+from autotune.space import *
+from skopt.space import Real, Integer, Categorical
+import relevant plopper
+from ytopt.benchmark.xsbench_omp_tl.plopper.newPlopper import XSBench_Plopper as Plopper
+
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 # Import base problem and spaces (first one is not Autotune-merged yet -- will be `from autotune import TuningProblem`)
@@ -14,7 +24,6 @@ if PLOPPER_SOURCE not in sys.path:
     sys.path.insert(1, PLOPPER_SOURCE)
 from newPlopper import XSBench_Plopper as Plopper
 # Create constraints
-from sdv.constraints import Between
 
 # Define ConfigSpace Parameterization
 input_space = BaseProblem.configure_space([#('UniformInt',
