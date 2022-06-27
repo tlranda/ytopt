@@ -32,6 +32,7 @@ def build():
     prs.add_argument("--synchronous", action="store_true", help="Synchronize mean time across seeds for wall-time plots")
     prs.add_argument("--no-plots", action="store_true", help="Skip plot generation")
     prs.add_argument("--no-text", action="store_true", help="Skip text generation")
+    prs.add_argument("--merge-dirs", action="store_true", help="Ignore directories when combining files")
     return prs
 
 def parse(prs, args=None):
@@ -42,6 +43,7 @@ def parse(prs, args=None):
     return args
 
 def make_seed_invariant_name(name, args):
+    directory = os.path.dirname(name) if not args.merge_dirs else 'MERGE'
     name = os.path.basename(name)
     name_dot, ext = name.rsplit('.',1)
     if name_dot.endswith("_ALL"):
@@ -51,14 +53,14 @@ def make_seed_invariant_name(name, args):
         intval = int(seed)
         name = base
     except ValueError:
-        return name
+        return name, directory
     if args.unname_prefix != "" and name.startswith(args.unname_prefix):
         name = name[len(args.unname_prefix):]
-    return name
+    return name, directory
 
 def make_baseline_name(name, args, df, col):
-    name = make_seed_invariant_name(name, args)
-    return name + f"_using_eval_{df[col].idxmin()+1}/{max(df[col].index)+1}"
+    name, directory = make_seed_invariant_name(name, args)
+    return name + f"_using_eval_{df[col].idxmin()+1}/{max(df[col].index)+1}", directory
 
 def combine_seeds(data, args):
     combined_data = []
@@ -157,24 +159,34 @@ def combine_seeds(data, args):
 def load_all(args):
     data = []
     inv_names = []
+    shortlist = []
     if args.inputs is not None:
         # Load all normal inputs
         for fname in args.inputs:
             fd = pd.read_csv(fname)
             # Drop unnecessary parameters
             d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
-            name = make_seed_invariant_name(fname, args)
-            if name in inv_names:
-                idx = inv_names.index(name)
+            name, directory = make_seed_invariant_name(fname, args)
+            fullname = directory+'.'+name
+            if fullname in inv_names:
+                idx = inv_names.index(fullname)
                 # Just put them side-by-side for now
                 data[idx]['data'].append(d)
             else:
-                data.append({'name': name, 'data': [d], 'type': 'input', 'fname': fname})
-                inv_names.append(name)
+                data.append({'name': fullname, 'data': [d], 'type': 'input',
+                             'fname': fname, 'dir': directory})
+                inv_names.append(fullname)
+                shortlist.append(name)
+    # Drop directory from names IF only represented once
+    for (name, fullname) in zip(shortlist, inv_names):
+        if shortlist.count(name) == 1:
+            idx = inv_names.index(fullname)
+            data[idx]['name'] = name
     # Load best-so-far inputs
     idx_offset = len(data) # Best-so-far have to be independent of normal inputs as the same file
                            # may be in both lists, but it should be treated by BOTH standards if so
     inv_names = []
+    shortlist = []
     if args.bests is not None:
         for fname in args.bests:
             fd = pd.read_csv(fname)
@@ -184,14 +196,23 @@ def load_all(args):
             for col in ['objective', 'exe_time']:
                 if col in d.columns:
                     d[col] = [min(d[col][:_+1]) for _ in range(0,len(d[col]))]
-            name = "best_"+make_seed_invariant_name(fname, args)
-            if name in inv_names:
-                idx = inv_names.index(name)
+            name, directory = make_seed_invariant_name(fname, args)
+            name = "best_"+name
+            fullname = directory+'.'+name
+            if fullname in inv_names:
+                idx = inv_names.index(fullname)
                 # Just put them side-by-side for now
                 data[idx_offset+idx]['data'].append(d)
             else:
-                data.append({'name': name, 'data': [d], 'type': 'best', 'fname': fname})
-                inv_names.append(name)
+                data.append({'name': fullname, 'data': [d], 'type': 'best',
+                             'fname': fname, 'dir': directory})
+                inv_names.append(fullname)
+                shortlist.append(name)
+    # Drop directory from names IF only represented once
+    for (name, fullname) in zip(shortlist, inv_names):
+        if shortlist.count(name) == 1:
+            idx = inv_names.index(fullname)
+            data[idx]['name'] = name
     idx_offset = len(data) # Best-so-far have to be independent of normal inputs as the same file
                            # may be in both lists, but it should be treated by BOTH standards if so
     inv_names = []
@@ -206,8 +227,8 @@ def load_all(args):
                 if col in d.columns:
                     d[col] = [min(d[col][:_+1]) for _ in range(0, len(d[col]))]
                     minval = min(d[col])
-                    name = "baseline_"+make_baseline_name(fname, args, d, col)
-                    matchname = 'baseline_'+make_seed_invariant_name(fname, args)
+                    name = "baseline_"+make_baseline_name(fname, args, d, col)[0]
+                    matchname = 'baseline_'+make_seed_invariant_name(fname, args)[0]
                     break
             if matchname in inv_names:
                 idx = inv_names.index(matchname)
