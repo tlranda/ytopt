@@ -17,7 +17,8 @@ def check_conditional_sampling(objectlike):
     try:
         source = inspect.getsource(objectlike._sample)
     except AttributeError:
-        print(f"WARNING: {objectlike} could not determine conditional sampling status")
+        if objectlike is not None:
+            print(f"WARNING: {objectlike} could not determine conditional sampling status")
         return False
     return not("raise NotImplementedError" in source and
                "doesn't support conditional sampling" in source)
@@ -146,8 +147,8 @@ def online(targets, data, inputs, args, fname, speed = None):
     constraints = []
     for target in targets:
         constraints.extend(target.constraints)
-    if args.sdv_model != 'random':
-        model = sdv_models[args.sdv_model](
+    if args.model != 'random':
+        model = sdv_models[args.model](
                   field_names = ['input']+param_names+['runtime'],
                   field_transformers = targets[0].problem_params,
                   constraints = constraints,
@@ -184,13 +185,13 @@ def online(targets, data, inputs, args, fname, speed = None):
         time_start = time.time()
         while eval_master < args.max_evals:
             # Generate prospective points
-            if args.sdv_model != 'random':
+            if args.model != 'random':
                 # Some SDV models don't realllllly support the kind of conditional sampling we need
                 # So this call will bend the condition rules a bit to help them produce usable data
                 # until SDV fully supports conditional sampling for those models
                 # For any model where SDV has conditional sampling support, this SHOULD utilize SDV's
                 # real conditional sampling and bypass the approximation entirely
-                ss1 = sample_approximate_conditions(args.sdv_model, model, conditions,
+                ss1 = sample_approximate_conditions(args.model, model, conditions,
                                                         sorted(criterion), param_names)
                 for col in param_names:
                     ss1[col] = ss1[col].astype(str)
@@ -289,7 +290,7 @@ def online(targets, data, inputs, args, fname, speed = None):
 def main(args=None):
     args = parse(build(), args)
     output_prefix = args.output_prefix
-    print(f"USING {args.sdv_model} for constraints with {args.max_retries} allotted retries")
+    print(f"USING {args.model} for constraints")
     print('max_evals', args.max_evals, 'number of refit', args.n_refit, 'how much to train', args.top,
           'seed', args.seed)
     # Seed control

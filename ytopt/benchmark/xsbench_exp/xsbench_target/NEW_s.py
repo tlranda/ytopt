@@ -24,11 +24,13 @@ RUNTIME_LOOKUP = dict((k, lookup_ival[k][1]) for k in lookup_ival.keys())
 class XSBench_Problem(BaseProblem):
     def __init__(self, class_size, **kwargs):
         self.input_space = BaseProblem.configure_space(\
-                                          [('UniformInt', # 'Ordinal',
+                                          [('Ordinal', #'UniformInt',
                                             {'name': 'p0',
                                              #'sequence': sorted([6]+[2**i for i in range(1,8)]),
-                                             'lower': 2, 'upper': 128, 'log': False,
-                                             'default_value': 128
+                                             'sequence': [str(_) for _ in range(2,129)],
+                                             'default_value': '128'
+                                             #'lower': 2, 'upper': 128, 'log': False,
+                                             #'default_value': 128
                                             }),
                                            ('Ordinal',
                                             {'name': 'p1',
