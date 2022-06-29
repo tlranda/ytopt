@@ -18,7 +18,7 @@ from plopper import Plopper
 nparams = 5
 
 cs = CS.ConfigurationSpace(seed=1234)
-p1= CSH.CategoricalHyperparameter(name='p1', choices=["#pragma clang loop(j2) pack array(data) allocate(malloc)", " "], default_value=' ')
+p1= CSH.CategoricalHyperparameter(name='p1', choices=["#pragma clang loop(j2) pack array(path) allocate(malloc)", " "], default_value=' ')
 p2= CSH.CategoricalHyperparameter(name='p2', choices=["#pragma clang loop(i1,j1,k1,i2,j2) interchange permutation(j1,k1,i1,j2,i2)", " "], default_value=' ')
 p3= CSH.OrdinalHyperparameter(name='p3', sequence=['4','8','16','20','32','50','64','80','96','100','128'], default_value='96')
 p4= CSH.OrdinalHyperparameter(name='p4', sequence=['4','8','16','20','32','50','64','80','100','128','2048'], default_value='2048')
@@ -44,7 +44,7 @@ kernel = dir_path[kernel_idx+1:]
 obj = Plopper(dir_path+'/mmp.c',dir_path)
 
 x1=['p1','p2','p3','p4','p5']
-
+exe_times = []
 def myobj(point: dict):
 
   def plopper_func(x):
@@ -52,15 +52,15 @@ def myobj(point: dict):
     value = [point[x1[0]],point[x1[1]],point[x1[2]],point[x1[3]],point[x1[4]]]
     print('VALUES:',point[x1[0]])
     params = ["P1","P2","P3","P4","P5"]
+    result, cmd, counter = obj.findRuntime(value, params, ' -DLARGE_DATASET') # defined(MINI_DATASET) && !defined(SMALL_DATASET) && !defined(MEDIUM_DATASET) && !defined(LARGE_DATASET) && !defined(EXTRALARGE_DATASET) && !defined(HUGE_DATASET)
+    return result, cmd, counter
 
-    result = obj.findRuntime(value, params)
-    return result
-
-  x = np.array([point[f'p{i}'] for i in range(1, len(point))])
-  results = plopper_func(x)
-  print('OUTPUT:%f',results)
-
-  return results
+  x = np.array([point[f'p{i+1}'] for i in range(len(point))])
+  results, cmd, counter = plopper_func(x)    
+  np.save(dir_path+'/tmp_results/exe_times_'+counter+'.npy',results) 
+  np.save(dir_path+'/tmp_results/cmd_times_'+counter+'.npy',cmd) 
+  print('OUTPUT:%f',results, float(np.mean(results[1:])))
+  return float(np.mean(results[1:]))
 
 Problem = TuningProblem(
     task_space=None,
