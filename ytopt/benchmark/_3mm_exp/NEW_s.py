@@ -5,21 +5,15 @@ from ytopt.benchmark.base_problem import BaseProblem, import_method_builder
 from autotune.space import *
 from skopt.space import Real, Integer, Categorical
 # Plopper import
-from ytopt.benchmark._3mm_exp.plopper.newPlopper import _3MM_Plopper as Plopper
+from ytopt.benchmark.base_plopper import Polybench_Plopper as Plopper
 
 # Used to locate kernel for ploppers
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # Based on 3mm.h NI per size
-lookup_ival = {16: ('N', "MINI"),
-               40: ('S', "SMALL"),
-               110: ('SM', "SM"),
-               180: ('M', "MEDIUM"),
-               490: ('ML', "ML"),
-               800: ('L', "LARGE"),
-               1600: ('XL', "EXTRALARGE"),
-               3200: ('H', "HUGE"),}
+lookup_ival = {16: ('N', "MINI"), 40: ('S', "SMALL"), 110: ('SM', "SM"), 180: ('M', "MEDIUM"),
+               490: ('ML', "ML"), 800: ('L', "LARGE"), 1600: ('XL', "EXTRALARGE"), 3200: ('H', "HUGE"),}
 inv_lookup = dict((v[0], k) for (k,v) in lookup_ival.items())
 DATASET_LOOKUP = dict((k, f" -D{lookup_ival[k][1]}_DATASET") for k in lookup_ival.keys())
 
@@ -87,7 +81,7 @@ class _3MM_Problem(BaseProblem):
         self.plopper = Plopper(HERE+"/mmp.c", HERE, output_extension='.c', evaluation_tries=1)
         args = [self.input_space, self.parameter_space, self.output_space, self.problem_params,
                 self.problem_class, self.plopper]
-        self.constraints = [Between(column='input', low=16, high=3200)]
+        self.constraints = [Between(column='input', low=min(lookup_ival.keys()), high=max(lookup_ival.keys()))]
         kwargs['constraints'] = self.constraints
         self.categorical_cast = dict((f'p{i}', 'str') for i in range(10))
         kwargs['categorical_cast'] = self.categorical_cast
