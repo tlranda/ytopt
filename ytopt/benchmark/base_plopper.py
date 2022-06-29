@@ -29,6 +29,7 @@ import os, uuid, re, time, subprocess
       Note that these functions ALWAYS see the dictVal dictionary formed from dict(params: x)
 """
 
+
 class findReplaceRegex:
     empty_from_to = [tuple(["",""])]
     """
@@ -264,9 +265,36 @@ class Plopper:
         # Evaluation
         return self.execute(interimfile, dictVal, *args, **kwargs)
 
+
+class Polybench_Plopper(Plopper):
+    """ Call to findRuntime should be: (x, params, d_size) """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.findReplace is None:
+            self.findReplace = findReplaceRegex(r"#(P[0-9]+)", prefix=tuple(["#",""]))
+
+    def compileString(self, outfile, dictVal, *args, **kwargs):
+        d_size = args[0]
+        # Drop extension in the output file name to prevent clobber
+        clang_cmd = f"clang {outfile} {self.kernel_dir}/polybench.c -I{self.kernel_dir} {d_size} "+\
+                    "-DPOLYBENCH_TIME -std=c99 -fno-unroll-loops -O3 -mllvm -polly -mllvm "+\
+                    "-polly-process-unprofitable -mllvm -polly-use-llvm-names -ffast-math "+\
+                    f"-march=native -o {outfile[:-len(self.output_extension)]}"
+        return clang_cmd
+
+    def runString(self, outfile, dictVal, *args, **kwargs):
+        return outfile[:-len(self.output_extension)]
+
+    def getTime(self, process, dictVal, *arg, **kwargs):
+        # Return last 3 floating point values from output by line
+        return [float(s) for s in process.stdout.decode('utf-8').split('\n')[-4:-1]]
+
+
 def __getattr__(name):
     if name == 'Plopper':
         return Plopper
+    if name == 'Polybench_Plopper':
+        return Polybench_Plopper
     if name == 'findReplaceRegex':
         return findReplaceRegex
     if name == 'LazyPlopper':

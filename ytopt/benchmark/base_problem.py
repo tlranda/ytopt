@@ -4,6 +4,8 @@ from autotune.space import *
 from skopt.space import Real, Integer, Categorical
 import ConfigSpace as CS
 import ConfigSpace.hyperparameters as CSH
+from sdv.constraints import Between
+import inspect
 
 parameter_lookups = {'UniformInt': CSH.UniformIntegerHyperparameter,
                      'NormalInt': CSH.NormalIntegerHyperparameter,
@@ -14,29 +16,53 @@ parameter_lookups = {'UniformInt': CSH.UniformIntegerHyperparameter,
                      'Constant': CSH.Constant
                     }
 
+class NoneStandIn():
+    pass
+
+class setWhenDefined():
+    """
+        Subclassing this class allows you to define class attributes that MATCH the names
+        of local attributes (including ones OUTSIDE the function signature, so be careful
+        about that)
+        NOTE: You must EXPLICITLY reserve args and kwargs local values to be *args, **kwargs,
+        or else this may not behave as expected
+    """
+    def overrideSelfAttrs(self):
+        SWD_ignore = set(['self', 'args', 'kwargs', 'SWD_ignore']) # We're going to omit these frequently
+        frame = inspect.currentframe().f_back
+        flocals = frame.f_locals # Parent stack function local variables
+        fcode = frame.f_code # Code object for parent stack function
+        # LOCALS
+        values = dict((k,v) for (k,v) in flocals.items() if k not in SWD_ignore)
+        # VARARGS
+        if 'args' in flocals.keys() and len(flocals['args']) > 0:
+            values.update({'varargs': flocals['args']})
+        # KWARGS
+        if 'kwargs' in flocals.keys():
+            values.update(dict((k,v) for (k,v) in flocals['kwargs'].items() if k not in SWD_ignore))
+        # Get names of all arguments from your __init__ method and subtract the few we know to ignore
+        specified_values = fcode.co_varnames[:fcode.co_argcount]
+        override = set(specified_values).difference(SWD_ignore)
+        for attrname in override:
+            # When the current value is None but we have a class default, choose that default
+            if values[attrname] is None and hasattr(self, attrname):
+                values[attrname] = getattr(self, attrname)
+        # Apply values to the attributes of this instance
+        for k,v in values.items():
+            setattr(self, k, v)
+
 # Should be merge-able with Autotune's TuningProblem
-class BaseProblem:
-    def __init__(self,
-                 input_space: Space,
-                 parameter_space: Space,
-                 output_space: Space,
-                 problem_params: dict,
-                 problem_class: int,
-                 plopper: object,
-                 constraints = None,
-                 models = None,
-                 name = None,
-                 constants = None,
-                 silent = False,
-                 use_capital_params = None,
-                 **kwargs):
-        if name is not None:
-            self.name = name
-        else:
+class BaseProblem(setWhenDefined):
+    # Many subclasses will override the pre-init space with default attributes
+    def __init__(self, input_space: Space = None, parameter_space: Space = None,
+                 output_space: Space = None, problem_params: dict = None, problem_class: int = None,
+                 plopper: object = None, constraints = None, models = None, name = None,
+                 constants = None, silent = False, use_capital_params = False, **kwargs):
+        # Load problem attribute defaults when available and otherwise required (and None)
+        self.overrideSelfAttrs()
+        if self.name is None:
             self.name = self.__class__.__name__+'_size_'+str(problem_class)
         self.request_output_prefix = f"results_{problem_class}"
-        # Spaces
-        self.input_space = input_space
         # Find input space size
         prod = 1
         for param in self.input_space.get_hyperparameters():
@@ -45,39 +71,25 @@ class BaseProblem:
             elif type(param) == CS.OrdinalHyperparameter:
                 prod *= len(param.sequence)
             elif type(param) == CS.Constant:
-                pass
+                continue
             elif type(param) == CS.UniformIntegerHyperparameter:
                 prod *= param.upper - param.lower
             else:
                 # Could warn here, but it'll generate way too much output
                 # This catches when we don't know how to get a # of configurations
                 # As Normal range is not necessarily defined with strict ranges and floats are floats
-                pass
+                continue
         self.input_space_size = prod
-        self.parameter_space = parameter_space
-        self.output_space = output_space
         # Attributes
         # Add default known things to the params list for usage as field dict
         added_keys = ('input', 'runtime')
-        if 'input' not in problem_params.keys():
-            problem_params['input'] = 'float'
-        if 'runtime' not in problem_params.keys():
-            problem_params['runtime'] = 'float'
-        self.problem_params = problem_params
-        self.params = list([k for k in problem_params.keys() if k not in added_keys])
+        if 'input' not in self.problem_params.keys():
+            self.problem_params['input'] = 'float'
+        if 'runtime' not in self.problem_params.keys():
+            self.problem_params['runtime'] = 'float'
+        self.params = list([k for k in self.problem_params.keys() if k not in added_keys])
         self.CAPITAL_PARAMS = [_.capitalize() for _ in self.params]
-        self.use_capital_params = use_capital_params
         self.n_params = len(self.params)
-        self.problem_class = problem_class
-        self.plopper = plopper
-        # Known KWARGS
-        self.constraints = constraints
-        self.models = models
-        self.constants = constants
-        self.silent = silent
-        # Other KWARGS
-        for k,v in kwargs.items():
-            self.__setattr__(k,v)
 
     def seed(self, SEED):
         if self.input_space is not None:
@@ -134,7 +146,7 @@ class BaseProblem:
         return space
 
 def import_method_builder(clsref, lookup, default):
-    def getattr_fn(name):
+    def getattr_fn(name, default=default):
         prefixes = ["_", "class"]
         suffixes = ["Problem"]
         for pre in prefixes:
@@ -151,4 +163,31 @@ def import_method_builder(clsref, lookup, default):
         else:
             raise AttributeError(f"module defining {clsref.__name__} has no attribute '{name}'")
     return getattr_fn
+
+def polybench_problem_builder(lookup, input_space_definition, there, default=None, name="Polybench_Problem"):
+    from ytopt.benchmark.base_plopper import Polybench_Plopper
+    if type(input_space_definition) is not CS.ConfigurationSpace:
+        input_space_definition = BaseProblem.configure_space(input_space_definition)
+    class Polybench_Problem(BaseProblem):
+        input_space = input_space_definition
+        parameter_space = None
+        output_space = Space([Real(0.0, inf, name='time')])
+        problem_params = dict((p.lower(), 'categorical') for p in input_space_definition.get_hyperparameter_names())
+        categorical_cast = dict((p.lower(), 'str') for p in input_space_definition.get_hyperparameter_names())
+        constraints = [Between(column='input', low=min(lookup.keys()), high=max(lookup.keys()))]
+        dataset_lookup = lookup
+        def __init__(self, class_size, **kwargs):
+            kwargs.update({'use_capital_params': True,
+                           'problem_class': class_size,
+                           'dataset': f" -D{self.dataset_lookup[class_size][1]}_DATASET",
+                           'plopper': Polybench_Plopper(there+"/mmp.c", there, output_extension='.c'),
+                          })
+            super().__init__(**kwargs)
+        def objective(self, point, *args, **kwargs):
+            return super().objective(point, self.dataset, *args, **kwargs)
+    Polybench_Problem.__name__ = name
+    inv_lookup = dict((v[0], k) for (k,v) in lookup.items())
+    if default is None:
+        default = inv_lookup['S']
+    return import_method_builder(Polybench_Problem, inv_lookup, default)
 
