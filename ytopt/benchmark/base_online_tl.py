@@ -148,13 +148,10 @@ def online(targets, data, inputs, args, fname, speed = None):
     for target in targets:
         constraints.extend(target.constraints)
     if args.model != 'random':
-        model = sdv_models[args.model](
-                  field_names = ['input']+param_names+['runtime'],
-                  field_transformers = targets[0].problem_params,
-                  constraints = constraints,
-                  min_value = None,
-                  max_value = None
-                )
+        field_names = ['input']+param_names+['runtime']
+        field_transformers = targets[0].problem_params
+        model = sdv_models[args.model](field_names=field_names, field_transformers=field_transformers,
+                  constraints=constraints, min_value=None, max_value=None)
     else:
         model = None
     csv_fields = param_names+['objective','predicted','elapsed_sec']
@@ -192,7 +189,7 @@ def online(targets, data, inputs, args, fname, speed = None):
                 # For any model where SDV has conditional sampling support, this SHOULD utilize SDV's
                 # real conditional sampling and bypass the approximation entirely
                 ss1 = sample_approximate_conditions(args.model, model, conditions,
-                                                        sorted(criterion), param_names)
+                                                    sorted(criterion), param_names)
                 for col in param_names:
                     ss1[col] = ss1[col].astype(str)
             else:
@@ -338,15 +335,16 @@ def main(args=None):
                         "than original data")
                 results_file = backup_results_file
         dataframe = pd.read_csv(results_file)
-        if args.speedup is not None:
-            dataframe['runtime'] = speed / dataframe['objective']
-        else:
-            dataframe['runtime'] = dataframe['objective']
+        dataframe['input'] = pd.Series(int(inputs[-1].problem_class) for _ in range(len(dataframe.index)))
+        dataframe['runtime'] = dataframe['objective']
         if args.load_log:
             dataframe['runtime'] = np.log(dataframe['runtime'])
-        dataframe['input'] = pd.Series(int(inputs[-1].problem_class) for _ in range(len(dataframe.index)))
+            if args.speedup is not None:
+                speed = np.log(speed)
         q_10_s = np.quantile(dataframe.runtime.values, args.top)
         real_df = dataframe.loc[dataframe['runtime'] <= q_10_s]
+        if args.speedup is not None:
+            real_df['speedup'] = speed / real_df['runtime']
         real_data = real_df.drop(columns=['elapsed_sec', 'objective'])
         frames.append(real_data)
     # Have to reset the index in case included frames have same index from their original frames
@@ -362,7 +360,7 @@ def main(args=None):
             pName += '.py'
         targets.append(load_from_file(pName, attr))
         # make target evaluations silent as we'll report them on our own
-        targets[-1].silent = True
+        #targets[-1].silent = True
         # Seed control
         targets[-1].seed(args.seed)
         # Single-target mode
