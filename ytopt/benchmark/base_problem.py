@@ -6,6 +6,7 @@ import ConfigSpace as CS
 import ConfigSpace.hyperparameters as CSH
 from sdv.constraints import Between
 import inspect
+from ytopt.benchmark.base_plopper import Polybench_Plopper
 
 parameter_lookups = {'UniformInt': CSH.UniformIntegerHyperparameter,
                      'NormalInt': CSH.NormalIntegerHyperparameter,
@@ -164,8 +165,7 @@ def import_method_builder(clsref, lookup, default):
             raise AttributeError(f"module defining {clsref.__name__} has no attribute '{name}'")
     return getattr_fn
 
-def polybench_problem_builder(lookup, input_space_definition, there, default=None, name="Polybench_Problem"):
-    from ytopt.benchmark.base_plopper import Polybench_Plopper
+def polybench_problem_builder(lookup, input_space_definition, there, default=None, name="Polybench_Problem", plopper_class=Polybench_Plopper, **original_kwargs):
     if type(input_space_definition) is not CS.ConfigurationSpace:
         input_space_definition = BaseProblem.configure_space(input_space_definition)
     class Polybench_Problem(BaseProblem):
@@ -177,11 +177,16 @@ def polybench_problem_builder(lookup, input_space_definition, there, default=Non
         constraints = [Between(column='input', low=min(lookup.keys()), high=max(lookup.keys()))]
         dataset_lookup = lookup
         def __init__(self, class_size, **kwargs):
-            kwargs.update({'use_capital_params': True,
-                           'problem_class': class_size,
-                           'dataset': f" -D{self.dataset_lookup[class_size][1]}_DATASET",
-                           'plopper': Polybench_Plopper(there+"/mmp.c", there, output_extension='.c'),
-                          })
+            # Allow anything to be overridden by passing it in as top priority
+            for k, v in original_kwargs.items():
+                kwargs.setdefault(k,v)
+            expect_kwargs = {'use_capital_params': True,
+                             'problem_class': class_size,
+                             'dataset': f" -D{self.dataset_lookup[class_size][1]}_DATASET",
+                             'plopper': plopper_class(there+"/mmp.c", there, output_extension='.c'),
+                            }
+            for k,v in expect_kwargs.items():
+                kwargs.setdefault(k,v)
             super().__init__(**kwargs)
         def objective(self, point, *args, **kwargs):
             return super().objective(point, self.dataset, *args, **kwargs)

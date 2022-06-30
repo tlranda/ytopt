@@ -30,10 +30,23 @@ input_space = [('Categorical',
     }),
     ]
 
-# Based on 
+# Based on N in floyd-warshall.h
 lookup_ival = {60: ('N', "MINI"), 180: ('S', "SMALL"), 340: ('SM', "SM"), 500: ('M', "MEDIUM"),
                1650: ('ML', "ML"), 2800: ('L', "LARGE"), 5600: ('XL', "EXTRALARGE"),
                8600: ('H', "HUGE"),}
-__getattr__ = polybench_problem_builder(lookup_ival, input_space, HERE, name="FloydWarshall_Problem")
-
+# Floyd-Warshall actually needs a different compile statement compared to most polybench ploppers
+from ytopt.benchmark.base_plopper import Polybench_Plopper
+class FloydWarshall_Plopper(Polybench_Plopper):
+    def compileString(self, outfile, dictVal, *args, **kwargs):
+        d_size = args[0]
+        clang_cmd = f"clang -fno-caret-diagnostics {outfile} {self.kernel_dir}/polybench.c "+\
+                    f"-I{self.kernel_dir} {d_size} -DPOLYBENCH_TIME -std=c99 -fno-unroll-loops "+\
+                    "-O3 -mllvm -polly -mllvm -polly-process-unprofitable "+\
+                    "-mllvm -polly-use-llvm-names -mllvm -polly-reschedule=0 "+\
+                    "-ffast-math -march=native "+\
+                    f"-o {outfile[:-len(self.output_extension)]}"
+                    #"-mllvm -polly-postops=0 "+\
+        return clang_cmd
+__getattr__ = polybench_problem_builder(lookup_ival, input_space, HERE, name="FloydWarshall_Problem",
+                                        plopper_class=FloydWarshall_Plopper)
 
