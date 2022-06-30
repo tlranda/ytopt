@@ -85,7 +85,7 @@ def build_test_suite(experiment, runtype, args, key):
                     invoke = "python -m ytopt.benchmark.base_online_tl --n-refit 0 "+\
                              f"--max-evals {sect['evals']} --seed {seed} --top {sect['top']} "+\
                              f"--inputs {' '.join(['problem.'+i for i in sect['inputs']])} "+\
-                             f"--targets problem.{target} --model {model} --unique "+\
+                             f"--targets problem.{target} --model {model} --unique --no-log-obj "+\
                              f"--output-prefix {experiment}_NO_REFIT_{model}_{target}_{seed}"
                     calls += verify_output(f"{experiment}_NO_REFIT_{model}_{target}_{seed}_ALL.csv", runtype,
                                   invoke, args)
@@ -93,7 +93,7 @@ def build_test_suite(experiment, runtype, args, key):
                     invoke = f"python -m ytopt.benchmark.base_online_tl --n-refit {sect['refits']} "+\
                              f"--max-evals {sect['evals']} --seed {seed} --top {sect['top']} "+\
                              f"--inputs {' '.join(['problem.'+i for i in sect['inputs']])} "+\
-                             f"--targets problem.{target} --model {model} --unique "+\
+                             f"--targets problem.{target} --model {model} --unique --no-log-obj "+\
                              f"--output-prefix {experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}"
                     calls += verify_output(f"{experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}_ALL.csv",
                                   runtype, invoke, args)

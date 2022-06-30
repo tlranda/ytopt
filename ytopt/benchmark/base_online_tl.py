@@ -27,7 +27,6 @@ conditional_sampling_support = dict((k,check_conditional_sampling(v)) for (k,v) 
 from sdv.constraints import CustomConstraint, Between
 from sdv.sampling.tabular import Condition
 from ytopt.search.util import load_from_file
-import pdb
 
 
 def build():
@@ -253,9 +252,9 @@ def online(targets, data, inputs, args, fname, speed = None):
                             evaluated = list(search_equals)
                             # Insert runtime before the problem class size
                             if args.no_log_objective:
-                                evaluated.insert(-1, float(evals_infer[-1]))
+                                evaluated.append(float(evals_infer[-1]))
                             else:
-                                evaluated.insert(-1, float(np.log(evals_infer[-1])))
+                                evaluated.append(float(np.log(evals_infer[-1])))
                             # For each problem we want to denote the actual result in
                             # our dataset to improve future data generation
                             if matching_data.empty:
