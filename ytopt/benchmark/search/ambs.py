@@ -361,6 +361,7 @@ class AMBS(Search):
             self.evaluator.add_eval_batch(batch)
 
         # MAIN LOOP
+        collected = 0
         for elapsed_str in timer:
             logger.info(f"Elapsed time: {elapsed_str}")
             results = list(self.evaluator.get_finished_evals())
@@ -371,6 +372,8 @@ class AMBS(Search):
             if results:
                 logger.info(f"Refitting model with batch of {len(results)} evals")
                 results = [(r[0], np.log(r[1])) for r in results]
+                collected += len(results)
+                print(f"Collect total {collected} results")
                 self.optimizer.tell(results)
                 logger.info(f"Drawing {len(results)} points with strategy {self.optimizer.liar_strategy}")
                 for batch in self.optimizer.ask(n_points=len(results)):

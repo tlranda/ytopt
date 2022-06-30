@@ -71,7 +71,7 @@ def build_test_suite(experiment, runtype, args, key):
     calls = 0
     if key == 'OFFLINE':
         for problem in sect['sizes']:
-            out_name = f"results_rf_{problem_sizes[problem].lower()}_{experiment}.csv"
+            out_name = f"results_rf_{problem.lower()}_{experiment}.csv"
             invoke = f"python -m ytopt.search.ambs --problem problem.{problem} --evaluator {sect['evaluator']} "+\
                      f"--max-evals={sect['evals']} --learner {sect['learner']} --set-KAPPA {sect['kappa']} "+\
                      f"--acq-func {sect['acqfn']} --set-SEED {sect['offline_seed']}; "+\
@@ -85,7 +85,7 @@ def build_test_suite(experiment, runtype, args, key):
                     invoke = "python -m ytopt.benchmark.base_online_tl --n-refit 0 "+\
                              f"--max-evals {sect['evals']} --seed {seed} --top {sect['top']} "+\
                              f"--inputs {' '.join(['problem.'+i for i in sect['inputs']])} "+\
-                             f"--targets {target} --model {model} --unique "+\
+                             f"--targets problem.{target} --model {model} --unique "+\
                              f"--output-prefix {experiment}_NO_REFIT_{model}_{target}_{seed}"
                     calls += verify_output(f"{experiment}_NO_REFIT_{model}_{target}_{seed}_ALL.csv", runtype,
                                   invoke, args)
@@ -93,13 +93,13 @@ def build_test_suite(experiment, runtype, args, key):
                     invoke = f"python -m ytopt.benchmark.base_online_tl --n-refit {sect['refits']} "+\
                              f"--max-evals {sect['evals']} --seed {seed} --top {sect['top']} "+\
                              f"--inputs {' '.join(['problem.'+i for i in sect['inputs']])} "+\
-                             f"--targets {target} --model {model} --unique "+\
+                             f"--targets problem.{target} --model {model} --unique "+\
                              f"--output-prefix {experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}"
                     calls += verify_output(f"{experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}_ALL.csv",
                                   runtype, invoke, args)
                     # Bootstrap
-                    invoke = f"python -m ytopt.benchmark.search.ambs --problem {target} --max-evals "+\
-                             f"{sect['evals']} --n-generate {sect['bootstrap']} --top {sect['bootstrap_top'] }"+\
+                    invoke = f"python -m ytopt.benchmark.search.ambs --problem problem.{target} --max-evals "+\
+                             f"{sect['evals']} --n-generate {sect['bootstrap']} --top {sect['bootstrap_top'] } "+\
                              f"--inputs {' '.join(['problem.'+i for i in sect['inputs']])} "+\
                              f"--model {model} --evaluator {sect['evaluator']} --learner {sect['learner']} "+\
                              f"--set-KAPPA {sect['kappa']} --acq-func {sect['acqfn']} "+\

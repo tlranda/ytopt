@@ -232,11 +232,12 @@ def online(targets, data, inputs, args, fname, speed = None):
                         ss = []
                         for target_problem in targets:
                             # Use the target problem's .objective() call to generate an evaluation
+                            print(f"Eval {eval_master+1}/{args.max_evals}")
                             if speed is None:
                                 evals_infer.append(target_problem.objective(sample_point))
                             else:
                                 evals_infer.append(speed / target_problem.objective(sample_point))
-                            print(target_problem.name, sample_point, evals_infer[-1])
+                            #print(target_problem.name, sample_point, evals_infer[-1])
                             now = time.time()
                             elapsed = now - time_start
                             if ss == []:
