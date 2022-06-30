@@ -114,11 +114,14 @@ class AMBS(Search):
         for idx, problem in enumerate(self.inputs):
             # Load the best top x%
             criterion.append(problem.problem_class)
-            results_file = problem.plopper.kernel_dir+"/results_"+str(problem.problem_class)+".csv"
+            results_file = problem.plopper.kernel_dir+"/results_rf_"
+            results_file += problem.dataset_lookup[problem.problem_class][0].lower()+"_"
+            clsname = problem.__class__.__name__
+            results_file += clsname[:clsname.rindex('_')].lower()+".csv"
             if not os.path.exists(results_file):
                 backup_results_file = results_file.rsplit('/',1)
-                backup_results_file.insert(1, '/data/')
-                backup_results_file = "".join(backup_results_file)
+                backup_results_file.insert(1, 'data')
+                backup_results_file = "/".join(backup_results_file)
                 if not os.path.exists(backup_results_file):
                     # Execute the input problem and move its results files to the above directory
                     raise ValueError(f"Could not find {results_file} for '{problemName}' "

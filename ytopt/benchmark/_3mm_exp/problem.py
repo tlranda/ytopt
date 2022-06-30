@@ -58,5 +58,5 @@ input_space = [('Categorical',
 # Based on 3mm.h NI per size
 lookup_ival = {16: ('N', "MINI"), 40: ('S', "SMALL"), 110: ('SM', "SM"), 180: ('M', "MEDIUM"),
                490: ('ML', "ML"), 800: ('L', "LARGE"), 1600: ('XL', "EXTRALARGE"), 3200: ('H', "HUGE"),}
-__getattr__ = polybench_problem_builder(lookup_ival, input_space, HERE, name="_3mm_Problem")
+__getattr__ = polybench_problem_builder(lookup_ival, input_space, HERE, name="3mm_Problem")
 

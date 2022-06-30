@@ -32,9 +32,9 @@ import pdb
 
 def build():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--max_evals', type=int, default=10,
+    parser.add_argument('--max-evals', type=int, default=10,
                         help='maximum number of evaluations')
-    parser.add_argument('--n_refit', type=int, default=0,
+    parser.add_argument('--n-refit', type=int, default=0,
                         help='refit the model')
     parser.add_argument('--seed', type=int, default=1234,
                         help='set seed')
@@ -319,11 +319,15 @@ def main(args=None):
             pName += '.py'
         inputs.append(load_from_file(pName, attr))
         # Load the best top x%
-        results_file = inputs[-1].plopper.kernel_dir+"/results_"+str(inputs[-1].problem_class)+".csv"
+        last_in = inputs[-1]
+        results_file = last_in.plopper.kernel_dir+"/results_rf_"
+        results_file += last_in.dataset_lookup[last_in.problem_class][0].lower()+"_"
+        last_in = last_in.__class__.__name__
+        results_file += last_in[:last_in.rindex('_')].lower()+".csv"
         if not os.path.exists(results_file):
             backup_results_file = results_file.rsplit('/',1)
-            backup_results_file.insert(1, '/data/')
-            backup_results_file = "".join(backup_results_file)
+            backup_results_file.insert(1, 'data')
+            backup_results_file = "/".join(backup_results_file)
             if not os.path.exists(backup_results_file):
                 # Execute the input problem and move its results files to the above directory
                 raise ValueError(f"Could not find {results_file} for '{problemName}' "
