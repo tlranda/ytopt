@@ -25,6 +25,7 @@ def build():
     prs.add_argument("--log-y", action="store_true", help="Logarithmic y axis")
     prs.add_argument("--below-zero", action="store_true", help="Allow plotted values to be <0")
     prs.add_argument("--unname-prefix", type=str, default="", help="Prefix from filenames to remove from line labels")
+    prs.add_argument("--drop-extension", action="store_true", help="Remove file extension from name")
     prs.add_argument("--trim", type=str, nargs="*", help="Trim these files to where the objective changes")
     prs.add_argument("--fig-dims", metavar=("Xinches", "Yinches"), nargs=2, type=float,
                      default=plt.rcParams["figure.figsize"], help="Figure size in inches "
@@ -33,6 +34,9 @@ def build():
     prs.add_argument("--no-plots", action="store_true", help="Skip plot generation")
     prs.add_argument("--no-text", action="store_true", help="Skip text generation")
     prs.add_argument("--merge-dirs", action="store_true", help="Ignore directories when combining files")
+    prs.add_argument("--top", type=float, default=None, help="Change to plot where y increments by 1 each time a new evaluation is turned in that is at or above this percentile of performance (1 == best, 0 == worst)")
+    prs.add_argument("--max-objective", action="store_true", help="Objective is MAXIMIZE not MINIMIZE (default MINIMIZE)")
+    prs.add_argument("--ignore", type=str, nargs="*", help="Files to unglob")
     return prs
 
 def parse(prs, args=None):
@@ -40,6 +44,28 @@ def parse(prs, args=None):
         args = prs.parse_args()
     if args.trim is None:
         args.trim = list()
+    if not args.max_objective and args.top is not None:
+        # Quantile should be (1 - %) if MINIMIZE (lower is better)
+        args.top = 1 - args.top
+    if args.ignore is not None:
+        if args.inputs is not None:
+            allowed = []
+            for fname in args.inputs:
+                if fname not in args.ignore:
+                    allowed.append(fname)
+            args.inputs = allowed
+        if args.bests is not None:
+            allowed = []
+            for fname in args.bests:
+                if fname not in args.ignore:
+                    allowed.append(fname)
+            args.bests = allowed
+        if args.baseline_best is not None:
+            allowed = []
+            for fname in args.baseline_best:
+                if fname not in args.ignore:
+                    allowed.append(fname)
+            args.baseline_best = allowed
     return args
 
 def make_seed_invariant_name(name, args):
@@ -53,9 +79,15 @@ def make_seed_invariant_name(name, args):
         intval = int(seed)
         name = base
     except ValueError:
+        if '.' in name and args.drop_extension:
+            name, _ = name.rsplit('.',1)
+        name = name.lstrip("_")
         return name, directory
     if args.unname_prefix != "" and name.startswith(args.unname_prefix):
         name = name[len(args.unname_prefix):]
+    if '.' in name and args.drop_extension:
+        name, _ = name.rsplit('.',1)
+    name = name.lstrip("_")
     return name, directory
 
 def make_baseline_name(name, args, df, col):
@@ -154,7 +186,12 @@ def combine_seeds(data, args):
         new_data['data'] = pd.DataFrame(new_columns).sort_values('exe')
         new_data['data'] = new_data['data'][new_data['data']['obj'] > 0]
         combined_data.append(new_data)
-    return combined_data
+    # Find top val
+    if args.top is None:
+        top_val = None
+    else:
+        top_val = np.quantile(pd.concat([_['data']['obj'] for _ in combined_data]), q=args.top)
+    return combined_data, top_val
 
 def load_all(args):
     data = []
@@ -248,47 +285,63 @@ def load_all(args):
 def prepare_fig(args):
     fig, ax = plt.subplots(figsize=tuple(args.fig_dims))
     fig.set_tight_layout(True)
-    name = "plot"
+    if args.top is None:
+        name = "plot"
+    else:
+        name = "competitive"
     return fig, ax, name
 
 def alter_color(color_tup, ratio=0.5, brighten=True):
     return tuple([ratio*(int(brighten)+_) for _ in color_tup])
 
-def plot_source(fig, ax, idx, source, args, ntypes):
+def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
     data = source['data']
     # Color help
     colors = [mcolors.to_rgb(_['color']) for _ in list(plt.rcParams['axes.prop_cycle'])]
     color = colors[idx % len(colors)]
-    # Shaded area = stddev
-    # Prevent <0 unless arg says otherwise
-    if args.stddev:
-        lower_bound = pd.DataFrame(data['obj']-data['std_low'])
-        if not args.below_zero:
-            lower_bound = lower_bound.applymap(lambda x: max(x,0))
-        lower_bound = lower_bound[0]
-        ax.fill_between(data['exe'], lower_bound, data['obj']+data['std_high'],
-                        label=f"Stddev {source['name']}",
-                        alpha=0.4,
-                        color=alter_color(color), zorder=-1)
-    # Main line = mean
-    if len(data['obj']) > 1:
-        ax.plot(data['exe'], data['obj'],
-                label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
-                marker='x', color=color, zorder=1)
+    if top_val is None:
+        # Shaded area = stddev
+        # Prevent <0 unless arg says otherwise
+        if args.stddev:
+            lower_bound = pd.DataFrame(data['obj']-data['std_low'])
+            if not args.below_zero:
+                lower_bound = lower_bound.applymap(lambda x: max(x,0))
+            lower_bound = lower_bound[0]
+            ax.fill_between(data['exe'], lower_bound, data['obj']+data['std_high'],
+                            label=f"Stddev {source['name']}",
+                            alpha=0.4,
+                            color=alter_color(color), zorder=-1)
+        # Main line = mean
+        if len(data['obj']) > 1:
+            ax.plot(data['exe'], data['obj'],
+                    label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
+                    marker='x', color=color, zorder=1)
+        else:
+            x_lims = [int(v) for v in ax.get_xlim()]
+            if x_lims[1]-x_lims[0] == 0:
+                x_lims[1] = x_lims[0]+1
+            ax.plot(x_lims, [data['obj'], data['obj']],
+                    label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
+                    marker='x', color=color, zorder=1)
+        # Flank lines = min/max
+        if args.minmax:
+            ax.plot(data['exe'], data['min'], linestyle='--',
+                    label=f"Min/Max {source['name']}",
+                    color=alter_color(color, brighten=False), zorder=0)
+            ax.plot(data['exe'], data['max'], linestyle='--',
+                    color=alter_color(color, brighten=False), zorder=0)
     else:
-        x_lims = [int(v) for v in ax.get_xlim()]
-        if x_lims[1]-x_lims[0] == 0:
-            x_lims[1] = x_lims[0]+1
-        ax.plot(x_lims, [data['obj'], data['obj']],
-                label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
-                marker='x', color=color, zorder=1)
-    # Flank lines = min/max
-    if args.minmax:
-        ax.plot(data['exe'], data['min'], linestyle='--',
-                label=f"Min/Max {source['name']}",
-                color=alter_color(color, brighten=False), zorder=0)
-        ax.plot(data['exe'], data['max'], linestyle='--',
-                color=alter_color(color, brighten=False), zorder=0)
+        # Make new Y that increases by 1 each time you beat the top val (based on min or max objective)
+        new_y = []
+        counter = 0
+        for val in data['obj']:
+            if args.max_objective and val > top_val:
+                counter += 1
+            if not args.max_objective and val < top_val:
+                counter += 1
+            new_y.append(counter)
+        ax.plot(data['exe'], new_y, label=source['name'],
+                marker='.', color=color, zorder=1)
 
 def text_analysis(all_data):
     best_results = {}
@@ -335,27 +388,30 @@ def text_analysis(all_data):
     print(f"Most advantaged {winner} with sum advantage {advantage}")
 
 def main(args):
-    data = load_all(args)
+    data, top_val = load_all(args)
     fig, ax, name = prepare_fig(args)
     ntypes = len(set([_['type'] for _ in data]))
     if not args.no_text:
         text_analysis(data)
     if not args.no_plots:
         for idx, source in enumerate(data):
-            plot_source(fig, ax, idx, source, args, ntypes)
+            plot_source(fig, ax, idx, source, args, ntypes, top_val)
         # make x-axis data
         if args.x_axis == "evaluation":
             xname = "Evaluation #"
         else:
             xname = "Elapsed Time (seconds)"
         # make y-axis data
-        yname = "Objective"
+        if top_val is None:
+            yname = "Objective"
+        else:
+            yname = f"# Configs with top {round(100*args.top,1)}% result = {round(top_val,4)}"
         ax.set_xlabel(xname)
         ax.set_ylabel(yname)
         if args.log_x:
-            ax.set_xscale("log")
+            ax.set_xscale("symlog")
         if args.log_y:
-            ax.set_yscale("log")
+            ax.set_yscale("symlog")
         if args.legend is not None:
             ax.legend(loc=" ".join(args.legend))
 
