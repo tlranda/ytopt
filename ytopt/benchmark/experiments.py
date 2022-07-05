@@ -1,7 +1,11 @@
 import os, subprocess, argparse, configparser
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-valid_run_status = ["check", "run", "override"]
+valid_run_status = ["check", "run", "override", "sanity", "announce"]
+always_announce = ["sanity", "announce"]
+
+def sanity_check(checkname):
+    pass
 
 def run(cmd, prelude, args):
     if prelude != "":
@@ -32,11 +36,16 @@ def verify_output(checkname, runstatus, invoke, args):
     if runstatus not in valid_run_status:
         raise ValueError(f"Runstatus must be in {valid_run_status}")
     r = 0
+    b = 0
     if os.path.exists(checkname):
         if runstatus == "override":
             run(invoke, runstatus, args)
             r = 1
+        elif runstatus != "run":
+            b = 1
         output_check(checkname, "CHECK", args)
+        if runstatus in always_announce:
+            print(invoke)
     elif args.backup is not None and os.path.exists(args.backup+checkname):
         if runstatus == "override":
             run(invoke, runstatus, args)
@@ -44,21 +53,27 @@ def verify_output(checkname, runstatus, invoke, args):
             output_check(checkname, "CHECK OVERRIDE", args)
         else:
             output_check(args.backup+checkname, f"CHECK BACKUP @{args.backup}", args)
+            b = 1
+            if runstatus in always_announce:
+                print(invoke)
     else:
         if runstatus == "check":
+            warn = "!! No file"
             if args.backup is None:
-                print(f"!! No file, no backup given, for {checkname} !!")
-                print(invoke)
+                warn += ", no backup given,"
             else:
-                print(f"!! No file or backup @{args.backup} for {checkname} !!")
-                #print(invoke)
-                r = 1
+                warn += f" or backup @{args.backup}"
+            print(warn+f" for {checkname} !!")
+            print(invoke)
+            b = 1
         else:
             bonus = f"; No backup @{args.backup}" if args.backup is not None else "; No backup given"
             run(invoke, runstatus+bonus, args)
             r = 1
             output_check(checkname, "CHECK NEW RUN", args)
-    return r
+    if runstatus == "sanity" or r == 1:
+        sanity_check(checkname)
+    return r, b
 
 def build_test_suite(experiment, runtype, args, key):
     # Get in the experiment directory
@@ -69,6 +84,7 @@ def build_test_suite(experiment, runtype, args, key):
     problem_sizes = subprocess.run("python -m ytopt.benchmark.size_lookup --p "+" ".join([f"problem.{s}" for s in sect['sizes']]), shell=True, stdout=subprocess.PIPE)
     problem_sizes = dict((k, int(v)) for (k,v) in zip(sect['sizes'], problem_sizes.stdout.decode('utf-8').split()))
     calls = 0
+    bluffs = 0
     if key == 'OFFLINE':
         for problem in sect['sizes']:
             out_name = f"results_rf_{problem.lower()}_{experiment}.csv"
@@ -76,7 +92,9 @@ def build_test_suite(experiment, runtype, args, key):
                      f"--max-evals={sect['evals']} --learner {sect['learner']} --set-KAPPA {sect['kappa']} "+\
                      f"--acq-func {sect['acqfn']} --set-SEED {sect['offline_seed']}; "+\
                      f"mv results_{problem_sizes[problem]}.csv {out_name}"
-            calls += verify_output(out_name, runtype, invoke, args)
+            info = verify_output(out_name, runtype, invoke, args)
+            calls += info[0]
+            bluffs += info[1]
     elif key == 'ONLINE':
         for target in sect['targets']:
             for model in sect['models']:
@@ -87,16 +105,20 @@ def build_test_suite(experiment, runtype, args, key):
                              f"--inputs {' '.join(['problem.'+i for i in sect['inputs']])} "+\
                              f"--targets problem.{target} --model {model} --unique --no-log-obj "+\
                              f"--output-prefix {experiment}_NO_REFIT_{model}_{target}_{seed}"
-                    calls += verify_output(f"{experiment}_NO_REFIT_{model}_{target}_{seed}_ALL.csv", runtype,
+                    info = verify_output(f"{experiment}_NO_REFIT_{model}_{target}_{seed}_ALL.csv", runtype,
                                   invoke, args)
+                    calls += info[0]
+                    bluffs += info[1]
                     # Refit
                     invoke = f"python -m ytopt.benchmark.base_online_tl --n-refit {sect['refits']} "+\
                              f"--max-evals {sect['evals']} --seed {seed} --top {sect['top']} "+\
                              f"--inputs {' '.join(['problem.'+i for i in sect['inputs']])} "+\
                              f"--targets problem.{target} --model {model} --unique --no-log-obj "+\
                              f"--output-prefix {experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}"
-                    calls += verify_output(f"{experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}_ALL.csv",
+                    info = verify_output(f"{experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}_ALL.csv",
                                   runtype, invoke, args)
+                    calls += info[0]
+                    bluffs += info[1]
                     # Bootstrap
                     invoke = f"python -m ytopt.benchmark.search.ambs --problem problem.{target} --max-evals "+\
                              f"{sect['evals']} --n-generate {sect['bootstrap']} --top {sect['bootstrap_top'] } "+\
@@ -106,8 +128,10 @@ def build_test_suite(experiment, runtype, args, key):
                              f"--set-SEED {seed} --set-NI {sect['ni']}; "+\
                              f"mv results_{problem_sizes[target]}.csv {experiment}_BOOTSTRAP_"+\
                              f"{sect['bootstrap']}_{model}_{target}_{seed}_ALL.csv"
-                    calls += verify_output(f"{experiment}_BOOTSTRAP_{sect['bootstrap']}_{model}_{target}_{seed}_ALL.csv",
+                    info = verify_output(f"{experiment}_BOOTSTRAP_{sect['bootstrap']}_{model}_{target}_{seed}_ALL.csv",
                                   runtype, invoke, args)
+                    calls += info[0]
+                    bluffs += info[1]
     elif key == 'PLOTS':
         experiment_dir = args.backup if sect['use_backup'] and args.backup is not None else ''
         if len(experiment_dir) > 0 and not experiment_dir.endswith('/'):
@@ -141,11 +165,13 @@ def build_test_suite(experiment, runtype, args, key):
                      f"--ignore data/jaehoon_experiments/*200eval* --no-text"
             if sect['show']:
                 invoke += " --show"
-            calls += verify_output(f"{experiment}_{target.lower()}_configs_competitive.png", runtype,
+            info = verify_output(f"{experiment}_{target.lower()}_configs_competitive.png", runtype,
                                     invoke, args)
+            calls += info[0]
+            bluffs += info[1]
     else:
         raise ValueError(f"Unknown section {key}")
-    print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made >>")
+    print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made & {bluffs} calls bluffed >>")
 
 def build():
     prs = argparse.ArgumentParser()
@@ -195,5 +221,14 @@ if __name__ == '__main__':
         for section in sorted(args.cfg.keys()):
             if section in args.skip:
                 continue
+            # Allow config to define backup
+            revert_backup = False
+            if args.backup is None and 'backup' in args.cfg[section].keys():
+                revert_backup = True
+                args.backup = args.cfg[section]['backup']
+            if args.backup is not None and not args.backup.endswith('/'):
+                args.backup += "/"
             build_test_suite(experiment, runtype, args, section)
+            if revert_backup:
+                args.backup = None
 
