@@ -3,7 +3,6 @@ Asynchronous Model-Based Search. (WITH LIES FROM SDV)
 """
 
 
-import pdb
 import signal
 
 from ytopt.search.optimizer import Optimizer
@@ -133,12 +132,23 @@ class AMBS(Search):
                             "than original data")
                     results_file = backup_results_file
             dataframe = pd.read_csv(results_file)
+            # Force parameter datatypes to string just in case
+            for col in self.param_names:
+                prefer_type = self.targets[0].problem_params[col]
+                if prefer_type == 'categorical':
+                    if hasattr(self.targets[0], 'categorical_cast'):
+                        prefer_type = self.targets[0].categorical_cast[col]
+                    else:
+                        prefer_type = 'str'
+                dataframe[col] = dataframe[col].astype(eval(prefer_type))
             dataframe['runtime'] = np.log(dataframe['objective'])
             #dataframe['runtime'] = dataframe['objective']
             dataframe['input'] = pd.Series(int(problem.problem_class) for _ in range(len(dataframe.index)))
+            # Force column order
+            dataframe = dataframe[['input']+self.param_names+['runtime']]
             q_10_s = np.quantile(dataframe.runtime.values, self.top)
             selected = dataframe.loc[dataframe['runtime'] <= q_10_s]
-            selected = selected.drop(columns=['elapsed_sec', 'objective'])
+            #selected = selected.drop(columns=['elapsed_sec', 'objective'])
             frames.append(selected)
         data = pd.concat(frames).reset_index().drop(columns=['index'])
         # SDV implicitly REQUIRES 10 rows to fit non-GaussianCopula models
