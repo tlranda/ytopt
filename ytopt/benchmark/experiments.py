@@ -113,6 +113,7 @@ def build_test_suite(experiment, runtype, args, key):
         if len(experiment_dir) > 0 and not experiment_dir.endswith('/'):
             experiment_dir += '/'
         for target in sect['targets']:
+            """
             # WALLTIME
             invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_walltime "+\
                      f"--best {experiment_dir}_*.csv --baseline data/results_{problem_sizes[target]}.csv "+\
@@ -129,6 +130,19 @@ def build_test_suite(experiment, runtype, args, key):
             if sect['show']:
                 invoke += " --show"
             calls += verify_output(f"{experiment}_evaluation_plot.png", runtype, invoke, args)
+            """
+            # SM, ML, and XL
+            # data/thomas_experiments/*_{target.upper()}_*.csv
+            invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_{target.lower()}_configs "+\
+                     f"--input *_{target.upper()}_*.csv "+\
+                     f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
+                     f"results_gptune_*{target.lower()}* --x-axis walltime --unname results --trim .csv "+\
+                     f"--legend best --synchronous --drop-extension --fig-dims 8 4 --top 0.9 "+\
+                     f"--ignore data/jaehoon_experiments/*200eval* --no-text"
+            if sect['show']:
+                invoke += " --show"
+            calls += verify_output(f"{experiment}_{target.lower()}_configs_competitive.png", runtype,
+                                    invoke, args)
     else:
         raise ValueError(f"Unknown section {key}")
     print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made >>")
