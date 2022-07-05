@@ -292,7 +292,7 @@ def prepare_fig(args):
     return fig, ax, name
 
 def alter_color(color_tup, ratio=0.5, brighten=True):
-    return tuple([ratio*(int(brighten)+_) for _ in color_tup])
+    return tuple([ratio*(_+((-1)**(1+int(brighten)))) for _ in color_tup])
 
 def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
     data = source['data']
