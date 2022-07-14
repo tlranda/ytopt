@@ -37,6 +37,7 @@ def build():
     prs.add_argument("--top", type=float, default=None, help="Change to plot where y increments by 1 each time a new evaluation is turned in that is at or above this percentile of performance (1 == best, 0 == worst)")
     prs.add_argument("--max-objective", action="store_true", help="Objective is MAXIMIZE not MINIMIZE (default MINIMIZE)")
     prs.add_argument("--ignore", type=str, nargs="*", help="Files to unglob")
+    prs.add_argument("--drop-seeds", type=int, nargs="*", help="Seeds to remove (in ascending 1-based rank order by performance, can use negative numbers for nth best)")
     return prs
 
 def parse(prs, args=None):
@@ -66,6 +67,8 @@ def parse(prs, args=None):
                 if fname not in args.ignore:
                     allowed.append(fname)
             args.baseline_best = allowed
+    if args.drop_seeds == []:
+        args.drop_seeds = None
     return args
 
 def make_seed_invariant_name(name, args):
@@ -94,6 +97,28 @@ def make_baseline_name(name, args, df, col):
     name, directory = make_seed_invariant_name(name, args)
     return name + f"_using_eval_{df[col].idxmin()+1}/{max(df[col].index)+1}", directory
 
+def drop_seeds(data, args):
+    if args.drop_seeds is None:
+        return data
+    for entry in data:
+        # Fix relative indices
+        drop_seeds = []
+        new_data = []
+        for rank in args.drop_seeds:
+            if rank < 0:
+                # Subtract 1-based index from +1'd length
+                drop_seeds.append(len(entry)+rank)
+            else:
+                # Subtract 1-based index
+                drop_seeds.append(rank-1)
+        if len(drop_seeds) >= len(entry['data']):
+            continue
+        rank_basis = [min(_['objective']) for _ in entry['data']]
+        ranks = np.argsort(rank_basis)
+        new_entry_data = [entry['data'][_] for _ in ranks if _ not in drop_seeds]
+        entry['data'] = new_entry_data
+    return data
+
 def combine_seeds(data, args):
     combined_data = []
     for entry in data:
@@ -107,6 +132,7 @@ def combine_seeds(data, args):
                 objective_col += 1
             objective_col = objective_priority[objective_col]
         except IndexError:
+            print(entry['data'])
             raise ValueError(f"No known objective in {entry['name']} with columns {entry['data'][0].columns}")
         last_step = np.full(len(entry['data']), np.inf)
         if args.x_axis == 'evaluation':
@@ -200,7 +226,11 @@ def load_all(args):
     if args.inputs is not None:
         # Load all normal inputs
         for fname in args.inputs:
-            fd = pd.read_csv(fname)
+            try:
+                fd = pd.read_csv(fname)
+            except IOError:
+                print(f"WARNING: Could not open {fname}, removing from 'inputs' list")
+                continue
             # Drop unnecessary parameters
             d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
             name, directory = make_seed_invariant_name(fname, args)
@@ -226,7 +256,11 @@ def load_all(args):
     shortlist = []
     if args.bests is not None:
         for fname in args.bests:
-            fd = pd.read_csv(fname)
+            try:
+                fd = pd.read_csv(fname)
+            except IOError:
+                print(f"WARNING: Could not open {fname}, removing from 'bests' list")
+                continue
             # Drop unnecessary parameters
             d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
             # Transform into best-so-far dataset
@@ -255,7 +289,11 @@ def load_all(args):
     inv_names = []
     if args.baseline_best is not None:
         for fname in args.baseline_best:
-            fd = pd.read_csv(fname)
+            try:
+                fd = pd.read_csv(fname)
+            except IOError:
+                print(f"WARNING: Could not open {fname}, removing from 'baseline_best' list")
+                continue
             # Find ultimate best value to plot as horizontal line
             d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
             # Transform into best-so-far dataset
@@ -280,7 +318,7 @@ def load_all(args):
                              'fname': fname})
                 inv_names.append(matchname)
     # Fix across seeds
-    return combine_seeds(data, args)
+    return combine_seeds(drop_seeds(data, args), args)
 
 def prepare_fig(args):
     fig, ax = plt.subplots(figsize=tuple(args.fig_dims))
@@ -318,6 +356,7 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
                     marker='x', color=color, zorder=1)
         else:
             x_lims = [int(v) for v in ax.get_xlim()]
+            x_lims[0] = max(0, x_lims[0])
             if x_lims[1]-x_lims[0] == 0:
                 x_lims[1] = x_lims[0]+1
             ax.plot(x_lims, [data['obj'], data['obj']],
