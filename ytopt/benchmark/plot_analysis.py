@@ -16,6 +16,7 @@ def build():
     prs.add_argument("--inputs", type=str, nargs="+", help="Files to read for plots")
     prs.add_argument("--bests", type=str, nargs="*", help="Traces to treat as best-so-far")
     prs.add_argument("--baseline-best", type=str, nargs="*", help="Traces to treat as BEST of best so far")
+    prs.add_argument("--as-speedup-vs", type=str, help="Convert objectives to speedup compared against this value (float or CSV filename)")
     prs.add_argument("--show", action="store_true", help="Show figures rather than save to file")
     prs.add_argument("--legend", choices=legend_codes, nargs="*", default=None, help="Legend location (default none). Two-word legends should be quoted on command line")
     prs.add_argument("--minmax", action="store_true", help="Include min and max lines")
@@ -35,6 +36,7 @@ def build():
     prs.add_argument("--no-text", action="store_true", help="Skip text generation")
     prs.add_argument("--merge-dirs", action="store_true", help="Ignore directories when combining files")
     prs.add_argument("--top", type=float, default=None, help="Change to plot where y increments by 1 each time a new evaluation is turned in that is at or above this percentile of performance (1 == best, 0 == worst)")
+    prs.add_argument("--global-top", action="store_true", help="Use a single top value across ALL loaded data")
     prs.add_argument("--max-objective", action="store_true", help="Objective is MAXIMIZE not MINIMIZE (default MINIMIZE)")
     prs.add_argument("--ignore", type=str, nargs="*", help="Files to unglob")
     prs.add_argument("--drop-seeds", type=int, nargs="*", help="Seeds to remove (in ascending 1-based rank order by performance, can use negative numbers for nth best)")
@@ -69,6 +71,11 @@ def parse(prs, args=None):
             args.baseline_best = allowed
     if args.drop_seeds == []:
         args.drop_seeds = None
+    if args.as_speedup_vs is not None:
+        try:
+            args.as_speedup_vs = float(args.as_speedup_vs)
+        except ValueError:
+            args.as_speedup_vs = pd.read_csv(args.as_speedup_vs).iloc[0]['objective']
     return args
 
 def make_seed_invariant_name(name, args):
@@ -95,7 +102,10 @@ def make_seed_invariant_name(name, args):
 
 def make_baseline_name(name, args, df, col):
     name, directory = make_seed_invariant_name(name, args)
-    return name + f"_using_eval_{df[col].idxmin()+1}/{max(df[col].index)+1}", directory
+    if args.max_objective:
+        return name + f"_using_eval_{df[col].idxmax()+1}/{max(df[col].index)+1}", directory
+    else:
+        return name + f"_using_eval_{df[col].idxmin()+1}/{max(df[col].index)+1}", directory
 
 def drop_seeds(data, args):
     if args.drop_seeds is None:
@@ -216,7 +226,10 @@ def combine_seeds(data, args):
     if args.top is None:
         top_val = None
     else:
-        top_val = np.quantile(pd.concat([_['data']['obj'] for _ in combined_data]), q=args.top)
+        if args.global_top:
+            top_val = np.quantile(pd.concat([_['data']['obj'] for _ in combined_data]), q=args.top)
+        else:
+            top_val = {_['name']: np.quantile(_['data']['obj'], q=args.top) for _ in combined_data}
     return combined_data, top_val
 
 def load_all(args):
@@ -233,6 +246,8 @@ def load_all(args):
                 continue
             # Drop unnecessary parameters
             d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
+            if args.as_speedup_vs is not None:
+                d['objective'] = args.as_speedup_vs / d['objective']
             name, directory = make_seed_invariant_name(fname, args)
             fullname = directory+'.'+name
             if fullname in inv_names:
@@ -263,10 +278,15 @@ def load_all(args):
                 continue
             # Drop unnecessary parameters
             d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
+            if args.as_speedup_vs is not None:
+                d['objective'] = args.as_speedup_vs / d['objective']
             # Transform into best-so-far dataset
             for col in ['objective', 'exe_time']:
                 if col in d.columns:
-                    d[col] = [min(d[col][:_+1]) for _ in range(0,len(d[col]))]
+                    if args.max_objective:
+                        d[col] = [max(d[col][:_+1]) for _ in range(0,len(d[col]))]
+                    else:
+                        d[col] = [min(d[col][:_+1]) for _ in range(0,len(d[col]))]
             name, directory = make_seed_invariant_name(fname, args)
             name = "best_"+name
             fullname = directory+'.'+name
@@ -296,24 +316,34 @@ def load_all(args):
                 continue
             # Find ultimate best value to plot as horizontal line
             d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
+            if args.as_speedup_vs is not None:
+                d['objective'] = args.as_speedup_vs / d['objective']
             # Transform into best-so-far dataset
-            minval = None
+            objval = None
             for col in ['objective', 'exe_time']:
                 if col in d.columns:
-                    d[col] = [min(d[col][:_+1]) for _ in range(0, len(d[col]))]
-                    minval = min(d[col])
+                    if args.max_objective:
+                        d[col] = [max(d[col][:_+1]) for _ in range(0, len(d[col]))]
+                        objval = max(d[col])
+                    else:
+                        d[col] = [min(d[col][:_+1]) for _ in range(0, len(d[col]))]
+                        objval = min(d[col])
                     name = "baseline_"+make_baseline_name(fname, args, d, col)[0]
                     matchname = 'baseline_'+make_seed_invariant_name(fname, args)[0]
                     break
             if matchname in inv_names:
                 idx = inv_names.index(matchname)
-                # Replace if lower
-                if minval < data[idx_offset+idx]['minval']:
-                    data[idx_offset+idx]['data'][0] = d
+                # Replace if improvement
+                if args.max_objective:
+                    if objval > data[idx_offset+idx]['objval']:
+                        data[idx_offset+idx]['data'][0] = d
+                else:
+                    if objval < data[idx_offset+idx]['objval']:
+                        data[idx_offset+idx]['data'][0] = d
             else:
                 data.append({'name': name, 'type': 'baseline',
                              'matchname': matchname,
-                             'minval': minval,
+                             'objval': objval,
                              'data': [d],
                              'fname': fname})
                 inv_names.append(matchname)
@@ -371,12 +401,16 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
                     color=alter_color(color, brighten=False), zorder=0)
     else:
         # Make new Y that increases by 1 each time you beat the top val (based on min or max objective)
+        if args.global_top:
+            top = top_val
+        else:
+            top = top_val[source['name']]
         new_y = []
         counter = 0
         for val in data['obj']:
-            if args.max_objective and val > top_val:
+            if args.max_objective and val > top:
                 counter += 1
-            if not args.max_objective and val < top_val:
+            if not args.max_objective and val < top:
                 counter += 1
             new_y.append(counter)
         ax.plot(data['exe'], new_y, label=source['name'],
@@ -444,7 +478,10 @@ def main(args):
         if top_val is None:
             yname = "Objective"
         else:
-            yname = f"# Configs with top {round(100*args.top,1)}% result = {round(top_val,4)}"
+            if args.global_top:
+                yname = f"# Configs with top {round(100*args.top,1)}% result = {round(top_val,4)}"
+            else:
+                yname = f"# Configs with top {round(100*args.top,1)}% result per technique"
         ax.set_xlabel(xname)
         ax.set_ylabel(yname)
         if args.log_x:

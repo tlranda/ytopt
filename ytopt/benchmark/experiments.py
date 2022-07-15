@@ -142,8 +142,12 @@ def build_test_suite(experiment, runtype, args, key):
                      f"--best {experiment_dir}*_{target.upper()}_*.csv "+\
                      f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
                      f"results_gptune_*{target.lower()}* "+\
-                     f"--baseline data/results_{problem_sizes[target]}.csv "+\
-                     f"data/DEFAULT.csv --x-axis walltime --log-x --log-y --unname {experiment_dir}_ "+\
+                     f"--baseline data/results_{problem_sizes[target]}.csv "
+            if sect['as_speedup']:
+                invoke += "--as-speedup-vs data/DEFAULT.csv --max-objective "
+            else:
+                invoke += "data/DEFAULT.csv "
+            invoke += f"--x-axis walltime --log-x --log-y --unname {experiment_dir}_ "+\
                      f"--trim data/results_{problem_sizes[target]}.csv --legend best --synchronous "+\
                      f"--no-text"
             if sect['show']:
@@ -156,8 +160,12 @@ def build_test_suite(experiment, runtype, args, key):
                      f"--best {experiment_dir}*_{target.upper()}_*.csv "+\
                      f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
                      f"results_gptune_*{target.lower()}* "+\
-                     f"--baseline data/results_{problem_sizes[target]}.csv "+\
-                     f"data/DEFAULT.csv --x-axis evaluation --log-x --log-y --unname {experiment_dir}_ "+\
+                     f"--baseline data/results_{problem_sizes[target]}.csv "
+            if sect['as_speedup']:
+                invoke += "--as-speedup-vs data/DEFAULT.csv --max-objective "
+            else:
+                invoke += "data/DEFAULT.csv "
+            invoke += f"--x-axis evaluation --log-x --log-y --unname {experiment_dir}_ "+\
                      f"--trim data/results_{problem_sizes[target]}.csv --legend best --synchronous "+\
                      f"--no-text"
             if sect['show']:
@@ -173,6 +181,8 @@ def build_test_suite(experiment, runtype, args, key):
                      f"results_gptune_*{target.lower()}* --x-axis walltime --unname results --trim .csv "+\
                      f"--legend best --synchronous --drop-extension --fig-dims 8 4 --top 0.9 "+\
                      f"--ignore data/jaehoon_experiments/*200eval* --no-text"
+            if sect['as_speedup']:
+                invoke += " --as-speedup-vs data/DEFAULT.csv --max-objective "
             if sect['show']:
                 invoke += " --show"
             info = verify_output(f"{experiment}_{target.lower()}_configs_competitive.png", runtype,

@@ -3,7 +3,7 @@ from sdv.constraints import Between
 from ytopt.benchmark.base_problem import BaseProblem, import_method_builder
 from autotune.space import *
 from skopt.space import Real, Integer, Categorical
-from ytopt.benchmark.covariance_exp.plopper.newPlopper import Covariance_Plopper as Plopper
+from ytopt.benchmark.base_plopper import Polybench_Plopper as Plopper
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 import pdb
