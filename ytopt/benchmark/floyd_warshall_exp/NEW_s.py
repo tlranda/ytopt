@@ -6,7 +6,7 @@ from ytopt.benchmark.base_problem import BaseProblem, import_method_builder
 from autotune.space import *
 from skopt.space import Real, Integer, Categorical
 # Import relevant plopper
-from ytopt.benchmark.floyd_warshall_exp.plopper.newPlopper import FloydWarshall_Plopper as Plopper
+from ytopt.benchmark.base_plopper import Polybench_Plopper
 
 # Used to locate kernel for ploppers
 import os, sys
@@ -23,6 +23,18 @@ lookup_ival = {60: ('N', "MINI"),
                8600: ('H', "HUGE"),}
 inv_lookup = dict((v[0], k) for (k,v) in lookup_ival.items())
 DATASET_LOOKUP = dict((k, f" -D{lookup_ival[k][1]}_DATASET") for k in lookup_ival.keys())
+
+class Plopper(Polybench_Plopper):
+    def compileString(self, outfile, dictVal, *args, **kwargs):
+        d_size = args[0]
+        clang_cmd = f"clang -fno-caret-diagnostics {outfile} {self.kernel_dir}/polybench.c "+\
+                    f"-I{self.kernel_dir} {d_size} -DPOLYBENCH_TIME -std=c99 -fno-unroll-loops "+\
+                    "-O3 -mllvm -polly -mllvm -polly-process-unprofitable "+\
+                    "-mllvm -polly-use-llvm-names -mllvm -polly-reschedule=0 "+\
+                    "-ffast-math -march=native "+\
+                    f"-o {outfile[:-len(self.output_extension)]}"
+                    #"-mllvm -polly-postops=0 "+\
+        return clang_cmd
 
 class FloydWarshall_Problem(BaseProblem):
     def __init__(self, class_size, **kwargs):

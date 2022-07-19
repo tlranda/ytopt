@@ -416,28 +416,35 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
         ax.plot(data['exe'], new_y, label=source['name'],
                 marker='.', color=color, zorder=1)
 
-def text_analysis(all_data):
+def text_analysis(all_data, args):
     best_results = {}
     for source in all_data:
         data = source['data']
         # Announce the line's best result
-        min_y = min(data['obj'])
-        min_x = data['exe'].iloc[data['obj'].to_list().index(min_y)]
-        best_results[source['name']] = {'min_y': min_y,
-                                        'min_x': min_x}
+        if args.max_objective:
+            best_y = max(data['obj'])
+        else:
+            best_y = min(data['obj'])
+        best_x = data['exe'].iloc[data['obj'].to_list().index(best_y)]
+        best_results[source['name']] = {'best_y': best_y,
+                                        'best_x': best_x}
     for k,v in best_results.items():
-        print(f"{k} BEST RESULT: {v['min_y']} at x = {v['min_x']}")
+        print(f"{k} BEST RESULT: {v['best_y']} at x = {v['best_x']}")
         if 'DEFAULT' not in k:
             best_results[k]['advantage'] = 0
         for k2,v2 in best_results.items():
             if k2 == k:
                 continue
-            improvement = v2['min_y'] / v['min_y']
+            if args.max_objective:
+                improvement = v['best_y'] / v2['best_y']
+            else:
+                improvement = v2['best_y'] / v['best_y']
             improved = improvement > 1
             if not improved:
                 improvement = 1 / improvement
             print("\t"+f"{'Better than' if improved else 'Worse than'} {k2}'s best by {improvement}")
-            speedup = v2['min_x'] / v['min_x']
+            # Speedup ALWAYS goes this way
+            speedup = v2['best_x'] / v['best_x']
             speed = speedup > 1
             if not speed:
                 speedup = 1 / speedup
@@ -465,7 +472,7 @@ def main(args):
     fig, ax, name = prepare_fig(args)
     ntypes = len(set([_['type'] for _ in data]))
     if not args.no_text:
-        text_analysis(data)
+        text_analysis(data, args)
     if not args.no_plots:
         for idx, source in enumerate(data):
             plot_source(fig, ax, idx, source, args, ntypes, top_val)

@@ -283,7 +283,7 @@ class Polybench_Plopper(Plopper):
         return clang_cmd
 
     def runString(self, outfile, dictVal, *args, **kwargs):
-        return outfile[:-len(self.output_extension)]
+        return "srun -n1 "+outfile[:-len(self.output_extension)]
 
     def getTime(self, process, dictVal, *arg, **kwargs):
         # Return last 3 floating point values from output by line
