@@ -96,14 +96,15 @@ def build_test_suite(experiment, runtype, args, key):
             calls += info[0]
             bluffs += info[1]
     elif key == 'ONLINE':
+        problem_prefix = sect['problem_prefix']
         for target in sect['targets']:
             for model in sect['models']:
                 for seed in sect['seeds']:
                     # No Refit
                     invoke = "python -m ytopt.benchmark.base_online_tl --n-refit 0 "+\
                              f"--max-evals {sect['evals']} --seed {seed} --top {sect['top']} "+\
-                             f"--inputs {' '.join(['problem.'+i for i in sect['inputs']])} "+\
-                             f"--targets problem.{target} --model {model} --unique --no-log-obj "+\
+                             f"--inputs {' '.join([problem_prefix+'.'+i for i in sect['inputs']])} "+\
+                             f"--targets {problem_prefix}.{target} --model {model} --unique --no-log-obj "+\
                              f"--output-prefix {experiment}_NO_REFIT_{model}_{target}_{seed}"
                     info = verify_output(f"{experiment}_NO_REFIT_{model}_{target}_{seed}_ALL.csv", runtype,
                                   invoke, args)
@@ -112,17 +113,17 @@ def build_test_suite(experiment, runtype, args, key):
                     # Refit
                     invoke = f"python -m ytopt.benchmark.base_online_tl --n-refit {sect['refits']} "+\
                              f"--max-evals {sect['evals']} --seed {seed} --top {sect['top']} "+\
-                             f"--inputs {' '.join(['problem.'+i for i in sect['inputs']])} "+\
-                             f"--targets problem.{target} --model {model} --unique --no-log-obj "+\
+                             f"--inputs {' '.join([problem_prefix+'.'+i for i in sect['inputs']])} "+\
+                             f"--targets {problem_prefix}.{target} --model {model} --unique --no-log-obj "+\
                              f"--output-prefix {experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}"
                     info = verify_output(f"{experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}_ALL.csv",
                                   runtype, invoke, args)
                     calls += info[0]
                     bluffs += info[1]
                     # Bootstrap
-                    invoke = f"python -m ytopt.benchmark.search.ambs --problem problem.{target} --max-evals "+\
+                    invoke = f"python -m ytopt.benchmark.search.ambs --problem {problem_prefix}.{target} --max-evals "+\
                              f"{sect['evals']} --n-generate {sect['bootstrap']} --top {sect['bootstrap_top'] } "+\
-                             f"--inputs {' '.join(['problem.'+i for i in sect['inputs']])} "+\
+                             f"--inputs {' '.join([problem_prefix+'.'+i for i in sect['inputs']])} "+\
                              f"--model {model} --evaluator {sect['evaluator']} --learner {sect['learner']} "+\
                              f"--set-KAPPA {sect['kappa']} --acq-func {sect['acqfn']} "+\
                              f"--set-SEED {seed} --set-NI {sect['ni']}; "+\
@@ -137,50 +138,35 @@ def build_test_suite(experiment, runtype, args, key):
         if len(experiment_dir) > 0 and not experiment_dir.endswith('/'):
             experiment_dir += '/'
         for target in sect['targets']:
-            # WALLTIME
-            invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_walltime "+\
-                     f"--best {experiment_dir}*_{target.upper()}_*.csv "+\
-                     f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
-                     f"results_gptune_*{target.lower()}* "+\
-                     f"--baseline data/results_{problem_sizes[target]}.csv "
-            if sect['as_speedup']:
-                invoke += "--as-speedup-vs data/DEFAULT.csv --max-objective "
-            else:
-                invoke += "data/DEFAULT.csv --log-y "
-            invoke += f"--x-axis walltime --log-x --unname {experiment_dir}_ "+\
-                     f"--trim data/results_{problem_sizes[target]}.csv --legend best --synchronous "+\
-                     f"--no-text"
-            if sect['show']:
-                invoke += " --show"
-            info = verify_output(f"{experiment}_walltime_plot.png", runtype, invoke, args)
-            calls += info[0]
-            bluffs += info[1]
-            # EVAL
-            invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_evaluation "+\
-                     f"--best {experiment_dir}*_{target.upper()}_*.csv "+\
-                     f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
-                     f"results_gptune_*{target.lower()}* "+\
-                     f"--baseline data/results_{problem_sizes[target]}.csv "
-            if sect['as_speedup']:
-                invoke += "--as-speedup-vs data/DEFAULT.csv --max-objective "
-            else:
-                invoke += "data/DEFAULT.csv --log-y "
-            invoke += f"--x-axis evaluation --log-x --unname {experiment_dir}_ "+\
-                     f"--trim data/results_{problem_sizes[target]}.csv --legend best --synchronous "+\
-                     f"--no-text"
-            if sect['show']:
-                invoke += " --show"
-            info = verify_output(f"{experiment}_evaluation_plot.png", runtype, invoke, args)
-            calls += info[0]
-            bluffs += info[1]
+            # Raw performance with evaluation or wall-time x-axes
+            for axis in ["walltime", "evaluation"]:
+                invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_{target.lower()}_{axis} "+\
+                         f"--best {experiment_dir}*_{target.upper()}_*.csv "+\
+                         f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
+                         f"results_gptune_*{target.lower()}* "+\
+                         f"--baseline data/results_{problem_sizes[target]}.csv "
+                if sect['as_speedup']:
+                    invoke += "--as-speedup-vs data/DEFAULT.csv --max-objective "
+                else:
+                    invoke += "data/DEFAULT.csv --log-y "
+                invoke += f"--x-axis {axis} --log-x --unname {experiment_dir}_ "+\
+                         f"--trim data/results_{problem_sizes[target]}.csv --legend best --synchronous "+\
+                         "--ignore data/thomas_experiments/*1337*.csv data/thomas_experiments/*5555*.csv "+\
+                         "--no-text"
+                if sect['show']:
+                    invoke += " --show"
+                info = verify_output(f"{experiment}_{target.lower()}_{axis}_plot.png", runtype, invoke, args)
+                calls += info[0]
+                bluffs += info[1]
             # SM, ML, and XL
             # data/thomas_experiments/*_{target.upper()}_*.csv
             invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_{target.lower()}_configs "+\
                      f"--input *_{target.upper()}_*.csv data/thomas_experiments/*_{target.upper()}_*.csv "+\
                      f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
                      f"results_gptune_*{target.lower()}* --x-axis walltime --unname results --trim .csv "+\
-                     f"--legend best --synchronous --drop-extension --fig-dims 8 4 --top 0.9 "+\
-                     f"--ignore data/jaehoon_experiments/*200eval* --no-text --global-top"
+                     "--legend best --synchronous --drop-extension --fig-dims 8 4 --top 0.9 "+\
+                     "--ignore data/jaehoon_experiments/*200eval* data/thomas_experiments/*1337*.csv "+\
+                     "data/thomas_experiments/*5555*.csv --no-text --global-top"
             if sect['as_speedup']:
                 invoke += " --as-speedup-vs data/DEFAULT.csv --max-objective "
             if sect['show']:

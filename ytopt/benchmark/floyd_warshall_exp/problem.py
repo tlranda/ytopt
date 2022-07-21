@@ -43,9 +43,9 @@ class Floyd_Warshall_Plopper(Polybench_Plopper):
                     f"-I{self.kernel_dir} {d_size} -DPOLYBENCH_TIME -std=c99 -fno-unroll-loops "+\
                     "-O3 -mllvm -polly -mllvm -polly-process-unprofitable "+\
                     "-mllvm -polly-use-llvm-names -mllvm -polly-reschedule=0 "+\
-                    "-mllvm --polly-postops=0 "+\
                     "-ffast-math -march=native "+\
                     f"-o {outfile[:-len(self.output_extension)]}"
+                    #"-mllvm --polly-postops=0 "+\
         print(clang_cmd)
         return clang_cmd
 __getattr__ = polybench_problem_builder(lookup_ival, input_space, HERE, name="Floyd_Warshall_Problem",

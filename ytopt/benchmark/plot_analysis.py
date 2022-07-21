@@ -40,6 +40,8 @@ def build():
     prs.add_argument("--max-objective", action="store_true", help="Objective is MAXIMIZE not MINIMIZE (default MINIMIZE)")
     prs.add_argument("--ignore", type=str, nargs="*", help="Files to unglob")
     prs.add_argument("--drop-seeds", type=int, nargs="*", help="Seeds to remove (in ascending 1-based rank order by performance, can use negative numbers for nth best)")
+    prs.add_argument("--cutoff", action="store_true", help="Halt plotting points after the maximum is achieved")
+    prs.add_argument("--drop-overhead", action="store_true", help="Attempt to remove initialization overhead time in seconds")
     return prs
 
 def parse(prs, args=None):
@@ -246,6 +248,8 @@ def load_all(args):
                 continue
             # Drop unnecessary parameters
             d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
+            if args.drop_overhead:
+                d['elapsed_sec'] -= d['elapsed_sec'].iloc[0]-d['objective'].iloc[0]
             if args.as_speedup_vs is not None:
                 d['objective'] = args.as_speedup_vs / d['objective']
             name, directory = make_seed_invariant_name(fname, args)
@@ -278,6 +282,8 @@ def load_all(args):
                 continue
             # Drop unnecessary parameters
             d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
+            if args.drop_overhead:
+                d['elapsed_sec'] -= d['elapsed_sec'].iloc[0]-d['objective'].iloc[0]
             if args.as_speedup_vs is not None:
                 d['objective'] = args.as_speedup_vs / d['objective']
             # Transform into best-so-far dataset
@@ -316,6 +322,8 @@ def load_all(args):
                 continue
             # Find ultimate best value to plot as horizontal line
             d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
+            if args.drop_overhead:
+                d['elapsed_sec'] -= d['elapsed_sec'].iloc[0]-d['objective'].iloc[0]
             if args.as_speedup_vs is not None:
                 d['objective'] = args.as_speedup_vs / d['objective']
             # Transform into best-so-far dataset
@@ -381,9 +389,13 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
                             color=alter_color(color), zorder=-1)
         # Main line = mean
         if len(data['obj']) > 1:
-            ax.plot(data['exe'], data['obj'],
+            cutoff = data['obj'].to_list().index(max(data['obj']))+1
+            ax.plot(data['exe'][:cutoff], data['obj'][:cutoff],
                     label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
                     marker='x', color=color, zorder=1)
+            if not args.cutoff:
+                ax.plot(data['exe'][cutoff:], data['obj'][cutoff:],
+                        marker='x', color=color, zorder=1)
         else:
             x_lims = [int(v) for v in ax.get_xlim()]
             x_lims[0] = max(0, x_lims[0])
