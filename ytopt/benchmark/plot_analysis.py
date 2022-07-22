@@ -16,7 +16,9 @@ def build():
     prs.add_argument("--inputs", type=str, nargs="+", help="Files to read for plots")
     prs.add_argument("--bests", type=str, nargs="*", help="Traces to treat as best-so-far")
     prs.add_argument("--baseline-best", type=str, nargs="*", help="Traces to treat as BEST of best so far")
-    prs.add_argument("--as-speedup-vs", type=str, help="Convert objectives to speedup compared against this value (float or CSV filename)")
+    prs.add_argument("--pca", type=str, nargs="*", help="Plot as PCA (don't mix with other plots plz)")
+    prs.add_argument("--pca-problem", type=str, default="", help="Problem.Attr notation to load space from (must be module or CWD/* to function)")
+    prs.add_argument("--as-speedup-vs", type=str, default=None, help="Convert objectives to speedup compared against this value (float or CSV filename)")
     prs.add_argument("--show", action="store_true", help="Show figures rather than save to file")
     prs.add_argument("--legend", choices=legend_codes, nargs="*", default=None, help="Legend location (default none). Two-word legends should be quoted on command line")
     prs.add_argument("--minmax", action="store_true", help="Include min and max lines")
@@ -71,6 +73,14 @@ def parse(prs, args=None):
                 if fname not in args.ignore:
                     allowed.append(fname)
             args.baseline_best = allowed
+        if args.pca is not None:
+            allowed = []
+            for fname in args.pca:
+                if fname not in args.ignore:
+                    allowed.append(fname)
+            args.pca = allowed
+    if args.pca is not None and args.pca != [] and args.pca_problem == "":
+        raise ValueError("Must define a pca problem along with PCA plots (--pca-problem)")
     if args.drop_seeds == []:
         args.drop_seeds = None
     if args.as_speedup_vs is not None:
@@ -135,6 +145,10 @@ def combine_seeds(data, args):
     combined_data = []
     for entry in data:
         new_data = {'name': entry['name'], 'type': entry['type']}
+        if entry['type'] == 'pca':
+            new_data['data'] = entry['data']
+            combined_data.append(new_data)
+            continue
         # Change objective column to be the average
         # Add min, max, and stddev columns for each point
         objective_priority = ['objective', 'exe_time']
@@ -268,6 +282,38 @@ def load_all(args):
         if shortlist.count(name) == 1:
             idx = inv_names.index(fullname)
             data[idx]['name'] = name
+    # Load PCA inputs
+    idx_offset = len(data)
+    inv_names = []
+    shortlist = []
+    if args.pca is not None:
+        # Load all normal inputs
+        for fname in args.pca:
+            try:
+                d = pd.read_csv(fname)
+            except IOError:
+                print(f"WARNING: Could not open {fname}, removing from 'pca' list")
+                continue
+            if args.drop_overhead:
+                d['elapsed_sec'] -= d['elapsed_sec'].iloc[0]-d['objective'].iloc[0]
+            if args.as_speedup_vs is not None:
+                d['objective'] = args.as_speedup_vs / d['objective']
+            name, directory = make_seed_invariant_name(fname, args)
+            fullname = directory+'.'+name
+            if fullname in inv_names:
+                idx = inv_names.index(fullname)
+                # Just put them side-by-side for now
+                data[idx]['data'].append(d)
+            else:
+                data.append({'name': fullname, 'data': [d], 'type': 'pca',
+                             'fname': fname, 'dir': directory})
+                inv_names.append(fullname)
+                shortlist.append(name)
+    # Drop directory from names IF only represented once
+    for (name, fullname) in zip(shortlist, inv_names):
+        if shortlist.count(name) == 1:
+            idx = inv_names.index(fullname)
+            data[idx]['name'] = name
     # Load best-so-far inputs
     idx_offset = len(data) # Best-so-far have to be independent of normal inputs as the same file
                            # may be in both lists, but it should be treated by BOTH standards if so
@@ -362,7 +408,10 @@ def prepare_fig(args):
     fig, ax = plt.subplots(figsize=tuple(args.fig_dims))
     fig.set_tight_layout(True)
     if args.top is None:
-        name = "plot"
+        if args.pca != []:
+            name = "pca"
+        else:
+            name = "plot"
     else:
         name = "competitive"
     return fig, ax, name
@@ -375,6 +424,29 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
     # Color help
     colors = [mcolors.to_rgb(_['color']) for _ in list(plt.rcParams['axes.prop_cycle'])]
     color = colors[idx % len(colors)]
+    if source['type'] == 'pca':
+        import importlib, skopt
+        from sklearn.decomposition import PCA
+        problem, attr = args.pca_problem.rsplit('.',1)
+        module = importlib.import_module(problem)
+        space = module.__getattr__(attr)
+        skopt_space = skopt.space.Space(space)
+        # Transform data. Non-objective/runtime should become vectorized. Objective should be ranked
+        new_data, new_ranks = [], []
+        for d in data:
+            parameters = d.loc[:, space.get_hyperparameter_names()]
+            other = d.loc[:, [_ for _ in d.columns if _ not in space.get_hyperparameter_names()]]
+            x_parameters = skopt_space.transform(parameters.astype('str').to_numpy())
+            rankdict = dict((idx,rank) for (rank, idx) in zip(range(len(other['objective'])),
+                    np.argsort(((-1)**args.max_objective) * np.asarray(other['objective']))))
+            other.loc[:, ('objective')] = [rankdict[_] / len(other['objective']) for _ in other['objective'].index]
+            new_data.append(x_parameters)
+            new_ranks.append(other)
+        pca = PCA(n_components=2)
+        import pdb
+        pdb.set_trace()
+        pca_values = pca.fit_transform(np.vstack(new_data))
+        return
     if top_val is None:
         # Shaded area = stddev
         # Prevent <0 unless arg says otherwise
@@ -491,11 +563,14 @@ def main(args):
         # make x-axis data
         if args.x_axis == "evaluation":
             xname = "Evaluation #"
-        else:
+        elif args.x_axis == "walltime":
             xname = "Elapsed Time (seconds)"
         # make y-axis data
         if top_val is None:
-            yname = "Objective"
+            if args.as_speedup_vs is not None:
+                yname = "Speedup (over -O3 -polly)"
+            else:
+                yname = "Objective"
         else:
             if args.global_top:
                 yname = f"# Configs with top {round(100*args.top,1)}% result = {round(top_val,4)}"

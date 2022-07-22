@@ -245,14 +245,28 @@ class Plopper:
     #   + runString
     def findRuntime(self, x, params, *args, **kwargs):
         # Generate non-colliding name to write outputs to:
-        interimfile = self.outputdir+"/"+str(uuid.uuid4())+self.output_extension
+        if x != []:
+            interimfile = self.outputdir+"/"+str(uuid.uuid4())+self.output_extension
+        else:
+            interimfile = self.sourcefile
 
         # Generate intermediate file
         dictVal = dict((k,v) for (k,v) in zip(params, x))
         # If there is a compiling string, we need to run plotValues
         compile_str = self.compileString(interimfile, dictVal, *args, **kwargs)
-        if self.force_plot or compile_str is not None:
+        if x != [] and (self.force_plot or compile_str is not None):
             self.plotValues(interimfile, dictVal, *args, **kwargs)
+            # Compilation
+            if compile_str is not None:
+                compilation_status = subprocess.run(compile_str, shell=True, stderr=subprocess.PIPE)
+                # Find execution time ONLY when the compiler return code is zero, else return infinity
+                if compilation_status.returncode != 0:
+                # and len(compilation_status.stderr) == 0: # Second condition is to check for warnings
+                    print(compilation_status.stderr)
+                    print("Compile failed")
+                    return self.metric([self.infinity])
+        elif x == [] and (self.force_plot or compile_str is not None):
+            # SKIP Plotting values
             # Compilation
             if compile_str is not None:
                 compilation_status = subprocess.run(compile_str, shell=True, stderr=subprocess.PIPE)

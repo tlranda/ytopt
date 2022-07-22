@@ -175,6 +175,15 @@ def build_test_suite(experiment, runtype, args, key):
                                     invoke, args)
             calls += info[0]
             bluffs += info[1]
+    elif key == 'O3':
+        for target in sect['targets']:
+            invoke = f"python -c \"import pandas as pd; from problem import {target}; "+\
+                     f"obj = {target}.O3(); "+\
+                     "pd.DataFrame({'objective': [obj], 'elapsed_time': [obj]})"+\
+                     f".to_csv('data/DEFAULT_{target.upper()}.csv', index=False)\""
+            info = verify_output(f"data/DEFAULT_{target.upper()}.csv\"", runtype, invoke, args)
+            calls += info[0]
+            bluffs += info[1]
     else:
         raise ValueError(f"Unknown section {key}")
     print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made & {bluffs} calls bluffed >>")

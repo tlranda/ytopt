@@ -115,10 +115,16 @@ class BaseProblem(setWhenDefined):
                 pass
 
     def condense_results(self, results):
-        return float(np.mean(results[1:]))
+        if len(results) > 1:
+            return float(np.mean(results[1:]))
+        else:
+            return float(results[0])
 
     def objective(self, point: dict, *args, **kwargs):
-        x = np.asarray_chkfinite([point[k] for k in self.params]) # ValueError if any NaN or Inf
+        if point != {}:
+            x = np.asarray_chkfinite([point[k] for k in self.params]) # ValueError if any NaN or Inf
+        else:
+            x = [] # Prevent KeyErrors when there are no points to parameterize
         if not self.silent:
             print(f"CONFIG: {point}")
         if self.use_capital_params is not None and self.use_capital_params:
@@ -148,6 +154,8 @@ class BaseProblem(setWhenDefined):
 
 def import_method_builder(clsref, lookup, default):
     def getattr_fn(name, default=default):
+        if name == "input_space" or name == "space":
+            return clsref.input_space
         prefixes = ["_", "class"]
         suffixes = ["Problem"]
         for pre in prefixes:
@@ -190,6 +198,13 @@ def polybench_problem_builder(lookup, input_space_definition, there, default=Non
             super().__init__(**kwargs)
         def objective(self, point, *args, **kwargs):
             return super().objective(point, self.dataset, *args, **kwargs)
+        def O3(self):
+            # Temporarily swap references
+            old_source = self.plopper.sourcefile
+            self.plopper.sourcefile = self.name.split('_',1)[0].lower()+".c"
+            rvalue = super().objective({}, self.dataset, O3=True)
+            self.plopper.sourcefile = old_source
+            return rvalue
     Polybench_Problem.__name__ = name
     inv_lookup = dict((v[0], k) for (k,v) in lookup.items())
     if default is None:
