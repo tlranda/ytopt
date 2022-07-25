@@ -428,12 +428,18 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
     # Color help
     colors = [mcolors.to_rgb(_['color']) for _ in list(plt.rcParams['axes.prop_cycle'])]
     color = colors[idx % len(colors)]
+    color_maps = ['Greys', 'Purples', 'Blues', 'Greens', 'Oranges', 'Reds',
+                    'YlOrBr', 'YlOrRd', 'OrRd', 'PuRd', 'RdPu', 'BuPu',
+                    'GnBu', 'PuBu', 'YlGnBu', 'PuBuGn', 'BuGn', 'YlGn']
+    #color_maps = [_ for _ in plt.cm._cmap_registry.keys() if not _.endswith('_r')]
+    #color_map = color_maps[idx % len(color_maps)]
+    color_map = 'Reds'
     if source['type'] == 'pca':
         import importlib, skopt
         from sklearn.decomposition import PCA
         problem, attr = args.pca_problem.rsplit('.',1)
         module = importlib.import_module(problem)
-        space = module.__getattr__(attr)
+        space = module.__getattr__(attr).input_space
         skopt_space = skopt.space.Space(space)
         # Transform data. Non-objective/runtime should become vectorized. Objective should be ranked
         new_data, new_ranks = [], []
@@ -447,9 +453,9 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
             new_data.append(x_parameters)
             new_ranks.append(other)
         pca = PCA(n_components=2)
-        import pdb
-        pdb.set_trace()
-        pca_values = pca.fit_transform(np.vstack(new_data))
+        pca_values = pca.fit_transform(np.vstack(new_data)).reshape((len(new_data),-1,2))
+        for (positions, ranks) in zip(pca_values, new_ranks):
+            plt.scatter(positions[:,0], positions[:,1], c=ranks['objective'], cmap=color_map)
         return
     if top_val is None:
         # Shaded area = stddev
