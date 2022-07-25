@@ -14,7 +14,7 @@ def run(cmd, prelude, args):
     if not args.eval_lock:
         status = subprocess.run(cmd, shell=True)
 
-def output_check(checkname, prelude, args):
+def output_check(checkname, prelude, expect, args):
     if os.path.exists(checkname):
         try:
             with open(checkname, 'r') as f:
@@ -22,8 +22,8 @@ def output_check(checkname, prelude, args):
             if prelude != "":
                 print(f"-- {prelude} --")
             print(f"| {linecount} lines in {checkname} |")
-            if linecount <= 2:
-                print(f"!! Remove bad output {checkname} !!")
+            if linecount < expect:
+                print(f"!! Remove bad output {checkname} (Expected {expect}) !!")
                 subprocess.run(f"rm -f {checkname}", shell=True)
         except UnicodeDecodeError:
             print(f"[] Plot {checkname} exists []")
@@ -32,7 +32,7 @@ def output_check(checkname, prelude, args):
             print(f"-! {prelude} !-")
         print(f"!! did not find {checkname} !!")
 
-def verify_output(checkname, runstatus, invoke, args):
+def verify_output(checkname, runstatus, invoke, expect, args):
     if runstatus not in valid_run_status:
         raise ValueError(f"Runstatus must be in {valid_run_status}")
     r = 0
@@ -43,16 +43,16 @@ def verify_output(checkname, runstatus, invoke, args):
             r = 1
         elif runstatus != "run":
             b = 1
-        output_check(checkname, "CHECK", args)
+        output_check(checkname, "CHECK", expect, args)
         if runstatus in always_announce:
             print(invoke)
     elif args.backup is not None and os.path.exists(args.backup+checkname):
         if runstatus == "override":
             run(invoke, runstatus, args)
             r = 1
-            output_check(checkname, "CHECK OVERRIDE", args)
+            output_check(checkname, "CHECK OVERRIDE", expect, args)
         else:
-            output_check(args.backup+checkname, f"CHECK BACKUP @{args.backup}", args)
+            output_check(args.backup+checkname, f"CHECK BACKUP @{args.backup}", expect, args)
             b = 1
             if runstatus in always_announce:
                 print(invoke)
@@ -70,7 +70,7 @@ def verify_output(checkname, runstatus, invoke, args):
             bonus = f"; No backup @{args.backup}" if args.backup is not None else "; No backup given"
             run(invoke, runstatus+bonus, args)
             r = 1
-            output_check(checkname, "CHECK NEW RUN", args)
+            output_check(checkname, "CHECK NEW RUN", expect, args)
     if runstatus == "sanity" or r == 1:
         sanity_check(checkname)
     return r, b
@@ -80,6 +80,7 @@ def build_test_suite(experiment, runtype, args, key):
     os.chdir(f"{HERE}/{experiment}_exp")
     print(f"<< BEGIN {key} for {experiment}  >>")
     sect = args.cfg[key]
+    expect = sect['expect']
     # Fetch the problem sizes
     problem_sizes = subprocess.run("python -m ytopt.benchmark.size_lookup --p "+" ".join([f"problem.{s}" for s in sect['sizes']]), shell=True, stdout=subprocess.PIPE)
     problem_sizes = dict((k, int(v)) for (k,v) in zip(sect['sizes'], problem_sizes.stdout.decode('utf-8').split()))
@@ -92,7 +93,7 @@ def build_test_suite(experiment, runtype, args, key):
                      f"--max-evals={sect['evals']} --learner {sect['learner']} --set-KAPPA {sect['kappa']} "+\
                      f"--acq-func {sect['acqfn']} --set-SEED {sect['offline_seed']}; "+\
                      f"mv results_{problem_sizes[problem]}.csv {out_name}"
-            info = verify_output(out_name, runtype, invoke, args)
+            info = verify_output(out_name, runtype, invoke, expect, args)
             calls += info[0]
             bluffs += info[1]
     elif key == 'ONLINE':
@@ -107,7 +108,7 @@ def build_test_suite(experiment, runtype, args, key):
                              f"--targets {problem_prefix}.{target} --model {model} --unique --no-log-obj "+\
                              f"--output-prefix {experiment}_NO_REFIT_{model}_{target}_{seed}"
                     info = verify_output(f"{experiment}_NO_REFIT_{model}_{target}_{seed}_ALL.csv", runtype,
-                                  invoke, args)
+                                  invoke, expect, args)
                     calls += info[0]
                     bluffs += info[1]
                     # Refit
@@ -117,7 +118,7 @@ def build_test_suite(experiment, runtype, args, key):
                              f"--targets {problem_prefix}.{target} --model {model} --unique --no-log-obj "+\
                              f"--output-prefix {experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}"
                     info = verify_output(f"{experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}_ALL.csv",
-                                  runtype, invoke, args)
+                                  runtype, invoke, expect, args)
                     calls += info[0]
                     bluffs += info[1]
                     # Bootstrap
@@ -130,7 +131,7 @@ def build_test_suite(experiment, runtype, args, key):
                              f"mv results_{problem_sizes[target]}.csv {experiment}_BOOTSTRAP_"+\
                              f"{sect['bootstrap']}_{model}_{target}_{seed}_ALL.csv"
                     info = verify_output(f"{experiment}_BOOTSTRAP_{sect['bootstrap']}_{model}_{target}_{seed}_ALL.csv",
-                                  runtype, invoke, args)
+                                  runtype, invoke, expect, args)
                     calls += info[0]
                     bluffs += info[1]
     elif key == 'PLOTS':
@@ -146,7 +147,7 @@ def build_test_suite(experiment, runtype, args, key):
                          f"results_gptune_*{target.lower()}* "+\
                          f"--baseline data/results_{problem_sizes[target]}.csv "
                 if sect['as_speedup']:
-                    invoke += "--as-speedup-vs data/DEFAULT.csv --max-objective "
+                    invoke += f"--as-speedup-vs data/DEFAULT_{target.upper()}.csv --max-objective "
                 else:
                     invoke += "data/DEFAULT.csv --log-y "
                 invoke += f"--x-axis {axis} --log-x --unname {experiment_dir}_ "+\
@@ -155,7 +156,7 @@ def build_test_suite(experiment, runtype, args, key):
                          "--no-text"
                 if sect['show']:
                     invoke += " --show"
-                info = verify_output(f"{experiment}_{target.lower()}_{axis}_plot.png", runtype, invoke, args)
+                info = verify_output(f"{experiment}_{target.lower()}_{axis}_plot.png", runtype, invoke, expect, args)
                 calls += info[0]
                 bluffs += info[1]
             # SM, ML, and XL
@@ -168,11 +169,11 @@ def build_test_suite(experiment, runtype, args, key):
                      "--ignore data/jaehoon_experiments/*200eval* data/thomas_experiments/*1337*.csv "+\
                      "data/thomas_experiments/*5555*.csv --no-text --global-top"
             if sect['as_speedup']:
-                invoke += " --as-speedup-vs data/DEFAULT.csv --max-objective "
+                invoke += f" --as-speedup-vs data/DEFAULT_{target.upper()}.csv --max-objective "
             if sect['show']:
                 invoke += " --show"
             info = verify_output(f"{experiment}_{target.lower()}_configs_competitive.png", runtype,
-                                    invoke, args)
+                                    invoke, expect, args)
             calls += info[0]
             bluffs += info[1]
     elif key == 'O3':
@@ -181,7 +182,7 @@ def build_test_suite(experiment, runtype, args, key):
                      f"obj = {target}.O3(); "+\
                      "pd.DataFrame({'objective': [obj], 'elapsed_time': [obj]})"+\
                      f".to_csv('data/DEFAULT_{target.upper()}.csv', index=False)\""
-            info = verify_output(f"data/DEFAULT_{target.upper()}.csv\"", runtype, invoke, args)
+            info = verify_output(f"data/DEFAULT_{target.upper()}.csv", runtype, invoke, expect, args)
             calls += info[0]
             bluffs += info[1]
     else:

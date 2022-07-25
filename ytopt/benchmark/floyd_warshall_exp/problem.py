@@ -48,6 +48,6 @@ class Floyd_Warshall_Plopper(Polybench_Plopper):
                     #"-mllvm --polly-postops=0 "+\
         print(clang_cmd)
         return clang_cmd
-__getattr__ = polybench_problem_builder(lookup_ival, input_space, HERE, name="Floyd_Warshall_Problem",
+__getattr__ = polybench_problem_builder(lookup_ival, input_space, HERE, name="Floyd-Warshall_Problem",
                                         plopper_class=Floyd_Warshall_Plopper)
 

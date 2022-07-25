@@ -38,5 +38,5 @@ input_space = [('Categorical',
 lookup_ival = {10: ("N", "MINI", 20), 20: ("S", "SMALL", 40), 30: ("SM", "SM", 70),
                40: ("M", "MEDIUM", 100), 80: ("ML", "ML", 300), 120: ("L", "LARGE", 500),
                200: ("XL", "EXTRALARGE", 1000), 300: ("H", "HUGE", 1500),}
-__getattr__ = polybench_problem_builder(lookup_ival, input_space, HERE, name="Heat_3d_Problem")
+__getattr__ = polybench_problem_builder(lookup_ival, input_space, HERE, name="Heat-3d_Problem")
 
