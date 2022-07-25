@@ -252,8 +252,6 @@ def load_all(args):
     data = []
     inv_names = []
     shortlist = []
-    import pdb
-    pdb.set_trace()
     if args.inputs is not None:
         # Load all normal inputs
         for fname in args.inputs:

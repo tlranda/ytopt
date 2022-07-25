@@ -145,15 +145,15 @@ def build_test_suite(experiment, runtype, args, key):
                          f"--best {experiment_dir}*_{target.upper()}_*.csv "+\
                          f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
                          f"results_gptune_*{target.lower()}* "+\
-                         f"--baseline data/results_{problem_sizes[target]}.csv "
+                         f"--baseline data/results_rf_{target.lower()}_{experiment.lstrip('_')}.csv "
                 if sect['as_speedup']:
                     invoke += f"--as-speedup-vs data/DEFAULT_{target.upper()}.csv --max-objective "
                 else:
                     invoke += "data/DEFAULT.csv --log-y "
                 invoke += f"--x-axis {axis} --log-x --unname {experiment_dir}_ "+\
                          f"--trim data/results_{problem_sizes[target]}.csv --legend best --synchronous "+\
-                         "--ignore data/thomas_experiments/*1337*.csv data/thomas_experiments/*5555*.csv "+\
-                         "--no-text --drop-overhead"
+                         "--ignore data/jaehoon_experiments/*200eval* data/thomas_experiments/*1337*.csv "+\
+                         "data/thomas_experiments/*5555*.csv --no-text --drop-overhead"
                 if sect['show']:
                     invoke += " --show"
                 info = verify_output(f"{experiment}_{target.lower()}_{axis}_plot.png", runtype, invoke, expect, args)
