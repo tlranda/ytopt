@@ -325,15 +325,28 @@ def main(args=None):
         last_in = last_in.__class__.__name__
         results_file += last_in[:last_in.rindex('_')].lower()+".csv"
         if not os.path.exists(results_file):
+            # First try backup
             backup_results_file = results_file.rsplit('/',1)
             backup_results_file.insert(1, 'data')
             backup_results_file = "/".join(backup_results_file)
             if not os.path.exists(backup_results_file):
-                # Execute the input problem and move its results files to the above directory
-                raise ValueError(f"Could not find {results_file} for '{problemName}' "
-                                 f"[{inputs[-1].name}] and no backup at {backup_results_file}"
-                                 "\nYou may need to run this problem or rename its output "
-                                 "as above for the script to locate it")
+                # Next try replacing '-' with '_'
+                dash_results_file = "_".join(results_file.split('-'))
+                if not os.path.exists(dash_results_file):
+                    dash_backup_results_file = "_".join(backup_results_file.split('-'))
+                    if not os.path.exists(dash_backup_results_file):
+                        # Execute the input problem and move its results files to the above directory
+                        raise ValueError(f"Could not find {results_file} for '{problemName}' "
+                                         f"[{inputs[-1].name}] and no backup at {backup_results_file}"
+                                         "\nYou may need to run this problem or rename its output "
+                                         "as above for the script to locate it")
+                    else:
+                        print(f"WARNING! {problemName} [{inputs[-1].name}] is using backup data rather "
+                                "than original data (Dash-to-Underscore Replacement ON)")
+                        results_file = dash_backup_results_file
+                else:
+                    print("Dash-to-Underscore Replacement ON")
+                    results_file = dash_results_file
             else:
                 print(f"WARNING! {problemName} [{inputs[-1].name}] is using backup data rather "
                         "than original data")

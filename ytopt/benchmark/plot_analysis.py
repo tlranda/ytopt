@@ -252,9 +252,12 @@ def load_all(args):
     data = []
     inv_names = []
     shortlist = []
+    import pdb
+    pdb.set_trace()
     if args.inputs is not None:
         # Load all normal inputs
         for fname in args.inputs:
+            #print(f"Load [Input]: {fname}")
             try:
                 fd = pd.read_csv(fname)
             except IOError:
@@ -289,6 +292,7 @@ def load_all(args):
     if args.pca is not None:
         # Load all normal inputs
         for fname in args.pca:
+            #print(f"Load [PCA]: {fname}")
             try:
                 d = pd.read_csv(fname)
             except IOError:
@@ -321,6 +325,7 @@ def load_all(args):
     shortlist = []
     if args.bests is not None:
         for fname in args.bests:
+            #print(f"Load [Best]: {fname}")
             try:
                 fd = pd.read_csv(fname)
             except IOError:
@@ -361,6 +366,7 @@ def load_all(args):
     inv_names = []
     if args.baseline_best is not None:
         for fname in args.baseline_best:
+            #print(f"Load [Baseline]: {fname}")
             try:
                 fd = pd.read_csv(fname)
             except IOError:
@@ -408,7 +414,7 @@ def prepare_fig(args):
     fig, ax = plt.subplots(figsize=tuple(args.fig_dims))
     fig.set_tight_layout(True)
     if args.top is None:
-        if args.pca != []:
+        if args.pca is not None and args.pca != []:
             name = "pca"
         else:
             name = "plot"
@@ -461,8 +467,8 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
                             color=alter_color(color), zorder=-1)
         # Main line = mean
         if len(data['obj']) > 1:
-            cutoff = data['obj'].to_list().index(max(data['obj']))+1
-            ax.plot(data['exe'][:cutoff], data['obj'][:cutoff],
+            cutoff = data['obj'].to_list().index(max(data['obj']))
+            ax.plot(data['exe'][:min(cutoff+1, len(data))], data['obj'][:min(cutoff+1,len(data))],
                     label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
                     marker='x', color=color, zorder=1)
             if not args.cutoff:

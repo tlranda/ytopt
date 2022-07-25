@@ -153,7 +153,7 @@ def build_test_suite(experiment, runtype, args, key):
                 invoke += f"--x-axis {axis} --log-x --unname {experiment_dir}_ "+\
                          f"--trim data/results_{problem_sizes[target]}.csv --legend best --synchronous "+\
                          "--ignore data/thomas_experiments/*1337*.csv data/thomas_experiments/*5555*.csv "+\
-                         "--no-text"
+                         "--no-text --drop-overhead"
                 if sect['show']:
                     invoke += " --show"
                 info = verify_output(f"{experiment}_{target.lower()}_{axis}_plot.png", runtype, invoke, expect, args)
