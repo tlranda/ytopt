@@ -1,4 +1,4 @@
-import os, uuid, re, time, subprocess
+import os, uuid, re, time, subprocess, numpy as np
 
 """
     Expected usage:
@@ -245,7 +245,7 @@ class Plopper:
     #   + runString
     def findRuntime(self, x, params, *args, **kwargs):
         # Generate non-colliding name to write outputs to:
-        if x != []:
+        if len(x) > 0:
             interimfile = self.outputdir+"/"+str(uuid.uuid4())+self.output_extension
         else:
             interimfile = self.sourcefile
@@ -254,7 +254,7 @@ class Plopper:
         dictVal = dict((k,v) for (k,v) in zip(params, x))
         # If there is a compiling string, we need to run plotValues
         compile_str = self.compileString(interimfile, dictVal, *args, **kwargs)
-        if x != [] and (self.force_plot or compile_str is not None):
+        if len(x) > 0 and (self.force_plot or compile_str is not None):
             self.plotValues(interimfile, dictVal, *args, **kwargs)
             # Compilation
             if compile_str is not None:
@@ -265,7 +265,7 @@ class Plopper:
                     print(compilation_status.stderr)
                     print("Compile failed")
                     return self.metric([self.infinity])
-        elif x == [] and (self.force_plot or compile_str is not None):
+        elif len(x) == 0 and (self.force_plot or compile_str is not None):
             # SKIP Plotting values
             # Compilation
             if compile_str is not None:
