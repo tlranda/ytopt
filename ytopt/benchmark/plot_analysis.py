@@ -143,10 +143,28 @@ def drop_seeds(data, args):
 
 def combine_seeds(data, args):
     combined_data = []
+    import pdb
+    pdb.set_trace()
     for entry in data:
         new_data = {'name': entry['name'], 'type': entry['type']}
         if entry['type'] == 'pca':
-            new_data['data'] = entry['data']
+            # PCA requires special data combination beyond this point
+            pca = pd.concat(entry['data'])
+            other = ['objective', 'predicted', 'elapsed_sec']
+            # Maintain proper column order despite using sets
+            permitted = set(pca.columns).difference(set(other))
+            params = [_ for _ in pca.columns if _ in permitted]
+            # Find the duplicate indices to combine, then grab the parameter values of these unique duplicated values
+            duplicate_values = pca.drop(columns=other)[pca.drop(columns=other).duplicated()].to_numpy()
+            # BIG ONE HERE
+            # NP.ALL() is looking for and'd columns matching a duplicate value for EACH column over the rows
+            # Then we get the FULL rows from the original set of matches and GROUPBY params without resetting the index
+            # This allows us to MEAN the remaining columns but have a DataFrame object come out, ie the reduced DataFrame
+            # for all duplicates of this particular duplicated set of parameters
+            frame_list = [pca[np.all([(pca[k]==v) for k,v in zip(params, values)], axis=0)].groupby(params, as_index=False).mean() for values in duplicate_values]
+            # We then add the unique values (keep=False means ALL duplicates are excluded) to ensure data isn't deleted
+            reconstructed = pd.concat([pca.drop_duplicates(subset=params, keep=False)]+frame_list).reset_index()
+            new_data['data'] = reconstructed
             combined_data.append(new_data)
             continue
         # Change objective column to be the average
@@ -287,7 +305,7 @@ def load_all(args):
     idx_offset = len(data)
     inv_names = []
     shortlist = []
-    if args.pca is not None:
+    if args.pca is not None and args.pca != []:
         # Load all normal inputs
         for fname in args.pca:
             #print(f"Load [PCA]: {fname}")
@@ -428,12 +446,13 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
     # Color help
     colors = [mcolors.to_rgb(_['color']) for _ in list(plt.rcParams['axes.prop_cycle'])]
     color = colors[idx % len(colors)]
-    color_maps = ['Greys', 'Purples', 'Blues', 'Greens', 'Oranges', 'Reds',
-                    'YlOrBr', 'YlOrRd', 'OrRd', 'PuRd', 'RdPu', 'BuPu',
-                    'GnBu', 'PuBu', 'YlGnBu', 'PuBuGn', 'BuGn', 'YlGn']
+    color_maps = ['Oranges', 'Blues', 'Greens', 'Purples', 'Reds']
+    #color_maps = ['Greys', 'Purples', 'Blues', 'Greens', 'Oranges', 'Reds',
+    #                'YlOrBr', 'YlOrRd', 'OrRd', 'PuRd', 'RdPu', 'BuPu',
+    #                'GnBu', 'PuBu', 'YlGnBu', 'PuBuGn', 'BuGn', 'YlGn']
     #color_maps = [_ for _ in plt.cm._cmap_registry.keys() if not _.endswith('_r')]
-    #color_map = color_maps[idx % len(color_maps)]
-    color_map = 'Reds'
+    color_map = color_maps[idx % len(color_maps)]
+    #color_map = 'Reds'
     if source['type'] == 'pca':
         import importlib, skopt
         from sklearn.decomposition import PCA
@@ -443,19 +462,18 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
         skopt_space = skopt.space.Space(space)
         # Transform data. Non-objective/runtime should become vectorized. Objective should be ranked
         new_data, new_ranks = [], []
-        for d in data:
-            parameters = d.loc[:, space.get_hyperparameter_names()]
-            other = d.loc[:, [_ for _ in d.columns if _ not in space.get_hyperparameter_names()]]
-            x_parameters = skopt_space.transform(parameters.astype('str').to_numpy())
-            rankdict = dict((idx,rank) for (rank, idx) in zip(range(len(other['objective'])),
-                    np.argsort(((-1)**args.max_objective) * np.asarray(other['objective']))))
-            other.loc[:, ('objective')] = [rankdict[_] / len(other['objective']) for _ in other['objective'].index]
-            new_data.append(x_parameters)
-            new_ranks.append(other)
+        parameters = data.loc[:, space.get_hyperparameter_names()]
+        other = data.loc[:, [_ for _ in data.columns if _ not in space.get_hyperparameter_names()]]
+        x_parameters = skopt_space.transform(parameters.astype('str').to_numpy())
+        rankdict = dict((idx,rank) for (rank, idx) in zip(range(len(other['objective'])),
+                np.argsort(((-1)**args.max_objective) * np.asarray(other['objective']))))
+        other.loc[:, ('objective')] = [rankdict[_] / len(other['objective']) for _ in other['objective'].index]
+        new_data.append(x_parameters)
+        new_ranks.append(other)
         pca = PCA(n_components=2)
         pca_values = pca.fit_transform(np.vstack(new_data)).reshape((len(new_data),-1,2))
         for (positions, ranks) in zip(pca_values, new_ranks):
-            plt.scatter(positions[:,0], positions[:,1], c=ranks['objective'], cmap=color_map)
+            plt.scatter(positions[:,0], positions[:,1], c=ranks['objective'], cmap=color_map, label=source['name'])
         return
     if top_val is None:
         # Shaded area = stddev
@@ -571,21 +589,27 @@ def main(args):
         for idx, source in enumerate(data):
             plot_source(fig, ax, idx, source, args, ntypes, top_val)
         # make x-axis data
-        if args.x_axis == "evaluation":
-            xname = "Evaluation #"
-        elif args.x_axis == "walltime":
-            xname = "Elapsed Time (seconds)"
-        # make y-axis data
-        if top_val is None:
-            if args.as_speedup_vs is not None:
-                yname = "Speedup (over -O3 -polly)"
-            else:
-                yname = "Objective"
+        if args.pca is not None and args.pca != []:
+            xname = 'PCA dimension 1'
         else:
-            if args.global_top:
-                yname = f"# Configs with top {round(100*args.top,1)}% result = {round(top_val,4)}"
+            if args.x_axis == "evaluation":
+                xname = "Evaluation #"
+            elif args.x_axis == "walltime":
+                xname = "Elapsed Time (seconds)"
+        # make y-axis data
+        if args.pca is not None and args.pca != []:
+            yname = 'PCA dimension 2'
+        else:
+            if top_val is None:
+                if args.as_speedup_vs is not None:
+                    yname = "Speedup (over -O3 -polly)"
+                else:
+                    yname = "Objective"
             else:
-                yname = f"# Configs with top {round(100*args.top,1)}% result per technique"
+                if args.global_top:
+                    yname = f"# Configs with top {round(100*args.top,1)}% result = {round(top_val,4)}"
+                else:
+                    yname = f"# Configs with top {round(100*args.top,1)}% result per technique"
         ax.set_xlabel(xname)
         ax.set_ylabel(yname)
         if args.log_x:

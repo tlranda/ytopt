@@ -176,6 +176,16 @@ def build_test_suite(experiment, runtype, args, key):
                                     invoke, expect, args)
             calls += info[0]
             bluffs += info[1]
+            # PCA plots
+            if 'pca' in sect.keys():
+                invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_{target.lower()} "+\
+                         f"--pca data/*{sect['pca']}*{target.lower()}*.csv data/*{sect['pca']}*{target.upper()}*.csv "+\
+                         f"--pca-problem problem.{target.upper()} --legend best --no-text"
+                if sect['show']:
+                    invoke += " --show"
+                info = verify_output(f"{experiment}_{target.lower()}_pca.png", runtype, invoke, expect, args)
+                calls += info[0]
+                bluffs += info[1]
     elif key == 'O3':
         for target in sect['targets']:
             invoke = f"python -c \"import pandas as pd; from problem import {target}; "+\
