@@ -18,6 +18,7 @@ def build():
     prs.add_argument("--baseline-best", type=str, nargs="*", help="Traces to treat as BEST of best so far")
     prs.add_argument("--pca", type=str, nargs="*", help="Plot as PCA (don't mix with other plots plz)")
     prs.add_argument("--pca-problem", type=str, default="", help="Problem.Attr notation to load space from (must be module or CWD/* to function)")
+    prs.add_argument("--pca-points", type=int, default=None, help="Limit the number of points used for PCA (spread by quantiles, default ALL points used)")
     prs.add_argument("--as-speedup-vs", type=str, default=None, help="Convert objectives to speedup compared against this value (float or CSV filename)")
     prs.add_argument("--show", action="store_true", help="Show figures rather than save to file")
     prs.add_argument("--legend", choices=legend_codes, nargs="*", default=None, help="Legend location (default none). Two-word legends should be quoted on command line")
@@ -143,14 +144,12 @@ def drop_seeds(data, args):
 
 def combine_seeds(data, args):
     combined_data = []
-    import pdb
-    pdb.set_trace()
     for entry in data:
         new_data = {'name': entry['name'], 'type': entry['type']}
         if entry['type'] == 'pca':
             # PCA requires special data combination beyond this point
             pca = pd.concat(entry['data'])
-            other = ['objective', 'predicted', 'elapsed_sec']
+            other = [_ for _ in ['objective', 'predicted', 'elapsed_sec'] if _ in pca.columns]
             # Maintain proper column order despite using sets
             permitted = set(pca.columns).difference(set(other))
             params = [_ for _ in pca.columns if _ in permitted]
@@ -164,6 +163,13 @@ def combine_seeds(data, args):
             frame_list = [pca[np.all([(pca[k]==v) for k,v in zip(params, values)], axis=0)].groupby(params, as_index=False).mean() for values in duplicate_values]
             # We then add the unique values (keep=False means ALL duplicates are excluded) to ensure data isn't deleted
             reconstructed = pd.concat([pca.drop_duplicates(subset=params, keep=False)]+frame_list).reset_index()
+            # Trim points by quantile IF pca points is not None
+            if args.pca_points is not None:
+                # Use NEAREST (actual data) quantiles from range 0 to 1
+                quants = reconstructed['objective'].quantile([_/(args.pca_points-1) for _ in range(args.pca_points)], interpolation='nearest')
+                # Construct new frame consisting of only these quantile values
+                # Drop the redundant 'index' column from it getting merged in there as well
+                reconstructed = pd.concat([reconstructed[reconstructed['objective'] == q] for q in quants]).drop(columns='index').reset_index()
             new_data['data'] = reconstructed
             combined_data.append(new_data)
             continue
@@ -465,7 +471,7 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
         parameters = data.loc[:, space.get_hyperparameter_names()]
         other = data.loc[:, [_ for _ in data.columns if _ not in space.get_hyperparameter_names()]]
         x_parameters = skopt_space.transform(parameters.astype('str').to_numpy())
-        rankdict = dict((idx,rank) for (rank, idx) in zip(range(len(other['objective'])),
+        rankdict = dict((idx,rank+1) for (rank, idx) in zip(range(len(other['objective'])),
                 np.argsort(((-1)**args.max_objective) * np.asarray(other['objective']))))
         other.loc[:, ('objective')] = [rankdict[_] / len(other['objective']) for _ in other['objective'].index]
         new_data.append(x_parameters)
@@ -473,7 +479,7 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
         pca = PCA(n_components=2)
         pca_values = pca.fit_transform(np.vstack(new_data)).reshape((len(new_data),-1,2))
         for (positions, ranks) in zip(pca_values, new_ranks):
-            plt.scatter(positions[:,0], positions[:,1], c=ranks['objective'], cmap=color_map, label=source['name'])
+            plt.scatter(positions[:,0], positions[:,1], c=ranks['objective'], cmap=color_map, label=source['name'])#, labelcolor=color_map.lower().rstrip('s'))
         return
     if top_val is None:
         # Shaded area = stddev
@@ -617,8 +623,18 @@ def main(args):
         if args.log_y:
             ax.set_yscale("symlog")
         if args.legend is not None:
-            ax.legend(loc=" ".join(args.legend))
-
+            if len(ax.collections) > 0:
+                colors = [_.cmap.name.lower().rstrip('s') for _ in ax.collections]
+                leg_handles = [matplotlib.lines.Line2D([0],[0],
+                                        marker='o',
+                                        color='w',
+                                        label=l.get_label(),
+                                        markerfacecolor=l.cmap.name.lower().rstrip('s'),
+                                        markersize=8,
+                                        ) for l in ax.collections]
+                ax.legend(handles=leg_handles, loc=" ".join(args.legend))
+            else:
+                ax.legend(loc=" ".join(args.legend))
         if args.show:
             plt.show()
         else:

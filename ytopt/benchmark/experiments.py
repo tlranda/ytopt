@@ -144,8 +144,8 @@ def build_test_suite(experiment, runtype, args, key):
                 invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_{target.lower()}_{axis} "+\
                          f"--best {experiment_dir}*_{target.upper()}_*.csv "+\
                          f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
-                         f"results_gptune_*{target.lower()}* "+\
-                         f"--baseline data/results_rf_{target.lower()}_{experiment.lstrip('_')}.csv "
+                         f"results_gptune_*{target.lower()}* "#+\
+                         #f"--baseline data/results_rf_{target.lower()}_{experiment.lstrip('_')}.csv "
                 if sect['as_speedup']:
                     invoke += f"--as-speedup-vs data/DEFAULT_{target.upper()}.csv --max-objective "
                 else:
@@ -176,16 +176,16 @@ def build_test_suite(experiment, runtype, args, key):
                                     invoke, expect, args)
             calls += info[0]
             bluffs += info[1]
-            # PCA plots
-            if 'pca' in sect.keys():
-                invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_{target.lower()} "+\
-                         f"--pca data/*{sect['pca']}*{target.lower()}*.csv data/*{sect['pca']}*{target.upper()}*.csv "+\
-                         f"--pca-problem problem.{target.upper()} --legend best --no-text"
-                if sect['show']:
-                    invoke += " --show"
-                info = verify_output(f"{experiment}_{target.lower()}_pca.png", runtype, invoke, expect, args)
-                calls += info[0]
-                bluffs += info[1]
+        # PCA plots
+        if 'pca' in sect.keys():
+            invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_{target.lower()} "+\
+                     f"--pca data/*{sect['pca']}*.csv data/*{sect['pca']}*.csv "+\
+                     f"--pca-problem problem.Problem --pca-points 30 --legend best --no-text"
+            if sect['show']:
+                invoke += " --show"
+            info = verify_output(f"{experiment}_{target.lower()}_pca.png", runtype, invoke, expect, args)
+            calls += info[0]
+            bluffs += info[1]
     elif key == 'O3':
         for target in sect['targets']:
             invoke = f"python -c \"import pandas as pd; from problem import {target}; "+\

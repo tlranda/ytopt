@@ -280,6 +280,30 @@ class Plopper:
         return self.execute(interimfile, dictVal, *args, **kwargs)
 
 
+class ECP_Plopper(Plopper):
+    """ Call to findRuntime should be: (x, params, d_size) """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.findReplace is None:
+            self.findReplace = findReplaceRegex(r"#(P[0-9]+)", prefix=tuple(["#",""]))
+
+    def compileString(self, outfile, dictVal, *args, **kwargs):
+        # Drop extension in the output file name to prevent clobber
+        clang_cmd = f"clang {outfile} {self.kernel_dir}/material.c {self.kernel_dir}/utils.c -I{self.kernel_dir} "+\
+                    "-fopenmp -DOPENMP -fno-unroll-loops -O3 -mllvm -polly -mllvm "+\
+                    "-polly-process-unprofitable -mllvm -polly-use-llvm-names -ffast-math -lm "+\
+                    f"-march=native -o {outfile[:-len(self.output_extension)]} "+\
+                    "-I/lcrc/project/EE-ECP/jkoo/sw/clang13.2/llvm-project/release_pragma-clang-loop/projects/openmp/runtime/src"
+        return clang_cmd
+
+    def runString(self, outfile, dictVal, *args, **kwargs):
+        return "srun -n1 "+outfile[:-len(self.output_extension)]+" ".join(args)
+
+    def getTime(self, process, dictVal, *arg, **kwargs):
+        # Return last 3 floating point values from output by line
+        return [float(s) for s in process.stdout.decode('utf-8').split('\n')[-4:-1]]
+
+
 class Polybench_Plopper(Plopper):
     """ Call to findRuntime should be: (x, params, d_size) """
     def __init__(self, *args, **kwargs):
@@ -307,6 +331,8 @@ class Polybench_Plopper(Plopper):
 def __getattr__(name):
     if name == 'Plopper':
         return Plopper
+    if name == 'ECP_Plopper':
+        return ECP_Plopper
     if name == 'Polybench_Plopper':
         return Polybench_Plopper
     if name == 'findReplaceRegex':
