@@ -21,6 +21,13 @@
 #include "papi.h"
 #endif
 
+//AML header
+#ifdef AML
+#include<aml.h>
+#include<aml/higher/replicaset.h>
+#include<aml/higher/replicaset/hwloc.h>
+#endif
+
 // Grid types
 #define UNIONIZED 0
 #define NUCLIDE 1
@@ -69,11 +76,18 @@ typedef struct{
 	double * unionized_energy_array;    // Length = length_unionized_energy_array
 	int * index_grid;                   // Length = length_index_grid
 	NuclideGridPoint * nuclide_grid;    // Length = length_nuclide_grid
+#ifdef AML
+	struct aml_replicaset * num_nucs_replica;
+	struct aml_replicaset * concs_replica;
+	struct aml_replicaset * unionized_energy_array_replica;
+	struct aml_replicaset * index_grid_replica;
+	struct aml_replicaset * nuclide_grid_replica;
+#endif
 	int length_num_nucs;
 	int length_concs;
 	int length_mats;
 	int length_unionized_energy_array;
-	int length_index_grid;
+	long length_index_grid;
 	int length_nuclide_grid;
 	int max_num_nucs;
 	double * p_energy_samples;

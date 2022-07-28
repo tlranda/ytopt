@@ -21,6 +21,14 @@ int main( int argc, char* argv[] )
 	MPI_Comm_rank(MPI_COMM_WORLD, &mype);
 	#endif
 
+        #ifdef OPENMP
+        // set the env variables for thread affinity
+        setenv("OMP_PLACES","cores",1);
+        system("echo $OMP_PLACES");
+        setenv("KMP_AFFINITY","none",1);
+        system("echo $KMP_AFFINITY");
+        #endif
+
 	// Process CLI Fields -- store in "Inputs" structure
 	Inputs in = read_CLI( argc, argv );
 
@@ -110,6 +118,128 @@ int main( int argc, char* argv[] )
 	#ifdef MPI
 	MPI_Finalize();
 	#endif
+
+	double t1 = omp_end-omp_start;    
+
+////////////////////////////////////////////////////////////////////////////
+	// =====================================================================
+	// Cross Section (XS) Parallel Lookup Simulation
+	// This is the section that should be profiled, as it reflects a 
+	// realistic continuous energy Monte Carlo macroscopic cross section
+	// lookup kernel.
+	// =====================================================================
+
+	if( mype == 0 )
+	{
+		printf("\n");
+		border_print();
+		center_print("SIMULATION", 79);
+		border_print();
+	}
+
+	// Start Simulation Timer
+	omp_start = get_time();
+
+	// Run simulation
+	if( in.simulation_method == EVENT_BASED )
+	{
+		if( in.kernel_id == 0 )
+			verification = run_event_based_simulation(in, SD, mype);
+		else if( in.kernel_id == 1 )
+			verification = run_event_based_simulation_optimization_1(in, SD, mype);
+		else
+		{
+			printf("Error: No kernel ID %d found!\n", in.kernel_id);
+			exit(1);
+		}
+	}
+	else
+		verification = run_history_based_simulation(in, SD, mype);
+
+	if( mype == 0)	
+	{	
+		printf("\n" );
+		printf("Simulation complete.\n" );
+	}
+
+	// End Simulation Timer
+	omp_end = get_time();
+
+	// =====================================================================
+	// Output Results & Finalize
+	// =====================================================================
+
+	// Final Hash Step
+	verification = verification % 999983;
+
+	// Print / Save Results and Exit
+	is_invalid_result = print_results( in, mype, omp_end-omp_start, nprocs, verification );
+
+	#ifdef MPI
+	MPI_Finalize();
+	#endif
+
+	double t2 = omp_end-omp_start; 
+////////////////////////////////////////////////////////////////////////////
+	// =====================================================================
+	// Cross Section (XS) Parallel Lookup Simulation
+	// This is the section that should be profiled, as it reflects a 
+	// realistic continuous energy Monte Carlo macroscopic cross section
+	// lookup kernel.
+	// =====================================================================
+
+	if( mype == 0 )
+	{
+		printf("\n");
+		border_print();
+		center_print("SIMULATION", 79);
+		border_print();
+	}
+
+	// Start Simulation Timer
+	omp_start = get_time();
+
+	// Run simulation
+	if( in.simulation_method == EVENT_BASED )
+	{
+		if( in.kernel_id == 0 )
+			verification = run_event_based_simulation(in, SD, mype);
+		else if( in.kernel_id == 1 )
+			verification = run_event_based_simulation_optimization_1(in, SD, mype);
+		else
+		{
+			printf("Error: No kernel ID %d found!\n", in.kernel_id);
+			exit(1);
+		}
+	}
+	else
+		verification = run_history_based_simulation(in, SD, mype);
+
+	if( mype == 0)	
+	{	
+		printf("\n" );
+		printf("Simulation complete.\n" );
+	}
+
+	// End Simulation Timer
+	omp_end = get_time();
+
+	// =====================================================================
+	// Output Results & Finalize
+	// =====================================================================
+
+	// Final Hash Step
+	verification = verification % 999983;
+
+	// Print / Save Results and Exit
+	is_invalid_result = print_results( in, mype, omp_end-omp_start, nprocs, verification );
+
+	#ifdef MPI
+	MPI_Finalize();
+	#endif
+
+	double t3 = omp_end-omp_start;     
+	printf("\n%.5lf\n%.5lf\n%.5lf", t1,t2,t3);     
 
 	return is_invalid_result;
 }
@@ -346,7 +476,7 @@ Inputs read_CLI( int argc, char * argv[] )
 	// defaults to max threads on the system	
 	#ifdef OPENMP
 	//input.nthreads = omp_get_num_procs();
-	input.nthreads = #P0;
+	input.nthreads = 128;
 	#else
 	input.nthreads = 1;
 	#endif
@@ -661,7 +791,7 @@ unsigned long long run_event_based_simulation(Inputs in, SimulationData SD, int 
 	// Begin Actual Simulation Loop 
 	////////////////////////////////////////////////////////////////////////////////
 	unsigned long long verification = 0;
-	#pragma omp parallel for schedule(dynamic,#P1) reduction(+:verification)
+	#pragma omp parallel for schedule(dynamic,100) reduction(+:verification)
 	for( int i = 0; i < in.lookups; i++ )
 	{
 		// Set the initial seed value
@@ -746,7 +876,7 @@ unsigned long long run_history_based_simulation(Inputs in, SimulationData SD, in
 	unsigned long long verification = 0;
 
 	// Begin outer lookup loop over particles. This loop is independent.
-	#pragma omp parallel for schedule(dynamic, #P1) reduction(+:verification)
+	#pragma omp parallel for schedule(dynamic, 100) reduction(+:verification)
 	for( int p = 0; p < in.particles; p++ )
 	{
 		// Set the initial seed value
@@ -1318,7 +1448,7 @@ unsigned long long run_event_based_simulation_optimization_1(Inputs in, Simulati
 	////////////////////////////////////////////////////////////////////////////////
 	// Sample Materials and Energies
 	////////////////////////////////////////////////////////////////////////////////
-	#pragma omp parallel for schedule(dynamic, #P1)
+	#pragma omp parallel for schedule(dynamic, 100)
 	for( int i = 0; i < in.lookups; i++ )
 	{
 		// Set the initial seed value
@@ -1387,7 +1517,7 @@ unsigned long long run_event_based_simulation_optimization_1(Inputs in, Simulati
 	offset = 0;
 	for( int m = 0; m < 12; m++ )
 	{
-		#pragma omp parallel for schedule(dynamic,#P1) reduction(+:verification)
+		#pragma omp parallel for schedule(dynamic,100) reduction(+:verification)
 		for( int i = offset; i < offset + num_samples_per_mat[m]; i++)
 		{
 			// load pre-sampled energy and material for the particle
@@ -1488,13 +1618,11 @@ SimulationData grid_init_do_not_profile( Inputs in, int mype )
 	}
 
 	// Sort so that each nuclide has data stored in ascending energy order.
-	#P2
 	for( int i = 0; i < in.n_isotopes; i++ )
 		qsort( &SD.nuclide_grid[i*in.n_gridpoints], in.n_gridpoints, sizeof(NuclideGridPoint), NGP_compare);
 	
 	// error debug check
 	/*
-	#P2
 	for( int i = 0; i < in.n_isotopes; i++ )
 	{
 		printf("NUCLIDE %d ==============================\n", i);
@@ -1525,7 +1653,6 @@ SimulationData grid_init_do_not_profile( Inputs in, int mype )
 		nbytes += SD.length_unionized_energy_array * sizeof(double);
 
 		// Copy energy data over from the nuclide energy grid
-		#P2
 		for( int i = 0; i < SD.length_unionized_energy_array; i++ )
 			SD.unionized_energy_array[i] = SD.nuclide_grid[i].energy;
 
@@ -1544,12 +1671,14 @@ SimulationData grid_init_do_not_profile( Inputs in, int mype )
 		double * energy_high = (double *) malloc( in.n_isotopes * sizeof(double));
 		assert(energy_high != NULL );
 
-		#P2
 		for( int i = 0; i < in.n_isotopes; i++ )
 			energy_high[i] = SD.nuclide_grid[i * in.n_gridpoints + 1].energy;
 
+		#pragma clang loop(e,i) tile sizes(96,256)
+                #pragma clang loop id(e)
 		for( long e = 0; e < SD.length_unionized_energy_array; e++ )
 		{
+			#pragma clang loop id(i)
 			for( long i = 0; i < in.n_isotopes; i++ )
 			{
 			double unionized_energy = SD.unionized_energy_array[e];

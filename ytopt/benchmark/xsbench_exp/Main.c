@@ -21,6 +21,14 @@ int main( int argc, char* argv[] )
 	MPI_Comm_rank(MPI_COMM_WORLD, &mype);
 	#endif
 
+        #ifdef OPENMP
+        // set the env variables for thread affinity
+        setenv("OMP_PLACES","cores",1);
+        system("echo $OMP_PLACES");
+        setenv("KMP_AFFINITY","compact",1);
+        system("echo $KMP_AFFINITY");
+        #endif
+
 	// Process CLI Fields -- store in "Inputs" structure
 	Inputs in = read_CLI( argc, argv );
 

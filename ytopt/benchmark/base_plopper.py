@@ -215,7 +215,7 @@ class Plopper:
         times = []
         failures = 0
         while failures <= self.retries and len(times) < self.evaluation_tries:
-            run_str = self.runString(outfile, *args, **kwargs)
+            run_str = self.runString(outfile, dictVal, *args, **kwargs)
             start = time.time()
             execution_status = subprocess.run(run_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             duration = time.time() - start
@@ -301,7 +301,7 @@ class ECP_Plopper(Plopper):
 
     def getTime(self, process, dictVal, *arg, **kwargs):
         # Return last 3 floating point values from output by line
-        return [float(s) for s in process.stdout.decode('utf-8').split('\n')[-4:-1]]
+        return [float(s) for s in process.stdout.decode('utf-8').split('\n')[-3:]]
 
 
 class Polybench_Plopper(Plopper):
