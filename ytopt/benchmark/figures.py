@@ -156,10 +156,91 @@ def fig5(args):
     plt.savefig(f"fig5.png")
 
 def fig6(args):
-    pass
+    o3, loaded_sizes = load_o3s(args)
+    gathered, cutoffs = [], []
+    for target in TARGETS:
+        if target not in loaded_sizes:
+            print(f"Warning! Size {target} had no -O3 value, skipping.")
+            continue
+        o3_time = o3[target]
+        evals = []
+        info = {}
+        for fname in args.files:
+            if target.lower() not in fname and target.upper() not in fname:
+                continue
+            csv = pd.read_csv(f"{args.data}{fname}")
+            kernel_evals = o3_time / np.array(csv['objective'])
+            evals.extend(kernel_evals)
+            lname = labeler(os.path.basename(fname))
+            if lname in info.keys():
+                info[lname]['evals'].extend(kernel_evals)
+                info[lname]['t'].extend(np.array(csv['elapsed_sec']))
+            else:
+                info[lname] = {'evals': kernel_evals,
+                               'counter': 0,
+                               'plot': [0],
+                               'best': 0.,
+                               'idx': 0,
+                               't': np.array(csv['elapsed_sec']),
+                              }
+        cutoff = sorted(evals, reverse=True)[int(len(evals)*args.alpha)]
+        print(f"{target} cutoff: {cutoff}")
+
+        t = 0
+        T_MAX = int(max([info[k]['t'].max() for k in info.keys()]))
+        while t < T_MAX:
+            for k in info.keys():
+                idx = info[k]['idx']
+                try:
+                    if info[k]['t'][idx] < t and idx < args.n_infer:
+                        tmp = info[k]['evals'][idx]
+                        if str(tmp) != 'nan':
+                            if tmp > cutoff:
+                                info[k]['counter'] += 1
+                            info[k]['plot'].append(info[k]['counter'])
+                        info[k]['idx'] += 1
+                    else:
+                        info[k]['plot'].append(info[k]['counter'])
+                except IndexError:
+                    pass
+            t += 1
+        gathered.append(dict((k, info[k]['plot']) for k in info.keys()))
+        cutoffs.append(cutoff)
+    fig, axs = plt.subplots(1,3, figsize=(15,3), sharex=False, sharey=True)
+    for ax, cc, d_size, cutoff in zip(axs.flat, gathered, loaded_sizes, cutoffs):
+        for k,v in cc.items():
+            ax.plot(range(1, len(v)+1), v, '.-', label=k, linewidth=1.5, markersize=1.5,) #color=color
+        ax.legend(fontsize=13)
+        ax.set_ylabel(f'No. of config speedup > top {args.alpha*100}% = {str(cutoff)[:4]}', fontsize=12)
+        ax.set_xlabel('Elapsed time (seconds)', fontsize=12)
+        #ax.set_title(f'{kernel}_{d_size}', fontsize=12)
+        ax.tick_params(axis="x", labelsize=12)
+        ax.tick_params(axis="y", labelsize=12)
+        ax.grid()
+    plt.savefig(f"fig6.png")
 
 def fig7(args):
-    pass
+    gathered = []
+    for target in TARGETS:
+        info = {}
+        for fname in args.files:
+            if target.lower() not in fname and target.upper() not in fname:
+                continue
+            csv = pd.read_csv(f"{args.data}{fname}")
+            info[labeler(os.path.basename(fname))] = np.asarray(csv['objective'])
+        gathered.append(info)
+    fig, axs = plt.subplots(3,1, figsize=(15,12), sharex=True, sharey=False)
+    for ax, objectives in zip(axs.flat, gathered):
+        for k,v in objectives.items():
+            ax.plot(range(1, len(v)+1), v, '.-', label=k, linewidth=0.5, markersize=3,) #color=color
+        ax.legend(fontsize=13)
+        ax.set_ylabel('Execution time (sec.)', fontsize=12)
+        ax.set_xlabel('No. of Evaluations', fontsize=12)
+        #ax.set_title(f'{kernel}_{d_size}', fontsize=12)
+        ax.tick_params(axis='x', labelsize=12)
+        ax.tick_params(axis='y', labelsize=12)
+        ax.grid()
+    plt.savefig(f"fig7.png")
 
 def main(args):
     figure_plotter = {4: fig4,

@@ -75,15 +75,16 @@ def verify_output(checkname, runstatus, invoke, expect, args):
         sanity_check(checkname)
     return r, b
 
-def build_test_suite(experiment, runtype, args, key):
+def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
     # Get in the experiment directory
     os.chdir(f"{HERE}/{experiment}_exp")
     print(f"<< BEGIN {key} for {experiment}  >>")
     sect = args.cfg[key]
     expect = sect['expect']
     # Fetch the problem sizes
-    problem_sizes = subprocess.run("python -m ytopt.benchmark.size_lookup --p "+" ".join([f"problem.{s}" for s in sect['sizes']]), shell=True, stdout=subprocess.PIPE)
-    problem_sizes = dict((k, int(v)) for (k,v) in zip(sect['sizes'], problem_sizes.stdout.decode('utf-8').split()))
+    if problem_sizes is None:
+        problem_sizes = subprocess.run("python -m ytopt.benchmark.size_lookup --p "+" ".join([f"problem.{s}" for s in sect['sizes']]), shell=True, stdout=subprocess.PIPE)
+        problem_sizes = dict((k, int(v)) for (k,v) in zip(sect['sizes'], problem_sizes.stdout.decode('utf-8').split()))
     calls = 0
     bluffs = 0
     if key == 'OFFLINE':
@@ -111,6 +112,11 @@ def build_test_suite(experiment, runtype, args, key):
                                   invoke, expect, args)
                     calls += info[0]
                     bluffs += info[1]
+    elif key == 'REFIT':
+        problem_prefix = sect['problem_prefix']
+        for target in sect['targets']:
+            for model in sect['models']:
+                for seed in sect['seeds']:
                     # Refit
                     invoke = f"python -m ytopt.benchmark.base_online_tl --n-refit {sect['refits']} "+\
                              f"--max-evals {sect['evals']} --seed {seed} --top {sect['top']} "+\
@@ -121,9 +127,14 @@ def build_test_suite(experiment, runtype, args, key):
                                   runtype, invoke, expect, args)
                     calls += info[0]
                     bluffs += info[1]
+    elif key == 'BOOTSTRAP':
+        problem_prefix = sect['problem_prefix']
+        for target in sect['targets']:
+            for model in sect['models']:
+                for seed in sect['seeds']:
                     # Bootstrap
                     invoke = f"python -m ytopt.benchmark.search.ambs --problem {problem_prefix}.{target} --max-evals "+\
-                             f"{sect['evals']} --n-generate {sect['bootstrap']} --top {sect['bootstrap_top'] } "+\
+                             f"{sect['evals']} --n-generate {sect['bootstrap']} --top {sect['top']} "+\
                              f"--inputs {' '.join([problem_prefix+'.'+i for i in sect['inputs']])} "+\
                              f"--model {model} --evaluator {sect['evaluator']} --learner {sect['learner']} "+\
                              f"--set-KAPPA {sect['kappa']} --acq-func {sect['acqfn']} "+\
@@ -198,6 +209,7 @@ def build_test_suite(experiment, runtype, args, key):
     else:
         raise ValueError(f"Unknown section {key}")
     print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made & {bluffs} calls bluffed >>")
+    return problem_sizes
 
 def build():
     prs = argparse.ArgumentParser()
@@ -207,6 +219,9 @@ def build():
     prs.add_argument('--runstatus', type=str, nargs='*', default=[], help="Way to run experiments")
     prs.add_argument('--backup', type=str, default=None, help="Directory path to look for backup files")
     prs.add_argument('--skip', type=str, nargs='*', default=[], help="Config sections to skip")
+    prs.add_argument('--only', type=str, nargs='*', default=[], help="ONLY run these config sections")
+    prs.add_argument('--section-sizecache', action='store_true', help="Cache problem size values between sections")
+    prs.add_argument('--experiment-sizecache', action='store_true', help="Cache problem size values between experiments")
     return prs
 
 def config_bind(cfg):
@@ -225,6 +240,20 @@ def config_bind(cfg):
                 if len(cp[s][p]) > 0:
                     print(f"Warning! {cfg} [{s}][{p}] may have incorrect python syntax")
                 cfg_dict[s][p] = ""
+    # Apply preference priority to all elements (zero-priority == always demote to last)
+    least_preference = 0
+    update_keys = []
+    for s in cfg_dict.keys():
+        if 'preference' not in cfg_dict[s].keys():
+            cfg_dict[s]['preference'] = 0
+            update_keys.append(s)
+        elif cfg_dict[s]['preference'] == 0:
+            update_keys.append(s)
+        else:
+            least_preference = max(least_preference, cfg_dict[s]['preference'])
+    least_preference += 1
+    for s in update_keys:
+        cfg_dict[s]['preference'] = least_preference
     return cfg_dict
 
 def parse(prs, args=None):
@@ -242,10 +271,14 @@ def parse(prs, args=None):
 if __name__ == '__main__':
     args = parse(build())
     print(args)
+    problem_sizes = None
+    sort_dict = dict((k,v['preference']) for (k,v) in args.cfg.items())
     # For each experiment, run all run-type things as a test suite
     for experiment, runtype in zip(args.experiments, args.runstatus):
-        for section in sorted(args.cfg.keys()):
+        for section in sorted(args.cfg.keys(), key=lambda key: sort_dict[key]):
             if section in args.skip:
+                continue
+            if len(args.only) > 0 and section not in args.only:
                 continue
             # Allow config to define backup
             revert_backup = False
@@ -254,7 +287,11 @@ if __name__ == '__main__':
                 args.backup = args.cfg[section]['backup']
             if args.backup is not None and not args.backup.endswith('/'):
                 args.backup += "/"
-            build_test_suite(experiment, runtype, args, section)
+            problem_sizes = build_test_suite(experiment, runtype, args, section, problem_sizes)
+            if not args.section_sizecache:
+                problem_sizes = None
             if revert_backup:
                 args.backup = None
+        if not args.experiment_sizecache:
+            problem_sizes = None
 
