@@ -19,6 +19,7 @@ def build():
     prs.add_argument("--pca", type=str, nargs="*", help="Plot as PCA (don't mix with other plots plz)")
     prs.add_argument("--pca-problem", type=str, default="", help="Problem.Attr notation to load space from (must be module or CWD/* to function)")
     prs.add_argument("--pca-points", type=int, default=None, help="Limit the number of points used for PCA (spread by quantiles, default ALL points used)")
+    prs.add_argument("--pca-algorithm", choices=['pca', 'tsne'], default='tsne', help="Algorithm to use for dimensionality reduction (default tsne)")
     prs.add_argument("--as-speedup-vs", type=str, default=None, help="Convert objectives to speedup compared against this value (float or CSV filename)")
     prs.add_argument("--show", action="store_true", help="Show figures rather than save to file")
     prs.add_argument("--legend", choices=legend_codes, nargs="*", default=None, help="Legend location (default none). Two-word legends should be quoted on command line")
@@ -437,7 +438,7 @@ def prepare_fig(args):
     fig.set_tight_layout(True)
     if args.top is None:
         if args.pca is not None and args.pca != []:
-            name = "pca"
+            name = args.pca_algorithm
         else:
             name = "plot"
     else:
@@ -461,7 +462,6 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
     #color_map = 'Reds'
     if source['type'] == 'pca':
         import importlib, skopt
-        from sklearn.decomposition import PCA
         problem, attr = args.pca_problem.rsplit('.',1)
         module = importlib.import_module(problem)
         space = module.__getattr__(attr).input_space
@@ -476,7 +476,12 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
         other.loc[:, ('objective')] = [rankdict[_] / len(other['objective']) for _ in other['objective'].index]
         new_data.append(x_parameters)
         new_ranks.append(other)
-        pca = PCA(n_components=2)
+        if args.pca_algorithm == 'pca':
+            from sklearn.decomposition import PCA
+            pca = PCA(n_components=2)
+        else:
+            from sklearn.manifold import TSNE
+            pca = TSNE(n_components=2)
         pca_values = pca.fit_transform(np.vstack(new_data)).reshape((len(new_data),-1,2))
         for (positions, ranks) in zip(pca_values, new_ranks):
             plt.scatter(positions[:,0], positions[:,1], c=ranks['objective'], cmap=color_map, label=source['name'])#, labelcolor=color_map.lower().rstrip('s'))
@@ -596,7 +601,7 @@ def main(args):
             plot_source(fig, ax, idx, source, args, ntypes, top_val)
         # make x-axis data
         if args.pca is not None and args.pca != []:
-            xname = 'PCA dimension 1'
+            xname = f'{args.pca_algorithm.upper()} dimension 1'
         else:
             if args.x_axis == "evaluation":
                 xname = "Evaluation #"
@@ -604,7 +609,7 @@ def main(args):
                 xname = "Elapsed Time (seconds)"
         # make y-axis data
         if args.pca is not None and args.pca != []:
-            yname = 'PCA dimension 2'
+            yname = f'{args.pca_algorithm.upper()} dimension 2'
         else:
             if top_val is None:
                 if args.as_speedup_vs is not None:

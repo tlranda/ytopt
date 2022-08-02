@@ -1,4 +1,5 @@
 import os, subprocess, argparse, configparser
+from collections import OrderedDict
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 valid_run_status = ["check", "run", "override", "sanity", "announce"]
@@ -80,7 +81,10 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
     os.chdir(f"{HERE}/{experiment}_exp")
     print(f"<< BEGIN {key} for {experiment}  >>")
     sect = args.cfg[key]
-    expect = sect['expect']
+    try:
+        expect = sect['expect']
+    except KeyError:
+        expect = 0
     # Fetch the problem sizes
     if problem_sizes is None:
         problem_sizes = subprocess.run("python -m ytopt.benchmark.size_lookup --p "+" ".join([f"problem.{s}" for s in sect['sizes']]), shell=True, stdout=subprocess.PIPE)
@@ -95,6 +99,15 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                      f"--acq-func {sect['acqfn']} --set-SEED {sect['offline_seed']}; "+\
                      f"mv results_{problem_sizes[problem]}.csv {out_name}"
             info = verify_output(out_name, runtype, invoke, expect, args)
+            calls += info[0]
+            bluffs += info[1]
+    elif key == 'O3':
+        for target in sect['targets']:
+            invoke = f"python -c \"import pandas as pd; from problem import {target}; "+\
+                     f"obj = {target}.O3(); "+\
+                     "pd.DataFrame({'objective': [obj], 'elapsed_time': [obj]})"+\
+                     f".to_csv('data/DEFAULT_{target.upper()}.csv', index=False)\""
+            info = verify_output(f"data/DEFAULT_{target.upper()}.csv", runtype, invoke, expect, args)
             calls += info[0]
             bluffs += info[1]
     elif key == 'ONLINE':
@@ -145,13 +158,37 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                                   runtype, invoke, expect, args)
                     calls += info[0]
                     bluffs += info[1]
-    elif key == 'PLOTS':
+    elif key == 'COMPETITIVE':
+        experiment_dir = args.backup if sect['use_backup'] and args.backup is not None else './'
+        if len(experiment_dir) > 0 and not experiment_dir.endswith('/'):
+            experiment_dir += '/'
+        for target in sect['targets']:
+            # SM, ML, and XL
+            # data/thomas_experiments/*_{target.upper()}_*.csv
+            invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_{target.lower()}_configs "+\
+                     f"--input *_{target.upper()}_*.csv data/thomas_experiments/*_{target.upper()}_*.csv "+\
+                     f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
+                     f"results_gptune_*{target.lower()}* --x-axis walltime --unname results --trim .csv "+\
+                     "--legend best --synchronous --drop-extension --fig-dims 8 4 --top 0.9 "+\
+                     "--ignore data/jaehoon_experiments/*200eval* data/thomas_experiments/*1337*.csv "+\
+                     "data/thomas_experiments/*5555*.csv --no-text --global-top"
+            if sect['as_speedup']:
+                invoke += f" --as-speedup-vs data/DEFAULT_{target.upper()}.csv --max-objective "
+            if sect['show']:
+                invoke += " --show"
+            info = verify_output(f"{experiment}_{target.lower()}_configs_competitive.png", runtype,
+                                    invoke, expect, args)
+            calls += info[0]
+            bluffs += info[1]
+    elif key in ['WALLTIME', 'EVALUATION']:
         experiment_dir = args.backup if sect['use_backup'] and args.backup is not None else './'
         if len(experiment_dir) > 0 and not experiment_dir.endswith('/'):
             experiment_dir += '/'
         for target in sect['targets']:
             # Raw performance with evaluation or wall-time x-axes
             for axis in ["walltime", "evaluation"]:
+                if key.lower() != axis:
+                    continue
                 invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_{target.lower()}_{axis} "+\
                          f"--best {experiment_dir}*_{target.upper()}_*.csv "+\
                          f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
@@ -170,42 +207,20 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                 info = verify_output(f"{experiment}_{target.lower()}_{axis}_plot.png", runtype, invoke, expect, args)
                 calls += info[0]
                 bluffs += info[1]
-            # SM, ML, and XL
-            # data/thomas_experiments/*_{target.upper()}_*.csv
-            invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_{target.lower()}_configs "+\
-                     f"--input *_{target.upper()}_*.csv data/thomas_experiments/*_{target.upper()}_*.csv "+\
-                     f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
-                     f"results_gptune_*{target.lower()}* --x-axis walltime --unname results --trim .csv "+\
-                     "--legend best --synchronous --drop-extension --fig-dims 8 4 --top 0.9 "+\
-                     "--ignore data/jaehoon_experiments/*200eval* data/thomas_experiments/*1337*.csv "+\
-                     "data/thomas_experiments/*5555*.csv --no-text --global-top"
-            if sect['as_speedup']:
-                invoke += f" --as-speedup-vs data/DEFAULT_{target.upper()}.csv --max-objective "
-            if sect['show']:
-                invoke += " --show"
-            info = verify_output(f"{experiment}_{target.lower()}_configs_competitive.png", runtype,
-                                    invoke, expect, args)
-            calls += info[0]
-            bluffs += info[1]
+    elif key == "PCA":
+        experiment_dir = args.backup if sect['use_backup'] and args.backup is not None else './'
+        if len(experiment_dir) > 0 and not experiment_dir.endswith('/'):
+            experiment_dir += '/'
         # PCA plots
-        if 'pca' in sect.keys():
-            invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_{target.lower()} "+\
-                     f"--pca data/*{sect['pca']}*.csv data/*{sect['pca']}*.csv "+\
-                     f"--pca-problem problem.Problem --pca-points 30 --legend best --no-text"
-            if sect['show']:
-                invoke += " --show"
-            info = verify_output(f"{experiment}_{target.lower()}_pca.png", runtype, invoke, expect, args)
-            calls += info[0]
-            bluffs += info[1]
-    elif key == 'O3':
-        for target in sect['targets']:
-            invoke = f"python -c \"import pandas as pd; from problem import {target}; "+\
-                     f"obj = {target}.O3(); "+\
-                     "pd.DataFrame({'objective': [obj], 'elapsed_time': [obj]})"+\
-                     f".to_csv('data/DEFAULT_{target.upper()}.csv', index=False)\""
-            info = verify_output(f"data/DEFAULT_{target.upper()}.csv", runtype, invoke, expect, args)
-            calls += info[0]
-            bluffs += info[1]
+        invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment} "+\
+                 f"--pca data/*{sect['pca']}*.csv data/*{sect['pca']}*.csv "+\
+                 f"--pca-algorithm {sect['pca_algorithm']} --pca-points {sect['pca_points']} "+\
+                 f"--pca-problem problem.Problem --legend best --no-text"
+        if sect['show']:
+            invoke += " --show"
+        info = verify_output(f"{experiment}_{sect['pca_algorithm']}.png", runtype, invoke, expect, args)
+        calls += info[0]
+        bluffs += info[1]
     else:
         raise ValueError(f"Unknown section {key}")
     print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made & {bluffs} calls bluffed >>")
@@ -240,21 +255,40 @@ def config_bind(cfg):
                 if len(cp[s][p]) > 0:
                     print(f"Warning! {cfg} [{s}][{p}] may have incorrect python syntax")
                 cfg_dict[s][p] = ""
-    # Apply preference priority to all elements (zero-priority == always demote to last)
-    least_preference = 0
+    # Apply priority to all elements (zero-priority == always demote to last)
+    least_priority = 0
     update_keys = []
     for s in cfg_dict.keys():
-        if 'preference' not in cfg_dict[s].keys():
-            cfg_dict[s]['preference'] = 0
-            update_keys.append(s)
-        elif cfg_dict[s]['preference'] == 0:
+        if 'priority' not in cfg_dict[s].keys():
+            continue
+        elif cfg_dict[s]['priority'] == 0:
             update_keys.append(s)
         else:
-            least_preference = max(least_preference, cfg_dict[s]['preference'])
-    least_preference += 1
+            least_priority = max(least_priority, cfg_dict[s]['priority'])
+    least_priority += 1
     for s in update_keys:
-        cfg_dict[s]['preference'] = least_preference
-    return cfg_dict
+        cfg_dict[s]['priority'] = least_priority
+    # Use OrderedDict for proper ordering
+    def sortfn(kk):
+        if 'priority' in cfg_dict[kk].keys():
+            return cfg_dict[kk]['priority']
+        else:
+            return least_priority+1
+    cfg_dict = OrderedDict([(k, cfg_dict[k]) for k in sorted(cfg_dict.keys(), key=sortfn)])
+    # Recursive loading
+    for k,v in cfg_dict.items():
+        if 'inherit' in v.keys():
+            for default in v['inherit']:
+                for kk, vv in cfg_dict[default].items():
+                    if kk == 'inherit':
+                        continue
+                    cfg_dict[k].setdefault(kk, vv)
+    # Drop inheritable keys
+    drop = [k for k in cfg_dict.keys() if k.startswith('INHERIT')]
+    for k in drop:
+        del cfg_dict[k]
+    # Re-prioritize if needed
+    return OrderedDict([(k, cfg_dict[k]) for k in sorted(cfg_dict.keys(), key=sortfn)])
 
 def parse(prs, args=None):
     if args is None:
@@ -272,10 +306,11 @@ if __name__ == '__main__':
     args = parse(build())
     print(args)
     problem_sizes = None
-    sort_dict = dict((k,v['preference']) for (k,v) in args.cfg.items())
+    #sort_dict = dict((k,v['priority']) for (k,v) in args.cfg.items())
     # For each experiment, run all run-type things as a test suite
     for experiment, runtype in zip(args.experiments, args.runstatus):
-        for section in sorted(args.cfg.keys(), key=lambda key: sort_dict[key]):
+        for section in args.cfg.keys():
+        #for section in sorted(args.cfg.keys(), key=lambda key: sort_dict[key]):
             if section in args.skip:
                 continue
             if len(args.only) > 0 and section not in args.only:
