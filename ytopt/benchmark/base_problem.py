@@ -190,7 +190,7 @@ def ecp_problem_builder(lookup, input_space_definition, there, default=None, nam
                 kwargs.setdefault(k,v)
             expect_kwargs = {'use_capital_params': True,
                              'problem_class': class_size,
-                             'dataset': f' -s large -m event -l {class_size}',
+                             'dataset': class_size,
                              'plopper': plopper_class(there+"/mmp.c", there, output_extension=".c"),
                             }
             for k, v in expect_kwargs.items():

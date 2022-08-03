@@ -1,4 +1,5 @@
 from ytopt.benchmark.base_problem import ecp_problem_builder
+from ytopt.benchmark.base_problem import ECP_Plopper
 # Used to locate kernel for ploppers
 import os
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -44,8 +45,12 @@ input_space = [('Ordinal',
      'default_value': 'none',
     }),
     ]
+class XSBench_Plopper(ECP_Plopper):
+    def runString(self, outfile, dictVal, *args, **kwargs):
+        d_size = args[0]
+        return f"srun -n 1 {outfile[:-len(self.output_extension)]} -s large -m event -l {d_size}"
 # Based on
 lookup_ival = {100000: ("S", "SMALL"), 500000: ("SM", "SM"), 1000000: ("M", "MEDIUM"),
                2500000: ("ML", "ML"), 5000000: ("L", "LARGE"), 10000000: ("XL", "EXTRALARGE")}
-__getattr__ = ecp_problem_builder(lookup_ival, input_space, HERE, name="XSBench_Problem")
+__getattr__ = ecp_problem_builder(lookup_ival, input_space, HERE, name="XSBench_Problem", plopper_class=XSBench_Plopper)
 

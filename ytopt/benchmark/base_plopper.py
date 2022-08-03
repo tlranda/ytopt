@@ -264,6 +264,7 @@ class Plopper:
                 # and len(compilation_status.stderr) == 0: # Second condition is to check for warnings
                     print(compilation_status.stderr)
                     print("Compile failed")
+                    print(compile_str)
                     return self.metric([self.infinity])
         elif len(x) == 0 and (self.force_plot or compile_str is not None):
             # SKIP Plotting values
@@ -275,13 +276,15 @@ class Plopper:
                 # and len(compilation_status.stderr) == 0: # Second condition is to check for warnings
                     print(compilation_status.stderr)
                     print("Compile failed")
+                    print(compile_str)
                     return self.metric([self.infinity])
         # Evaluation
         return self.execute(interimfile, dictVal, *args, **kwargs)
 
 
 class ECP_Plopper(Plopper):
-    """ Call to findRuntime should be: (x, params, d_size) """
+    """ Call to findRuntime should be: (x, params, d_size) """,
+                                  default_args=["-s large -m event -l"]
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.findReplace is None:
@@ -297,7 +300,7 @@ class ECP_Plopper(Plopper):
         return clang_cmd
 
     def runString(self, outfile, dictVal, *args, **kwargs):
-        return "srun -n1 "+outfile[:-len(self.output_extension)]+" ".join(args)
+        return "srun -n1 "+outfile[:-len(self.output_extension)]+" ".join([str(_) for _ in args])
 
     def getTime(self, process, dictVal, *arg, **kwargs):
         # Return last 3 floating point values from output by line
