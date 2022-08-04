@@ -38,8 +38,36 @@ input_space = [('Ordinal',
                   'default_value': 'MPI_Barrier(MPI_COMM_WORLD);',})
               ]
 class SW4Lite_Plopper(ECP_Plopper):
+    retries=1
+    def set_os_environ(self):
+        import os, subprocess
+        def get_gpu_ids_from_section(section):
+            ids = []
+            for line in section:
+                try:
+                    after_pipe_char = line.split('|', 1)[1].lstrip()
+                except IndexError:
+                    continue
+                try:
+                    gpu_id = int(after_pipe_char.split(' ',1)[0])
+                except ValueError:
+                    pass
+                else:
+                    ids.append(gpu_id)
+            return ids
+        nvsmi = subprocess.run('nvidia-smi', shell=True, stdout=subprocess.PIPE)
+        important = nvsmi.stdout.decode('utf-8').split('+')
+        exists = get_gpu_ids_from_section("".join(important[3:-4]).split('\n'))
+        occupied = get_gpu_ids_from_section("".join(important[-3:-2]).split('\n'))
+        ok = set(exists).difference(set(occupied))
+        if len(ok) > 0:
+            least_used = list(ok)[0]
+        else:
+            import numpy as np
+            least_used = exists[np.argmin([occupied.count(k) for k in exists])]
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(least_used)
+        return dict(os.environ) #{'CUDA_VISIBLE_DEVICES': str(least_used)}
     def compileString(self, outfile, dictVal, *args, **kwargs):
-        #cmds = ["nvcc -O3 -x cu -I../src -c -dc -arch=sm_60 -DSW4_CROUTINES -DSW4_CUDA -DSW4_NONBLOCKING -ccbin mpicxx -Xptxas -v -Xcompiler -fopenmp -DSW4_OPENMP -I../src/double -c " +\
         cmds = ["nvcc -O3 -x cu -Isrc -c -dc -arch=sm_60 -DSW4_CROUTINES -DSW4_CUDA -DSW4_NONBLOCKING -ccbin mpicxx -Xptxas -v -Xcompiler -fopenmp -DSW4_OPENMP -Isrc/double -c " +\
                 f"{outfile} -o {outfile[:-len(self.output_extension)]}.o",
                 "nvcc -Xcompiler -fopenmp -Xlinker -arch=sm_60 -ccbin mpicxx -o " +\

@@ -217,7 +217,8 @@ class Plopper:
         while failures <= self.retries and len(times) < self.evaluation_tries:
             run_str = self.runString(outfile, dictVal, *args, **kwargs)
             start = time.time()
-            execution_status = subprocess.run(run_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            env = self.set_os_environ() if hasattr(self, 'set_os_environ') else None
+            execution_status = subprocess.run(run_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
             duration = time.time() - start
             # Find the execution time
             try:
@@ -227,13 +228,16 @@ class Plopper:
             except:
                 # Any exception in the getTime call should be treated as an evaluation failure
                 failures += 1
+                print(f"FAILED: {run_str}")
             else:
                 if duration == 0.0:
                     failures += 1
+                    print(f"FAILED: {run_str}")
                 else:
                     times.append(duration)
         # Unable to evaluate this execution
         if failures > self.retries:
+            print(f"OVERALL FAILED: {run_str}")
             return self.metric([self.infinity])
         return self.metric(times)
 
@@ -258,7 +262,8 @@ class Plopper:
             self.plotValues(interimfile, dictVal, *args, **kwargs)
             # Compilation
             if compile_str is not None:
-                compilation_status = subprocess.run(compile_str, shell=True, stderr=subprocess.PIPE)
+                env = self.set_os_environ() if hasattr(self, 'set_os_environ') else None
+                compilation_status = subprocess.run(compile_str, shell=True, stderr=subprocess.PIPE, env=env)
                 # Find execution time ONLY when the compiler return code is zero, else return infinity
                 if compilation_status.returncode != 0:
                 # and len(compilation_status.stderr) == 0: # Second condition is to check for warnings
@@ -270,7 +275,8 @@ class Plopper:
             # SKIP Plotting values
             # Compilation
             if compile_str is not None:
-                compilation_status = subprocess.run(compile_str, shell=True, stderr=subprocess.PIPE)
+                env = self.set_os_environ() if hasattr(self, 'set_os_environ') else None
+                compilation_status = subprocess.run(compile_str, shell=True, stderr=subprocess.PIPE, env=env)
                 # Find execution time ONLY when the compiler return code is zero, else return infinity
                 if compilation_status.returncode != 0:
                 # and len(compilation_status.stderr) == 0: # Second condition is to check for warnings
