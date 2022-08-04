@@ -284,7 +284,6 @@ class Plopper:
 
 class ECP_Plopper(Plopper):
     """ Call to findRuntime should be: (x, params, d_size) """,
-                                  default_args=["-s large -m event -l"]
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.findReplace is None:
