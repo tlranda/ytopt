@@ -68,11 +68,16 @@ class SW4Lite_Plopper(ECP_Plopper):
         os.environ['CUDA_VISIBLE_DEVICES'] = str(least_used)
         return dict(os.environ) #{'CUDA_VISIBLE_DEVICES': str(least_used)}
     def compileString(self, outfile, dictVal, *args, **kwargs):
-        cmds = ["nvcc -O3 -x cu -Isrc -c -dc -arch=sm_60 -DSW4_CROUTINES -DSW4_CUDA -DSW4_NONBLOCKING -ccbin mpicxx -Xptxas -v -Xcompiler -fopenmp -DSW4_OPENMP -Isrc/double -c " +\
+        cmds = ["nvcc -O3 -x cu -Isrc -c -dc -arch=sm_60 -DSW4_CROUTINES -DSW4_CUDA -DSW4_NONBLOCKING "+\
+                "-ccbin mpicxx -Xptxas -v -Xcompiler -fopenmp -DSW4_OPENMP -Isrc/double -c " +\
                 f"{outfile} -o {outfile[:-len(self.output_extension)]}.o",
-                "nvcc -Xcompiler -fopenmp -Xlinker -arch=sm_60 -ccbin mpicxx -o " +\
+                "nvcc -arch=sm_60 -Xcompiler -fopenmp -Xlinker -arch=sm_60 -ccbin mpicxx -o " +\
                 f"{outfile[:-len(self.output_extension)]} main.o {outfile[:-len(self.output_extension)]}.o " +\
-                "Source.o SuperGrid.o GridPointSource.o time_functions_cu.o ew-cfromfort.o EW_cuda.o Sarray.o device-routines.o EWCuda.o CheckPoint.o Parallel_IO.o EW-dg.o MaterialData.o MaterialBlock.o Polynomial.o SecondOrderSection.o TimeSeries.o sacsubc.o curvilinear-c.o -lcudart -L/lcrc/project/perfopt/trandall/sw/lapack-3.10.1 -llapack -lm -lblas -lgfortran"]
+                "Source.o SuperGrid.o GridPointSource.o time_functions_cu.o ew-cfromfort.o EW_cuda.o "+\
+                "Sarray.o device-routines.o EWCuda.o CheckPoint.o Parallel_IO.o EW-dg.o "+\
+                "MaterialData.o MaterialBlock.o Polynomial.o SecondOrderSection.o TimeSeries.o sacsubc.o curvilinear-c.o "+\
+                "-lcuda -lnvcpumath -lnvc -lcudart "+\
+                "-L/lcrc/project/perfopt/trandall/sw/lapack-3.10.1 -llapack -lm -lblas -lgfortran"]
         return ";".join(cmds) #compile_cmd
     def runString(self, outfile, dictVal, *args, **kwargs):
         d_size = args[0]
