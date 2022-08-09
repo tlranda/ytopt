@@ -251,9 +251,14 @@ class Evaluator:
             writer.writerows(resultsList)
 
     def load_evals(self, csv_name):
-        with open(csv_name, 'r') as f:
-            csv_reader = csv.reader(f)
-            csv_rows = [_ for _ in csv_reader]
+        try:
+            with open(csv_name, 'r') as f:
+                csv_reader = csv.reader(f)
+                csv_rows = [_ for _ in csv_reader]
+        except IOError:
+            # Nothing can be done
+            print(f"! warning: evaluator cannot resume {csv_name}: File Not Found")
+            return
         self.cols = csv_rows[0]
         csv_rows = csv_rows[1:]
         for row in csv_rows:
