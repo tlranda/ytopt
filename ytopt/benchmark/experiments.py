@@ -148,7 +148,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                              f"--inputs {' '.join([problem_prefix+'.'+i for i in sect['inputs']])} "+\
                              f"--targets {problem_prefix}.{target} --model {model} --unique --no-log-obj "+\
                              f"--output-prefix {experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed} "+\
-                             f"--resume {experiment}_REFIT_{sec['refits']}_{model}_{target}_{seed}_ALL.csv "+\
+                             f"--resume {experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}_ALL.csv "+\
                              "--resume-fit -1"
                     info = verify_output(f"{experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}_ALL.csv",
                                   runtype, invoke, expect, args)
