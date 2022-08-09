@@ -115,11 +115,6 @@ class AMBS(Search):
             type = int,
             help='Set n inital points'
         )
-        parser.add_argument('--resume',
-            default=None,
-            type = str,
-            help='Resume a previously halted search (point to CSV output)'
-        )
         return parser
 
     def main(self):

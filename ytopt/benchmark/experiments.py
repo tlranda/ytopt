@@ -107,8 +107,8 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             out_name = f"results_rf_{problem.lower()}_{experiment}.csv"
             invoke = f"python -m ytopt.search.ambs --problem problem.{problem} --evaluator {sect['evaluator']} "+\
                      f"--max-evals={sect['evals']} --learner {sect['learner']} --set-KAPPA {sect['kappa']} "+\
-                     f"--acq-func {sect['acqfn']} --set-SEED {sect['offline_seed']}; "+\
-                     f"mv results_{problem_sizes[problem]}.csv {out_name}"
+                     f"--acq-func {sect['acqfn']} --set-SEED {sect['offline_seed']} --resume "+\
+                     f"results_{problem_sizes[problem]}.csv; mv results_{problem_sizes[problem]}.csv {out_name}"
             info = verify_output(out_name, runtype, invoke, expect, args)
             calls += info[0]
             bluffs += info[1]
@@ -131,7 +131,8 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                              f"--max-evals {sect['evals']} --seed {seed} --top {sect['top']} "+\
                              f"--inputs {' '.join([problem_prefix+'.'+i for i in sect['inputs']])} "+\
                              f"--targets {problem_prefix}.{target} --model {model} --unique --no-log-obj "+\
-                             f"--output-prefix {experiment}_NO_REFIT_{model}_{target}_{seed}"
+                             f"--output-prefix {experiment}_NO_REFIT_{model}_{target}_{seed} "+\
+                             f"--resume {experiment}_NO_REFIT_{model}_{target}_{seed}_ALL.csv"
                     info = verify_output(f"{experiment}_NO_REFIT_{model}_{target}_{seed}_ALL.csv", runtype,
                                   invoke, expect, args)
                     calls += info[0]
@@ -146,7 +147,9 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                              f"--max-evals {sect['evals']} --seed {seed} --top {sect['top']} "+\
                              f"--inputs {' '.join([problem_prefix+'.'+i for i in sect['inputs']])} "+\
                              f"--targets {problem_prefix}.{target} --model {model} --unique --no-log-obj "+\
-                             f"--output-prefix {experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}"
+                             f"--output-prefix {experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed} "+\
+                             f"--resume {experiment}_REFIT_{sec['refits']}_{model}_{target}_{seed}_ALL.csv "+\
+                             "--resume-fit -1"
                     info = verify_output(f"{experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}_ALL.csv",
                                   runtype, invoke, expect, args)
                     calls += info[0]
@@ -162,7 +165,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                              f"--inputs {' '.join([problem_prefix+'.'+i for i in sect['inputs']])} "+\
                              f"--model {model} --evaluator {sect['evaluator']} --learner {sect['learner']} "+\
                              f"--set-KAPPA {sect['kappa']} --acq-func {sect['acqfn']} "+\
-                             f"--set-SEED {seed} --set-NI {sect['ni']}; "+\
+                             f"--set-SEED {seed} --set-NI {sect['ni']} --resume results_{problem_size[target]}.csv; "+\
                              f"mv results_{problem_sizes[target]}.csv {experiment}_BOOTSTRAP_"+\
                              f"{sect['bootstrap']}_{model}_{target}_{seed}_ALL.csv"
                     info = verify_output(f"{experiment}_BOOTSTRAP_{sect['bootstrap']}_{model}_{target}_{seed}_ALL.csv",

@@ -4,6 +4,7 @@ Asynchronous Model-Based Search. (WITH LIES FROM SDV)
 
 
 import signal
+import json
 
 from ytopt.search.optimizer import Optimizer
 from ytopt.search import Search
@@ -68,6 +69,8 @@ class AMBS(Search):
                                           method=settings['evaluator'],
                                           cache_key=settings['cache_key'],
                                           redis_address=settings['redis_address'])
+        if 'resume' in kwargs.keys():
+            self.evaluator.load_evals(kwargs['resume'])
         self.max_evals = settings['max_evals']
         self.eval_timeout_minutes = settings['eval_timeout_minutes']
         self.num_workers = self.evaluator.num_workers
@@ -206,6 +209,32 @@ class AMBS(Search):
             set_NI=set_NI,
             sdv_model=self.model,
         )
+
+        # Important that the optimizer knows of evaluations when resuming
+        if len(self.evaluator.finished_evals) > 0:
+            # Have to make lies to be able to tell all of the data
+            lie = self.optimizer._get_lie()
+            mass_x, mass_y, results = [], [], []
+            cols = self.evaluator.cols
+            for keystring, value in self.evaluator.finished_evals.items():
+                keydict = json.loads(keystring)
+                x = list(keydict.values())
+                key = tuple(x)
+                value = float(value)
+                if key not in self.optimizer.evals:
+                    # Set up the lie for the optimizer to temporarily believe
+                    self.optimizer.evals[key] = lie
+                    mass_x.append(x)
+                    mass_y.append(lie)
+                    # Actual truth the model will ultimately see
+                    results.append(tuple([keydict, value]))
+            # Mass-scale fake
+            self.optimizer.counter += len(mass_x)
+            # Tell lies
+            self.optimizer._optimizer.tell(mass_x, mass_y)
+            # Update lies
+            self.optimizer.tell(results)
+            print(f"Optimizer picks up {len(results)} prior evaluations")
 
     @staticmethod
     def _extend_parser(parser):

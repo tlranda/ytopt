@@ -90,4 +90,9 @@ class Search:
                             )
         parser.add_argument('--redis-address', type=str, default=None,
                             help="The redis-address for Ray-Worker when ray evaluator is choosen")
+        parser.add_argument('--resume',
+            default=None,
+            type = str,
+            help='Resume a previously halted search (point to CSV output)'
+        )
         return parser

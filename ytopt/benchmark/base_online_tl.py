@@ -60,12 +60,19 @@ def build():
     parser.add_argument('--resume', default=None, type=str,
                         help="Previous run to resume from (if specified)")
     parser.add_argument('--resume-fit', default=0, type=int,
-                        help="Rows to refit on from the resuming data (default 0 -- blank model used)")
+                        help="Rows to refit on from the resuming data (default 0 -- blank model used, use -1 to infer the last fit)")
     return parser
 
 def parse(prs, args=None):
     if args is None:
         args = prs.parse_args()
+    if args.resume is not None:
+        try:
+            x = open(args.resume, 'r')
+        except IOError:
+            # Nonexistent resume files should fail gracefully with a warning
+            print(f"! warning! could not resume from {args.resume}: File Not Found")
+            args.resume = None
     return args
 
 def param_type(k, problem):
@@ -181,6 +188,10 @@ def online(targets, data, inputs, args, fname, speed = None):
                 csvwriter.writerow(ss)
             csvfile.flush()
             evals_infer = csv_to_eval(evals_infer, targets[0].problem_class)
+            if args.resume_fit < 0 and args.n_refit > 0:
+                # Infer best resume point based on refit
+                loaded = len(evals_infer)
+                args.resume_fit = loaded - (loaded % args.n_refit)
             if args.resume_fit > 0:
                 data = pd.concat((data, evals_infer[:args.resume_fit])).reset_index(drop=True)
         else:
