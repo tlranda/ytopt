@@ -37,11 +37,9 @@ class Search:
 
         self.problem = util.generic_loader(problem, 'Problem')
 
-        if cache_key is None:
-            self.evaluator = Evaluator.create(self.problem, method=evaluator, redis_address=redis_address)
-        else:
-            self.evaluator = Evaluator.create(
-                self.problem, method=evaluator, cache_key=cache_key, redis_address=redis_address)
+        self.evaluator = Evaluator.create(self.problem, method=evaluator, cache_key=cache_key, redis_address=redis_address)
+        if 'resume' in kwargs.keys():
+            self.evaluator.load_evals(kwargs['resume'])
 
         self.max_evals = max_evals
         self.eval_timeout_minutes = eval_timeout_minutes

@@ -250,4 +250,25 @@ class Evaluator:
             writer.writeheader()
             writer.writerows(resultsList)
 
+    def load_evals(self, csv_name):
+        with open(csv_name, 'r') as f:
+            csv_reader = csv.reader(f)
+            csv_rows = [_ for _ in csv_reader]
+        self.cols = csv_rows[0]
+        csv_rows = csv_rows[1:]
+        for row in csv_rows:
+            # Generate data from record
+            d_row = dict((k,v) for (k,v) in zip(self.cols, row) if k not in ['objective', 'elapsed_sec'])
+            objective = float(row[self.cols.index('objective')])
+            elapsed = float(row[self.cols.index('elapsed_sec')])
+            # Perform encoding as the object would for consistency
+            key = self.encode(d_row)
+            uid = self._gen_uid(d_row)
+            # requested_evals, pending_evals should BOTH be in/out by this point
+            # lasting side-effects of running an evaluation
+            self.key_uid_map[key] = uid
+            self.elapsed_times[uid] = elapsed
+            self.finished_evals[uid] = objective
+        # Adjust continuing elapsed time
+        self._start_sec -= elapsed
 

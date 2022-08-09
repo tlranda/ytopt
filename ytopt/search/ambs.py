@@ -25,6 +25,7 @@ Arguments of AMBS :
 
 
 import signal
+import json
 
 from ytopt.search.optimizer import Optimizer
 from ytopt.search import Search
@@ -55,6 +56,32 @@ class AMBS(Search):
             set_SEED=set_SEED,
             set_NI=set_NI,
         )
+
+        # Important that the optimizer knows of evaluations when resuming
+        if len(self.evaluator.finished_evals) > 0:
+            # Have to make lies to be able to tell all of the data
+            lie = self.optimizer._get_lie()
+            mass_x, mass_y, results = [], [], []
+            cols = self.evaluator.cols
+            for keystring, value in self.evaluator.finished_evals.items():
+                keydict = json.loads(keystring)
+                x = list(keydict.values())
+                key = tuple(x)
+                value = float(value)
+                if key not in self.optimizer.evals:
+                    # Set up the lie for the optimizer to temporarily believe
+                    self.optimizer.evals[key] = lie
+                    mass_x.append(x)
+                    mass_y.append(lie)
+                    # Actual truth the model will ultimately see
+                    results.append(tuple([keydict, value]))
+            # Mass-scale fake
+            self.optimizer.counter += len(mass_x)
+            # Tell lies
+            self.optimizer._optimizer.tell(mass_x, mass_y)
+            # Update lies
+            self.optimizer.tell(results)
+            print(f"Optimizer picks up {len(results)} prior evaluations")
 
     @staticmethod
     def _extend_parser(parser):
@@ -88,12 +115,17 @@ class AMBS(Search):
             type = int,
             help='Set n inital points'
         )
+        parser.add_argument('--resume',
+            default=None,
+            type = str,
+            help='Resume a previously halted search (point to CSV output)'
+        )
         return parser
 
     def main(self):
         timer = util.DelayTimer(max_minutes=None, period=SERVICE_PERIOD)
+        num_evals = len(self.evaluator.key_uid_map)
         chkpoint_counter = 0
-        num_evals = 0
 
         logger.info(f"Generating {self.num_workers} initial points...")
         XX = self.optimizer.ask_initial(n_points=self.num_workers)
@@ -126,3 +158,4 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, on_exit)
     signal.signal(signal.SIGTERM, on_exit)
     search.main()
+

@@ -153,3 +153,4 @@ class RayEvaluator(Evaluator):
             failed=results['failed'],
             cancelled=results['cancelled']
         )
+
