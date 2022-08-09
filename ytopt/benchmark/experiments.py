@@ -3,6 +3,7 @@ from collections import OrderedDict
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 valid_run_status = ["check", "run", "override", "sanity", "announce"]
+runnable = ["run", "override"]
 always_announce = ["sanity", "announce"]
 
 def sanity_check(checkname):
@@ -44,34 +45,44 @@ def verify_output(checkname, runstatus, invoke, expect, args):
             r = 1
         elif runstatus != "run":
             b = 1
-        output_check(checkname, "CHECK", expect, args)
+        output_check(checkname, runstatus.upper(), expect, args)
         if runstatus in always_announce:
             print(invoke)
-    elif args.backup is not None and os.path.exists(args.backup+checkname):
-        if runstatus == "override":
-            run(invoke, runstatus, args)
-            r = 1
-            output_check(checkname, "CHECK OVERRIDE", expect, args)
-        else:
-            output_check(args.backup+checkname, f"CHECK BACKUP @{args.backup}", expect, args)
-            b = 1
-            if runstatus in always_announce:
-                print(invoke)
     else:
-        if runstatus == "check":
-            warn = "!! No file"
-            if args.backup is None:
-                warn += ", no backup given,"
+        found = False
+        for backup in args.backup:
+            if not backup.endswith('/'):
+                backup += "/"
+            if os.path.exists(backup+checkname):
+                if runstatus == "override":
+                    run(invoke, runstatus, args)
+                    r = 1
+                    output_check(checkname, f"{runstatus.upper()} OVERRIDE", expect, args)
+                else:
+                    output_check(backup+checkname, f"{runstatus.upper()} BACKUP @{backup}", expect, args)
+                    b = 1
+                    if runstatus in always_announce:
+                        print(invoke)
+                found = True
+                break
+        if not found:
+            if runstatus == "check":
+                warn = "!! No file"
+                if args.backup == []:
+                    warn += ", no backup given,"
+                else:
+                    warn += f" or backup @{args.backup}"
+                print(warn+f" for {checkname} !!")
+                print(invoke)
+                b = 1
             else:
-                warn += f" or backup @{args.backup}"
-            print(warn+f" for {checkname} !!")
-            print(invoke)
-            b = 1
-        else:
-            bonus = f"; No backup @{args.backup}" if args.backup is not None else "; No backup given"
-            run(invoke, runstatus+bonus, args)
-            r = 1
-            output_check(checkname, "CHECK NEW RUN", expect, args)
+                bonus = f"; No backup @{args.backup}" if args.backup is not None else "; No backup given"
+                if runstatus in always_announce:
+                    print(invoke)
+                if runstatus in runnable:
+                    run(invoke, runstatus+bonus, args)
+                    r = 1
+                output_check(checkname, "CHECK NEW RUN", expect, args)
     if runstatus == "sanity" or r == 1:
         sanity_check(checkname)
     return r, b
@@ -232,7 +243,7 @@ def build():
     prs.add_argument('--config-file', type=str, required=True, help="File to read configuration from")
     prs.add_argument('--experiments', type=str, nargs='+', required=True, help="Experiments to run")
     prs.add_argument('--runstatus', type=str, nargs='*', default=[], help="Way to run experiments")
-    prs.add_argument('--backup', type=str, default=None, help="Directory path to look for backup files")
+    prs.add_argument('--backup', type=str, nargs='*', help="Directory path(s) to look for backup files")
     prs.add_argument('--skip', type=str, nargs='*', default=[], help="Config sections to skip")
     prs.add_argument('--only', type=str, nargs='*', default=[], help="ONLY run these config sections")
     prs.add_argument('--section-sizecache', action='store_true', help="Cache problem size values between sections")
@@ -295,6 +306,14 @@ def parse(prs, args=None):
         args = prs.parse_args()
     # Load data from config and bind to args
     args.cfg = config_bind(args.config_file)
+    # Fix endings of backup directories
+    if args.backup is not None:
+        backup = []
+        for b in args.backup:
+            if not b.endswith('/'):
+                b += "/"
+            backup.append(b)
+        args.backup = backup
     if args.runstatus == []:
         args.runstatus = ["run"]
     # Repeat last known experiment runstatus to fill in blanks
@@ -320,8 +339,6 @@ if __name__ == '__main__':
             if args.backup is None and 'backup' in args.cfg[section].keys():
                 revert_backup = True
                 args.backup = args.cfg[section]['backup']
-            if args.backup is not None and not args.backup.endswith('/'):
-                args.backup += "/"
             problem_sizes = build_test_suite(experiment, runtype, args, section, problem_sizes)
             if not args.section_sizecache:
                 problem_sizes = None

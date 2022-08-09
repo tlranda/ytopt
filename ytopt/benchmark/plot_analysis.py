@@ -8,7 +8,6 @@ from matplotlib.offsetbox import AnchoredOffsetbox
 legend_codes = list(AnchoredOffsetbox.codes.keys())+['best']
 from sklearn.metrics import r2_score
 from scipy.stats import pearsonr
-import pdb
 
 def build():
     prs = argparse.ArgumentParser()
@@ -19,6 +18,7 @@ def build():
     prs.add_argument("--pca", type=str, nargs="*", help="Plot as PCA (don't mix with other plots plz)")
     prs.add_argument("--pca-problem", type=str, default="", help="Problem.Attr notation to load space from (must be module or CWD/* to function)")
     prs.add_argument("--pca-points", type=int, default=None, help="Limit the number of points used for PCA (spread by quantiles, default ALL points used)")
+    prs.add_argument("--pca-tops", type=float, nargs='*', help="Top% to use for each PCA file (disables point-count/quantization, keeps k-ranking)")
     prs.add_argument("--pca-algorithm", choices=['pca', 'tsne'], default='tsne', help="Algorithm to use for dimensionality reduction (default tsne)")
     prs.add_argument("--as-speedup-vs", type=str, default=None, help="Convert objectives to speedup compared against this value (float or CSV filename)")
     prs.add_argument("--show", action="store_true", help="Show figures rather than save to file")
@@ -53,9 +53,12 @@ def parse(prs, args=None):
         args = prs.parse_args()
     if args.trim is None:
         args.trim = list()
-    if not args.max_objective and args.top is not None:
+    if not args.max_objective:
         # Quantile should be (1 - %) if MINIMIZE (lower is better)
-        args.top = 1 - args.top
+        if args.top is not None:
+            args.top = 1 - args.top
+        if args.pca_tops is not None:
+            args.pca_tops = [1-q for q in args.pca_tops]
     if args.ignore is not None:
         if args.inputs is not None:
             allowed = []
@@ -83,6 +86,8 @@ def parse(prs, args=None):
             args.pca = allowed
     if args.pca is not None and args.pca != [] and args.pca_problem == "":
         raise ValueError("Must define a pca problem along with PCA plots (--pca-problem)")
+    if args.pca_tops is not None and args.pca_tops != [] and len(args.pca_tops) != len(args.pca):
+        raise ValueError(f"When specified, --pca-tops (length {len(args.pca_tops)}) must have one entry per PCA type input ({len(args.pca)})")
     if args.drop_seeds == []:
         args.drop_seeds = None
     if args.as_speedup_vs is not None:
@@ -145,11 +150,13 @@ def drop_seeds(data, args):
 
 def combine_seeds(data, args):
     combined_data = []
-    for entry in data:
+    offset = 0
+    for nentry, entry in enumerate(data):
         new_data = {'name': entry['name'], 'type': entry['type']}
         if entry['type'] == 'pca':
             # PCA requires special data combination beyond this point
             pca = pd.concat(entry['data'])
+            offset += len(entry['data']) - 1
             other = [_ for _ in ['objective', 'predicted', 'elapsed_sec'] if _ in pca.columns]
             # Maintain proper column order despite using sets
             permitted = set(pca.columns).difference(set(other))
@@ -164,8 +171,14 @@ def combine_seeds(data, args):
             frame_list = [pca[np.all([(pca[k]==v) for k,v in zip(params, values)], axis=0)].groupby(params, as_index=False).mean() for values in duplicate_values]
             # We then add the unique values (keep=False means ALL duplicates are excluded) to ensure data isn't deleted
             reconstructed = pd.concat([pca.drop_duplicates(subset=params, keep=False)]+frame_list).reset_index()
+            # Trim points by top% and rerank
+            if args.pca_tops is not None and args.pca_tops != []:
+                # Get cutoff for this entry (NEAREST actual data)
+                quants = reconstructed['objective'].quantile(args.pca_tops[nentry+offset], interpolation='nearest')
+                # Make a new frame of top values at/above this cutoff
+                reconstructed = reconstructed[reconstructed['objective'] >= quants].drop(columns='index').reset_index()
             # Trim points by quantile IF pca points is not None
-            if args.pca_points is not None:
+            elif args.pca_points is not None and args.pca_points != []:
                 # Use NEAREST (actual data) quantiles from range 0 to 1
                 quants = reconstructed['objective'].quantile([_/(args.pca_points-1) for _ in range(args.pca_points)], interpolation='nearest')
                 # Construct new frame consisting of only these quantile values
@@ -263,6 +276,49 @@ def combine_seeds(data, args):
         new_data['data'] = pd.DataFrame(new_columns).sort_values('exe')
         new_data['data'] = new_data['data'][new_data['data']['obj'] > 0]
         combined_data.append(new_data)
+    # Perform PCA fitting
+    fittable = []
+    for entry in combined_data:
+        if entry['type'] == 'pca':
+            try:
+                fittable.append(entry['data'].drop(columns='predicted'))
+            except KeyError:
+                fittable.append(entry['data'])
+    if len(fittable) > 0:
+        import importlib, skopt
+        problem, attr = args.pca_problem.rsplit('.',1)
+        module = importlib.import_module(problem)
+        space = module.__getattr__(attr).input_space
+        skopt_space = skopt.space.Space(space)
+        # Transform data. Non-objective/runtime should become vectorized. Objective should be ranked
+        regressions, rankings = [], []
+        for data in fittable:
+            parameters = data.loc[:, space.get_hyperparameter_names()]
+            other = data.loc[:, [_ for _ in data.columns if _ not in space.get_hyperparameter_names()]]
+            x_parameters = skopt_space.transform(parameters.astype('str').to_numpy())
+            rankdict = dict((idx,rank+1) for (rank, idx) in zip(range(len(other['objective'])),
+                    np.argsort(((-1)**args.max_objective) * np.asarray(other['objective']))))
+            other.loc[:, ('objective')] = [rankdict[_] / len(other['objective']) for _ in other['objective'].index]
+            regressions.append(x_parameters)
+            rankings.append(other['objective'])
+        if args.pca_algorithm == 'pca':
+            from sklearn.decomposition import PCA
+            pca = PCA(n_components=2)
+        else:
+            from sklearn.manifold import TSNE
+            pca = TSNE(n_components=2)
+        pca_values = pca.fit_transform(np.vstack(regressions))
+        # Re-assign over data
+        pca_idx, combined_idx = 0, 0
+        for regs, rerank in zip(regressions, rankings):
+            required_idx = len(regs)
+            new_frame = {'x': pca_values[pca_idx:pca_idx+required_idx,0],
+                         'y': pca_values[pca_idx:pca_idx+required_idx,1],
+                         'z': rerank}
+            new_frame = pd.DataFrame(new_frame)
+            pca_idx += required_idx
+            combined_data[combined_idx]['data'] = new_frame
+            combined_idx += 1
     # Find top val
     if args.top is None:
         top_val = None
@@ -461,30 +517,7 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
     color_map = color_maps[idx % len(color_maps)]
     #color_map = 'Reds'
     if source['type'] == 'pca':
-        import importlib, skopt
-        problem, attr = args.pca_problem.rsplit('.',1)
-        module = importlib.import_module(problem)
-        space = module.__getattr__(attr).input_space
-        skopt_space = skopt.space.Space(space)
-        # Transform data. Non-objective/runtime should become vectorized. Objective should be ranked
-        new_data, new_ranks = [], []
-        parameters = data.loc[:, space.get_hyperparameter_names()]
-        other = data.loc[:, [_ for _ in data.columns if _ not in space.get_hyperparameter_names()]]
-        x_parameters = skopt_space.transform(parameters.astype('str').to_numpy())
-        rankdict = dict((idx,rank+1) for (rank, idx) in zip(range(len(other['objective'])),
-                np.argsort(((-1)**args.max_objective) * np.asarray(other['objective']))))
-        other.loc[:, ('objective')] = [rankdict[_] / len(other['objective']) for _ in other['objective'].index]
-        new_data.append(x_parameters)
-        new_ranks.append(other)
-        if args.pca_algorithm == 'pca':
-            from sklearn.decomposition import PCA
-            pca = PCA(n_components=2)
-        else:
-            from sklearn.manifold import TSNE
-            pca = TSNE(n_components=2)
-        pca_values = pca.fit_transform(np.vstack(new_data)).reshape((len(new_data),-1,2))
-        for (positions, ranks) in zip(pca_values, new_ranks):
-            plt.scatter(positions[:,0], positions[:,1], c=ranks['objective'], cmap=color_map, label=source['name'])#, labelcolor=color_map.lower().rstrip('s'))
+        plt.scatter(data['x'], data['y'], c=data['z'], cmap=color_map, label=source['name'])#, labelcolor=color_map.lower().rstrip('s'))
         return
     if top_val is None:
         # Shaded area = stddev
@@ -598,6 +631,7 @@ def main(args):
         text_analysis(data, args)
     if not args.no_plots:
         for idx, source in enumerate(data):
+            print(f"plot {source['name']}")
             plot_source(fig, ax, idx, source, args, ntypes, top_val)
         # make x-axis data
         if args.pca is not None and args.pca != []:
