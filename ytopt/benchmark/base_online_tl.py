@@ -57,6 +57,10 @@ def build():
                         help="Apply logarithm to loaded TL data")
     parser.add_argument('--speedup', default=None, type=str,
                         help="File to refer to for base speed value")
+    parser.add_argument('--resume', default=None, type=str,
+                        help="Previous run to resume from (if specified)")
+    parser.add_argument('--resume-fit', default=0, type=int,
+                        help="Rows to refit on from the resuming data (default 0 -- blank model used)")
     return parser
 
 def parse(prs, args=None):
@@ -122,6 +126,12 @@ def sample_approximate_conditions(sdv_model, model, conditions, criterion, param
     return selected
 
 
+def csv_to_eval(frame, size):
+    csv = frame.drop(columns=['predicted', 'elapsed_sec'])
+    csv.insert(loc=len(csv.columns)-1, column='input', value=size)
+    csv = csv.rename(columns={'objective': 'runtime'})
+    return csv
+
 def online(targets, data, inputs, args, fname, speed = None):
     global time_start
 
@@ -164,13 +174,24 @@ def online(targets, data, inputs, args, fname, speed = None):
         # writing the fields
         csvwriter.writerow(csv_fields)
 
+        # Load resumable data and preserve it in new run so no need to re-merge new and existing data
+        if args.resume is not None:
+            evals_infer = pd.read_csv(args.resume)
+            for ss in evals_infer.iterrows():
+                csvwriter.writerow(ss)
+            csvfile.flush()
+            evals_infer = csv_to_eval(evals_infer, targets[0].problem_class)
+            if args.resume_fit > 0:
+                data = pd.concat((data, evals_infer[:args.resume_fit])).reset_index(drop=True)
+        else:
+            evals_infer = []
+
         # Make conditions for each target
         conditions = []
         for target_problem in targets:
             conditions.append(Condition({'input': target_problem.problem_class},
                                         num_rows=max(100, args.max_evals)))
-        evals_infer = []
-        eval_master = 0
+        eval_master = len(evals_infer)
         # Initial fit
         if model is not None:
             print(f"Fitting with {len(data)} rows")
@@ -178,6 +199,15 @@ def online(targets, data, inputs, args, fname, speed = None):
             warnings.simplefilter("ignore")
             model.fit(data)
             warnings.simplefilter('default')
+        if args.resume is not None:
+            # There may be additional data AFTER this fit to keep track of
+            if args.resume_fit != len(evals_infer):
+                data = pd.concat((data, evals_infer[args.resume_fit:])).reset_index(drop=True)
+            # Convert evals_infer to a list now (only needs the runtimes)
+            evals_infer = evals_infer['runtime'].to_list()
+            resume_utilized = False
+        else:
+            resume_utilized = True
         time_start = time.time()
         while eval_master < args.max_evals:
             # Generate prospective points
@@ -213,7 +243,9 @@ def online(targets, data, inputs, args, fname, speed = None):
             ss1 = ss1.drop_duplicates(subset=param_names, keep="first")
             ss = ss1.sort_values(by='runtime')#, ascending=False)
             new_sdv = ss[:args.max_evals]
-            eval_update = 0
+            eval_update = 0 if resume_utilized else len(evals_infer)-args.resume_fit
+            if not resume_utilized:
+                resume_utilized = True
             stop = False
             while not stop:
                 for row in new_sdv.iterrows():
@@ -269,15 +301,19 @@ def online(targets, data, inputs, args, fname, speed = None):
                         csvfile.flush()
                         eval_update += 1
                         eval_master += 1
+                    # Quit when out of evaluations (no final refit check needed)
+                    if eval_master >= args.max_evals:
+                        stop = True
+                        break
                     # Important to run refit AFTER at least one evaluation is done, else we
                     # infinite loop when args.n_refit=0 (never)
                     if eval_update == args.n_refit:
                         # update model
                         if model is not None:
+                            print("REFIT")
+                            warnings.simplefilter("ignore")
                             model.fit(data)
-                        stop = True
-                        break
-                    if eval_master >= args.max_evals:
+                            warnings.simplefilter('default')
                         stop = True
                         break
                 if args.unique or args.n_refit == 0:
