@@ -2,8 +2,9 @@ import os, subprocess, argparse, configparser
 from collections import OrderedDict
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-valid_run_status = ["check", "run", "override", "sanity", "announce"]
+valid_run_status = ["check", "check_resumable", "run", "override", "sanity", "announce"]
 runnable = ["run", "override"]
+checkable = ["check", "check_resumable", "sanity", "announce"]
 always_announce = ["sanity", "announce"]
 
 def sanity_check(checkname):
@@ -16,7 +17,7 @@ def run(cmd, prelude, args):
     if not args.eval_lock:
         status = subprocess.run(cmd, shell=True)
 
-def output_check(checkname, prelude, expect, args):
+def output_check(checkname, prelude, expect, args, can_rm=True):
     if os.path.exists(checkname):
         try:
             with open(checkname, 'r') as f:
@@ -24,7 +25,7 @@ def output_check(checkname, prelude, expect, args):
             if prelude != "":
                 print(f"-- {prelude} --")
             print(f"| {linecount} lines in {checkname} |")
-            if linecount < expect:
+            if can_rm and linecount < expect:
                 print(f"!! Remove bad output {checkname} (Expected {expect}) !!")
                 subprocess.run(f"rm -f {checkname}", shell=True)
         except UnicodeDecodeError:
@@ -34,7 +35,7 @@ def output_check(checkname, prelude, expect, args):
             print(f"-! {prelude} !-")
         print(f"!! did not find {checkname} !!")
 
-def verify_output(checkname, runstatus, invoke, expect, args):
+def verify_output(checkname, runstatus, invoke, expect, args, resumable=None, can_rm=True):
     if runstatus not in valid_run_status:
         raise ValueError(f"Runstatus must be in {valid_run_status}")
     r = 0
@@ -45,7 +46,7 @@ def verify_output(checkname, runstatus, invoke, expect, args):
             r = 1
         elif runstatus != "run":
             b = 1
-        output_check(checkname, runstatus.upper(), expect, args)
+        output_check(checkname, runstatus.upper(), expect, args, can_rm)
         if runstatus in always_announce:
             print(invoke)
     else:
@@ -57,9 +58,9 @@ def verify_output(checkname, runstatus, invoke, expect, args):
                 if runstatus == "override":
                     run(invoke, runstatus, args)
                     r = 1
-                    output_check(checkname, f"{runstatus.upper()} OVERRIDE", expect, args)
+                    output_check(checkname, f"{runstatus.upper()} OVERRIDE", expect, args, can_rm)
                 else:
-                    output_check(backup+checkname, f"{runstatus.upper()} BACKUP @{backup}", expect, args)
+                    output_check(backup+checkname, f"{runstatus.upper()} BACKUP @{backup}", expect, args, can_rm)
                     b = 1
                     if runstatus in always_announce:
                         print(invoke)
@@ -75,16 +76,19 @@ def verify_output(checkname, runstatus, invoke, expect, args):
                 print(warn+f" for {checkname} !!")
                 print(invoke)
                 b = 1
-            else:
+            elif runstatus != "check_resumable":
                 bonus = f"; No backup @{args.backup}" if args.backup is not None else "; No backup given"
                 if runstatus in always_announce:
                     print(invoke)
                 if runstatus in runnable:
                     run(invoke, runstatus+bonus, args)
                     r = 1
-                output_check(checkname, "CHECK NEW RUN", expect, args)
+                output_check(checkname, "CHECK NEW RUN", expect, args, can_rm)
     if runstatus == "sanity" or r == 1:
         sanity_check(checkname)
+    # Short recursion on resumable
+    if resumable is not None:
+        verify_output(resumable, "check_resumable", invoke, expect, args, can_rm=False)
     return r, b
 
 def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
@@ -105,11 +109,12 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
     if key == 'OFFLINE':
         for problem in sect['sizes']:
             out_name = f"results_rf_{problem.lower()}_{experiment}.csv"
+            resume = f"results_{problem_sizes[problem]}.csv"
             invoke = f"python -m ytopt.search.ambs --problem problem.{problem} --evaluator {sect['evaluator']} "+\
                      f"--max-evals={sect['evals']} --learner {sect['learner']} --set-KAPPA {sect['kappa']} "+\
-                     f"--acq-func {sect['acqfn']} --set-SEED {sect['offline_seed']} --resume "+\
-                     f"results_{problem_sizes[problem]}.csv; mv results_{problem_sizes[problem]}.csv {out_name}"
-            info = verify_output(out_name, runtype, invoke, expect, args)
+                     f"--acq-func {sect['acqfn']} --set-SEED {sect['offline_seed']} --resume {resume}; "+\
+                     f"mv {resume} {out_name}"
+            info = verify_output(out_name, runtype, invoke, expect, args, resumable=resume)
             calls += info[0]
             bluffs += info[1]
     elif key == 'O3':
@@ -127,14 +132,14 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             for model in sect['models']:
                 for seed in sect['seeds']:
                     # No Refit
+                    resume = f"{experiment}_NO_REFIT_{model}_{target}_{seed}_ALL.csv"
                     invoke = "python -m ytopt.benchmark.base_online_tl --n-refit 0 "+\
                              f"--max-evals {sect['evals']} --seed {seed} --top {sect['top']} "+\
                              f"--inputs {' '.join([problem_prefix+'.'+i for i in sect['inputs']])} "+\
                              f"--targets {problem_prefix}.{target} --model {model} --unique --no-log-obj "+\
                              f"--output-prefix {experiment}_NO_REFIT_{model}_{target}_{seed} "+\
-                             f"--resume {experiment}_NO_REFIT_{model}_{target}_{seed}_ALL.csv"
-                    info = verify_output(f"{experiment}_NO_REFIT_{model}_{target}_{seed}_ALL.csv", runtype,
-                                  invoke, expect, args)
+                             f"--resume {resume}"
+                    info = verify_output(resume, runtype, invoke, expect, args)
                     calls += info[0]
                     bluffs += info[1]
     elif key == 'REFIT':
@@ -143,15 +148,14 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             for model in sect['models']:
                 for seed in sect['seeds']:
                     # Refit
+                    resume = f"{experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}_ALL.csv"
                     invoke = f"python -m ytopt.benchmark.base_online_tl --n-refit {sect['refits']} "+\
                              f"--max-evals {sect['evals']} --seed {seed} --top {sect['top']} "+\
                              f"--inputs {' '.join([problem_prefix+'.'+i for i in sect['inputs']])} "+\
                              f"--targets {problem_prefix}.{target} --model {model} --unique --no-log-obj "+\
                              f"--output-prefix {experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed} "+\
-                             f"--resume {experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}_ALL.csv "+\
-                             "--resume-fit -1"
-                    info = verify_output(f"{experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}_ALL.csv",
-                                  runtype, invoke, expect, args)
+                             f"--resume {resume} --resume-fit -1"
+                    info = verify_output(resume, runtype, invoke, expect, args)
                     calls += info[0]
                     bluffs += info[1]
     elif key == 'BOOTSTRAP':
@@ -160,16 +164,16 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             for model in sect['models']:
                 for seed in sect['seeds']:
                     # Bootstrap
+                    resume = f"results_{problem_sizes[target]}.csv"
+                    outfile = f"{experiment}_BOOTSTRAP_{sect['bootstrap']}_{model}_{target}_{seed}_ALL.csv"
                     invoke = f"python -m ytopt.benchmark.search.ambs --problem {problem_prefix}.{target} --max-evals "+\
                              f"{sect['evals']} --n-generate {sect['bootstrap']} --top {sect['top']} "+\
                              f"--inputs {' '.join([problem_prefix+'.'+i for i in sect['inputs']])} "+\
                              f"--model {model} --evaluator {sect['evaluator']} --learner {sect['learner']} "+\
                              f"--set-KAPPA {sect['kappa']} --acq-func {sect['acqfn']} "+\
-                             f"--set-SEED {seed} --set-NI {sect['ni']} --resume results_{problem_sizes[target]}.csv; "+\
-                             f"mv results_{problem_sizes[target]}.csv {experiment}_BOOTSTRAP_"+\
-                             f"{sect['bootstrap']}_{model}_{target}_{seed}_ALL.csv"
-                    info = verify_output(f"{experiment}_BOOTSTRAP_{sect['bootstrap']}_{model}_{target}_{seed}_ALL.csv",
-                                  runtype, invoke, expect, args)
+                             f"--set-SEED {seed} --set-NI {sect['ni']} --resume {resume}; "+\
+                             f"mv {resume} {outfile}"
+                    info = verify_output(outfile, runtype, invoke, expect, args, resumable=resume)
                     calls += info[0]
                     bluffs += info[1]
     elif key == 'COMPETITIVE':
