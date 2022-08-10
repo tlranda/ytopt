@@ -6,8 +6,6 @@ import matplotlib.colors as mcolors
 # Get legend names from matplotlib
 from matplotlib.offsetbox import AnchoredOffsetbox
 legend_codes = list(AnchoredOffsetbox.codes.keys())+['best']
-from sklearn.metrics import r2_score
-from scipy.stats import pearsonr
 
 def build():
     prs = argparse.ArgumentParser()

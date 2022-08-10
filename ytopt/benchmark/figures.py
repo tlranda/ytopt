@@ -8,7 +8,7 @@ legend_codes = list(AnchoredOffsetbox.codes.keys())+['best']
 import argparse
 import os
 
-rfigures = {4: ['anal_ensity', '4', 'time_v_exec'],
+rfigures = {4: ['anal_density', '4', 'time_v_exec'],
             5: ['plot_best_sofar', '5', 'elapse_v_best_speedup'],
             6: ['plot_time', '6', 'elapse_v_no_configs_speedup'],
             7: ['run_times', '7', 'no_evals_v_exec'],
