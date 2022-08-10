@@ -165,7 +165,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                              f"--inputs {' '.join([problem_prefix+'.'+i for i in sect['inputs']])} "+\
                              f"--model {model} --evaluator {sect['evaluator']} --learner {sect['learner']} "+\
                              f"--set-KAPPA {sect['kappa']} --acq-func {sect['acqfn']} "+\
-                             f"--set-SEED {seed} --set-NI {sect['ni']} --resume results_{problem_size[target]}.csv; "+\
+                             f"--set-SEED {seed} --set-NI {sect['ni']} --resume results_{problem_sizes[target]}.csv; "+\
                              f"mv results_{problem_sizes[target]}.csv {experiment}_BOOTSTRAP_"+\
                              f"{sect['bootstrap']}_{model}_{target}_{seed}_ALL.csv"
                     info = verify_output(f"{experiment}_BOOTSTRAP_{sect['bootstrap']}_{model}_{target}_{seed}_ALL.csv",
@@ -174,8 +174,11 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                     bluffs += info[1]
     elif key == 'COMPETITIVE':
         experiment_dir = args.backup if sect['use_backup'] and args.backup is not None else './'
-        if len(experiment_dir) > 0 and not experiment_dir.endswith('/'):
-            experiment_dir += '/'
+        if type(experiment_dir) is list:
+            if len(experiment_dir) == 1:
+                experiment_dir = experiment_dir[0]
+            else:
+                raise ValueError(f"{key} section parsing does not support multiple backups")
         for target in sect['targets']:
             # SM, ML, and XL
             # data/thomas_experiments/*_{target.upper()}_*.csv
@@ -196,8 +199,11 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             bluffs += info[1]
     elif key in ['WALLTIME', 'EVALUATION']:
         experiment_dir = args.backup if sect['use_backup'] and args.backup is not None else './'
-        if len(experiment_dir) > 0 and not experiment_dir.endswith('/'):
-            experiment_dir += '/'
+        if type(experiment_dir) is list:
+            if len(experiment_dir) == 1:
+                experiment_dir = experiment_dir[0]
+            else:
+                raise ValueError(f"{key} section parsing does not support multiple backups")
         for target in sect['targets']:
             # Raw performance with evaluation or wall-time x-axes
             for axis in ["walltime", "evaluation"]:
@@ -223,8 +229,11 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                 bluffs += info[1]
     elif key == "PCA":
         experiment_dir = args.backup if sect['use_backup'] and args.backup is not None else './'
-        if len(experiment_dir) > 0 and not experiment_dir.endswith('/'):
-            experiment_dir += '/'
+        if type(experiment_dir) is list:
+            if len(experiment_dir) == 1:
+                experiment_dir = experiment_dir[0]
+            else:
+                raise ValueError(f"{key} section parsing does not support multiple backups")
         # PCA plots
         invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment} "+\
                  f"--pca data/*{sect['pca']}*.csv data/*{sect['pca']}*.csv "+\
@@ -339,14 +348,15 @@ if __name__ == '__main__':
                 continue
             # Allow config to define backup
             revert_backup = False
-            if args.backup is None and 'backup' in args.cfg[section].keys():
+            if 'backup' in args.cfg[section].keys():
                 revert_backup = True
+                old_backup = args.backup
                 args.backup = args.cfg[section]['backup']
             problem_sizes = build_test_suite(experiment, runtype, args, section, problem_sizes)
             if not args.section_sizecache:
                 problem_sizes = None
             if revert_backup:
-                args.backup = None
+                args.backup = old_backup
         if not args.experiment_sizecache:
             problem_sizes = None
 
