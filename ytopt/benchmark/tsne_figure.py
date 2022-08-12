@@ -21,7 +21,8 @@ def parse(prs, args=None):
     if len(args.quantile) == 1:
         args.quantile = [args.quantile for _ in range(len(args.convert))]
     if len(args.quantile) != len(args.convert):
-        raise ValueError("Require 1 global quantile or 1 quantile per converted file")
+        raise ValueError("Require 1 global quantile or 1 quantile per converted file\n"+\
+                         f"Quantiles: {args.quantile}"+"\n"+f"Files: {args.convert}")
     return args
 
 def get_size(name, frame):

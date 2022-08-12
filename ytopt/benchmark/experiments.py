@@ -248,6 +248,15 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
         info = verify_output(f"{experiment}_{sect['pca_algorithm']}.png", runtype, invoke, expect, args)
         calls += info[0]
         bluffs += info[1]
+    elif key == "TSNE":
+        invoke = "python -m ytopt.benchmark.tsne_figure --problem problem.S --convert "+\
+                 f"{' '.join(sect['convert'])} --quantile {' '.join([str(_) for _ in sect['quantile']])} --output "+\
+                 f"{experiment}_TSNE.png"
+        if sect['rank']:
+            invoke += " --rank-color"
+        info = verify_output(f"{experiment}_TSNE.png", runtype, invoke, expect, args)
+        calls += info[0]
+        bluffs += info[1]
     else:
         raise ValueError(f"Unknown section {key}")
     print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made & {bluffs} calls bluffed >>")
@@ -323,13 +332,13 @@ def parse(prs, args=None):
     # Load data from config and bind to args
     args.cfg = config_bind(args.config_file)
     # Fix endings of backup directories
+    backup = []
     if args.backup is not None:
-        backup = []
         for b in args.backup:
             if not b.endswith('/'):
                 b += "/"
             backup.append(b)
-        args.backup = backup
+    args.backup = backup
     if args.runstatus == []:
         args.runstatus = ["run"]
     # Repeat last known experiment runstatus to fill in blanks
