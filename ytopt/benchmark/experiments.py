@@ -216,7 +216,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                 invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_{target.lower()}_{axis} "+\
                          f"--best {experiment_dir}*_{target.upper()}_*.csv "+\
                          f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
-                         f"results_gptune_*{target.lower()}* "#+\
+                         f"results_gptune_*{target.lower()}* data/thomas_experiments/*_{target.upper()}_*.csv "#+\
                          #f"--baseline data/results_rf_{target.lower()}_{experiment.lstrip('_')}.csv "
                 if sect['as_speedup']:
                     invoke += f"--as-speedup-vs data/DEFAULT_{target.upper()}.csv --max-objective "
@@ -225,7 +225,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                 invoke += f"--x-axis {axis} --log-x --unname {experiment_dir}_ "+\
                          f"--trim data/results_{problem_sizes[target]}.csv --legend best --synchronous "+\
                          "--ignore data/jaehoon_experiments/*200eval* data/thomas_experiments/*1337*.csv "+\
-                         "data/thomas_experiments/*5555*.csv --no-text --drop-overhead"
+                         "data/thomas_experiments/*5555*.csv --no-text --drop-overhead --clean-names"
                 if sect['show']:
                     invoke += " --show"
                 info = verify_output(f"{experiment}_{target.lower()}_{axis}_plot.png", runtype, invoke, expect, args)
@@ -239,8 +239,9 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             else:
                 raise ValueError(f"{key} section parsing does not support multiple backups")
         # PCA plots
+        # LINE 2 WAS TWICE? #data/*{sect['pca']}*.csv "+\
         invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment} "+\
-                 f"--pca data/*{sect['pca']}*.csv data/*{sect['pca']}*.csv "+\
+                 f"--pca data/*{sect['pca']}*.csv "+\
                  f"--pca-algorithm {sect['pca_algorithm']} --pca-points {sect['pca_points']} "+\
                  f"--pca-problem problem.Problem --legend best --no-text"
         if sect['show']:
