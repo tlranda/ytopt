@@ -44,6 +44,7 @@ def build():
     prs.add_argument("--drop-seeds", type=int, nargs="*", help="Seeds to remove (in ascending 1-based rank order by performance, can use negative numbers for nth best)")
     prs.add_argument("--cutoff", action="store_true", help="Halt plotting points after the maximum is achieved")
     prs.add_argument("--drop-overhead", action="store_true", help="Attempt to remove initialization overhead time in seconds")
+    prs.add_argument("--clean-names", action="store_true", help="Use a cleaner name format to label lines (better for final figures)")
     return prs
 
 def parse(prs, args=None):
@@ -109,12 +110,32 @@ def make_seed_invariant_name(name, args):
         if '.' in name and args.drop_extension:
             name, _ = name.rsplit('.',1)
         name = name.lstrip("_")
-        return name, directory
-    if args.unname_prefix != "" and name.startswith(args.unname_prefix):
-        name = name[len(args.unname_prefix):]
-    if '.' in name and args.drop_extension:
-        name, _ = name.rsplit('.',1)
+    else:
+        if args.unname_prefix != "" and name.startswith(args.unname_prefix):
+            name = name[len(args.unname_prefix):]
+        if '.' in name and args.drop_extension:
+            name, _ = name.rsplit('.',1)
     name = name.lstrip("_")
+    if args.clean_names:
+        name_split = name.split('_')
+        # Reorder for ease of semantics
+        if name.startswith('results'):
+            name_split = [name_split[-1], name_split[-2].upper()] + name_split[:-2]
+        else:
+            name_split = [name_split[0], name_split[-1]] + name_split[1:-1]
+        # Drop benchmark name
+        del name_split[0]
+        # Substitute tail
+        substitute = {'BOOTSTRAP': "Bootstrap",
+                      'NO': 'Infer',
+                      'REFIT': "Infer with Refit",
+                      'results': "Vanilla"}
+        name_split[1] = substitute[name_split[1]]
+        # Drop excess
+        del name_split[2:]
+        # Reorder again
+        name_split = [w for w in name_split[::-1]]
+        name = " ".join(name_split)
     return name, directory
 
 def make_baseline_name(name, args, df, col):
@@ -422,7 +443,8 @@ def load_all(args):
                     else:
                         d[col] = [min(d[col][:_+1]) for _ in range(0,len(d[col]))]
             name, directory = make_seed_invariant_name(fname, args)
-            name = "best_"+name
+            if not args.clean_names:
+                name = "best_"+name
             fullname = directory+'.'+name
             if fullname in inv_names:
                 idx = inv_names.index(fullname)
@@ -465,7 +487,8 @@ def load_all(args):
                     else:
                         d[col] = [min(d[col][:_+1]) for _ in range(0, len(d[col]))]
                         objval = min(d[col])
-                    name = "baseline_"+make_baseline_name(fname, args, d, col)[0]
+                    if not args.clean_names:
+                        name = "baseline_"+make_baseline_name(fname, args, d, col)[0]
                     matchname = 'baseline_'+make_seed_invariant_name(fname, args)[0]
                     break
             if matchname in inv_names:
