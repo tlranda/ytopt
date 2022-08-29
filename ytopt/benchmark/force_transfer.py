@@ -23,17 +23,29 @@ def parse(prs, args=None):
         args = prs.parse_args()
     return args
 
-def xfer_best(ins, problem, args, history=None):
-    param_names = sorted(ins[0].params)
+def xfer_best(ins, problem, history, args):
+    param_names = sorted(problem.params)
     csv_fields = param_names+['objective','predicted','elapsed_sec']
-    for out in outs:
-        with open(f"{args.output_prefix}_{problem.problem_class}.csv", 'f') as csvfile:
-            csvwriter = writer(csvfile)
-            csvwriter.writerow(csv_fields)
-        for inp in ins:
-            best_params = inp[
-            csvwriter.writerow(_)
-            csvwriter.flush()
+    with open(f"{args.output_prefix}_{problem.problem_class}.csv", 'w') as csvfile:
+        csvwriter = writer(csvfile)
+        csvwriter.writerow(csv_fields)
+    for inp in ins:
+        import pdb
+        pdb.set_trace()
+        best_params = inp.loc[inp['objective'] == min(inp['objective'])][param_names]
+        # Search for params in history
+        search_equals = tuple(best_params.values[0].tolist())
+        n_matching_columns = (history[param_names] == search_equals).sum(1)
+        full_match_idx = np.where(n_matching_columns == len(param_names)+1)[0]
+        matches = history.iloc[full_match_idx]
+        if not matches.empty:
+            # Edit row and submit to CSV
+            pass
+        else:
+            # Evaluate directly
+            best_params['objective'] = problem.objective(dict((k,v) for (k,v) in zip(param_names, search_equals)))
+        csvwriter.writerow(best_params)
+        csvwriter.flush()
 
 def loader(fname, args, warn=True):
     if fname.endswith('.py'):
@@ -41,17 +53,18 @@ def loader(fname, args, warn=True):
     else:
         fname, attr = fname.rsplit('.',1)
         fname += '.py'
-    # load_from_file(fname, attr)
+    problem = load_from_file(fname, attr)
     hist = None
     try:
-        histName = './'+problem.plopper.kernel_dir+'results_rf_'
+        histName = problem.plopper.kernel_dir.rstrip('/')+'/results_rf_'
         histName += problem.dataset_lookup[problem.problem_class][0].lower()+'_'
         histName += problem.__class__.__name__[:problem.__class__.__name__.rindex('_')].lower()+'.csv'
         hist = pd.read_csv(histName)
     except IOError:
         for backup in args.backups:
             try:
-                histName = backup+'/'+histName.split('/',1)[1]
+                p0,p1 = histName.rsplit('/',1)
+                histName = f"{p0}/{backup}/{p1}"
                 hist = pd.read_csv(histName)
             except IOError:
                 continue
@@ -66,7 +79,11 @@ def main(args=None):
     for fin in args.inputs:
         # Just the history
         ins.append(loader(fin, args)[1])
+        print(ins[-1])
     for fout in args.targets:
         problem, history = loader(fout, args, warn=False)
-        xfer_best(ins, problem, args, history)
+        xfer_best(ins, problem, history, args)
+
+if __name__ == '__main__':
+    main()
 
