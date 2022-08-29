@@ -96,6 +96,11 @@ def parse(prs, args=None):
             args.as_speedup_vs = pd.read_csv(args.as_speedup_vs).iloc[0]['objective']
     return args
 
+substitute = {'BOOTSTRAP': "Bootstrap",
+              'NO': 'Infer',
+              'REFIT': "Infer with Refit",
+              'results': "Vanilla"}
+
 def make_seed_invariant_name(name, args):
     directory = os.path.dirname(name) if not args.merge_dirs else 'MERGE'
     name = os.path.basename(name)
@@ -116,30 +121,27 @@ def make_seed_invariant_name(name, args):
         if '.' in name and args.drop_extension:
             name, _ = name.rsplit('.',1)
     name = name.lstrip("_")
+    suggest_legend_title = None
     if args.clean_names:
         name_split = name.split('_')
-        # Reorder for ease of semantics
+        # Decompose for ease of semantics
         if name.startswith('results'):
-            name_split = [name_split[-1], name_split[-2].upper()] + name_split[:-2]
+            name_split = {'benchmark': name_split[-1].rstrip('.csv'),
+                          'size': name_split[-2].upper(),
+                          'short_identifier': substitute[name_split[0]] if 'gptune' not in name else 'GPTune',
+                          'full_identifier': name_split[:-2]}
         else:
-            name_split = [name_split[0], name_split[-1]] + name_split[1:-1]
-        # Drop benchmark name
-        del name_split[0]
-        # Substitute tail
-        substitute = {'BOOTSTRAP': "Bootstrap",
-                      'NO': 'Infer',
-                      'REFIT': "Infer with Refit",
-                      'results': "Vanilla"}
-        name_split[1] = substitute[name_split[1]]
-        # Drop excess
-        del name_split[2:]
-        # Reorder again
-        name_split = [w for w in name_split[::-1]]
-        name = " ".join(name_split)
-    return name, directory
+            name_split = {'benchmark': name_split[0],
+                          'size': name_split[-1],
+                          'short_identifier': substitute[name_split[1]],
+                          'full_identifier': name_split[1:-1]}
+        # Reorder in reconstruction
+        name = name_split['short_identifier']
+        suggest_legend_title = f"{name_split['size']} {name_split['benchmark']}"
+    return name, directory, suggest_legend_title
 
 def make_baseline_name(name, args, df, col):
-    name, directory = make_seed_invariant_name(name, args)
+    name, directory, _ = make_seed_invariant_name(name, args)
     if args.max_objective:
         return name + f"_using_eval_{df[col].idxmax()+1}/{max(df[col].index)+1}", directory
     else:
@@ -349,6 +351,7 @@ def combine_seeds(data, args):
     return combined_data, top_val
 
 def load_all(args):
+    legend_title = None
     data = []
     inv_names = []
     shortlist = []
@@ -367,7 +370,7 @@ def load_all(args):
                 d['elapsed_sec'] -= d['elapsed_sec'].iloc[0]-d['objective'].iloc[0]
             if args.as_speedup_vs is not None:
                 d['objective'] = args.as_speedup_vs / d['objective']
-            name, directory = make_seed_invariant_name(fname, args)
+            name, directory, legend_title = make_seed_invariant_name(fname, args)
             fullname = directory+'.'+name
             if fullname in inv_names:
                 idx = inv_names.index(fullname)
@@ -400,7 +403,7 @@ def load_all(args):
                 d['elapsed_sec'] -= d['elapsed_sec'].iloc[0]-d['objective'].iloc[0]
             if args.as_speedup_vs is not None:
                 d['objective'] = args.as_speedup_vs / d['objective']
-            name, directory = make_seed_invariant_name(fname, args)
+            name, directory, legend_title = make_seed_invariant_name(fname, args)
             fullname = directory+'.'+name
             if fullname in inv_names:
                 idx = inv_names.index(fullname)
@@ -442,10 +445,12 @@ def load_all(args):
                         d[col] = [max(d[col][:_+1]) for _ in range(0,len(d[col]))]
                     else:
                         d[col] = [min(d[col][:_+1]) for _ in range(0,len(d[col]))]
-            name, directory = make_seed_invariant_name(fname, args)
+            name, directory, legend_title = make_seed_invariant_name(fname, args)
             if not args.clean_names:
                 name = "best_"+name
-            fullname = directory+'.'+name
+                fullname = directory+'.'+name
+            else:
+                fullname = name
             if fullname in inv_names:
                 idx = inv_names.index(fullname)
                 # Just put them side-by-side for now
@@ -508,7 +513,7 @@ def load_all(args):
                              'fname': fname})
                 inv_names.append(matchname)
     # Fix across seeds
-    return combine_seeds(drop_seeds(data, args), args)
+    return *combine_seeds(drop_seeds(data, args), args), legend_title
 
 def prepare_fig(args):
     fig, ax = plt.subplots(figsize=tuple(args.fig_dims))
@@ -645,7 +650,7 @@ def text_analysis(all_data, args):
     print(f"Most advantaged {winner} with sum advantage {advantage}")
 
 def main(args):
-    data, top_val = load_all(args)
+    data, top_val, legend_title = load_all(args)
     fig, ax, name = prepare_fig(args)
     ntypes = len(set([_['type'] for _ in data]))
     if not args.no_text:
@@ -692,9 +697,9 @@ def main(args):
                                         markerfacecolor=l.cmap.name.lower().rstrip('s'),
                                         markersize=8,
                                         ) for l in ax.collections]
-                ax.legend(handles=leg_handles, loc=" ".join(args.legend))
+                ax.legend(handles=leg_handles, loc=" ".join(args.legend), title=legend_title)
             else:
-                ax.legend(loc=" ".join(args.legend))
+                ax.legend(loc=" ".join(args.legend), title=legend_title)
         if args.show:
             plt.show()
         else:
