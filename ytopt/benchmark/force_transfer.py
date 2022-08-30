@@ -25,27 +25,29 @@ def parse(prs, args=None):
 
 def xfer_best(ins, problem, history, args):
     param_names = sorted(problem.params)
-    csv_fields = param_names+['objective','predicted','elapsed_sec']
+    csv_fields = param_names+['source_size','source_objective','objective']
     with open(f"{args.output_prefix}_{problem.problem_class}.csv", 'w') as csvfile:
         csvwriter = writer(csvfile)
         csvwriter.writerow(csv_fields)
-    for inp in ins:
-        import pdb
-        pdb.set_trace()
-        best_params = inp.loc[inp['objective'] == min(inp['objective'])][param_names]
-        # Search for params in history
-        search_equals = tuple(best_params.values[0].tolist())
-        n_matching_columns = (history[param_names] == search_equals).sum(1)
-        full_match_idx = np.where(n_matching_columns == len(param_names)+1)[0]
-        matches = history.iloc[full_match_idx]
-        if not matches.empty:
-            # Edit row and submit to CSV
-            pass
-        else:
-            # Evaluate directly
-            best_params['objective'] = problem.objective(dict((k,v) for (k,v) in zip(param_names, search_equals)))
-        csvwriter.writerow(best_params)
-        csvwriter.flush()
+        for inp in ins:
+            # Since params zip will be limited by #params, add known values here
+            best_params = inp.loc[inp['objective'] == min(inp['objective'])][param_names+['source_size','objective']]
+            best_params.rename(columns={'objective': 'source_objective'}, inplace=True)
+            # Search for params in history
+            search_equals = tuple(best_params[param_names].values[0].tolist())
+            n_matching_columns = (history[param_names] == search_equals).sum(1)
+            full_match_idx = np.where(n_matching_columns == len(param_names))[0]
+            matches = history.iloc[full_match_idx]
+            if not matches.empty:
+                # Override from history
+                best_params['objective'] = matches['objective'].tolist()[0]
+            else:
+                # Evaluate directly
+                #best_params['objective'] = problem.objective(dict((k,v) for (k,v) in zip(param_names, search_equals)))
+                print(f"Best params from {best_params.iloc[0]['source_size']} not found in {problem.problem_class} history ({len(history)} records)"+"\n"+\
+                      f"Evaluate objective {problem.objective} with input: {dict((k,v) for (k,v) in zip(param_names, search_equals))}")
+            csvwriter.writerow(best_params)
+            csvfile.flush()
 
 def loader(fname, args, warn=True):
     if fname.endswith('.py'):
@@ -71,6 +73,9 @@ def loader(fname, args, warn=True):
             break
     if hist is None and warn:
         print(f"WARNING: Could not load history for {fname}")
+    else:
+        # Add problem size to the frame
+        hist.insert(len(hist.columns), "source_size", [problem.problem_class for _ in range(len(hist))])
     return problem, hist
 
 def main(args=None):
@@ -79,7 +84,6 @@ def main(args=None):
     for fin in args.inputs:
         # Just the history
         ins.append(loader(fin, args)[1])
-        print(ins[-1])
     for fout in args.targets:
         problem, history = loader(fout, args, warn=False)
         xfer_best(ins, problem, history, args)
