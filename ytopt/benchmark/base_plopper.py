@@ -112,7 +112,6 @@ class findReplaceRegex:
             self.invert_direction = int(not direction)
         return self.prefix[idx][direction] + wrap + self.suffix[idx][direction]
 
-
 class Plopper:
     def __init__(self, sourcefile, outputdir=None, output_extension='.tmp',
                  evaluation_tries=3, retries=0, findReplace=None,
@@ -336,6 +335,26 @@ class Polybench_Plopper(Plopper):
         return [float(s) for s in process.stdout.decode('utf-8').split('\n')[-4:-1]]
 
 
+class Dummy_Plopper(Plopper):
+    def __init__(self, *args, dummy_low=0, dummy_high=1, **kwargs):
+        self.outputdir=""
+        self.output_extension=""
+        self.sourcefile=""
+        self.force_plot=False
+        self.retries=1
+        self.evaluation_tries=1
+        self.kernel_dir = os.path.abspath(".")
+        # Castable range
+        self.dummy_low = dummy_low
+        self.dummy_range = np.abs(dummy_high - dummy_low)
+    def __str__(self):
+        return "DUMMY"
+    def getTime(self, process, dictVal, *args, **kwargs):
+        return self.dummy_low + (self.dummy_range * np.random.rand())
+    def runString(self, outfile, dictVal, *args, **kwargs):
+        return "echo"
+
+
 def __getattr__(name):
     if name == 'Plopper':
         return Plopper
@@ -343,6 +362,8 @@ def __getattr__(name):
         return ECP_Plopper
     if name == 'Polybench_Plopper':
         return Polybench_Plopper
+    if name == 'Dummy_Plopper':
+        return Dummy_Plopper
     if name == 'findReplaceRegex':
         return findReplaceRegex
     if name == 'LazyPlopper':

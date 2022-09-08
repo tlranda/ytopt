@@ -21,6 +21,8 @@ def build():
 def parse(prs, args=None):
     if args is None:
         args = prs.parse_args()
+    if args.backups is None:
+        args.backups = []
     return args
 
 def xfer_best(ins, problem, history, args):
