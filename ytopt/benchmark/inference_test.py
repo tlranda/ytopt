@@ -167,9 +167,9 @@ def inference_test(targets, data, inputs, args, fname, speed=None):
                   constraints=constraints, min_value=None, max_value=None)
     else:
         model = None
-    csv_fields = param_names+['inference_time','predicted','elapsed_sec']
+    csv_fields = param_names+['inference_time','random_predicted','elapsed_sec']
     for i in range(len(targets)-1):
-        csv_fields.extend([f'inference_time_{i}',f'predicted_{i}',f'elapsed_sec_{i}'])
+        csv_fields.extend([f'inference_time_{i}',f'random_predicted_{i}',f'elapsed_sec_{i}'])
 
     with open(fname, 'w') as csvfile:
         # creat a csv writer object
@@ -199,7 +199,7 @@ def inference_test(targets, data, inputs, args, fname, speed=None):
             conditions.append(Condition({'input': target_problem.problem_class},
                                         num_rows=max(100, args.max_evals)))
         eval_master = len(evals_infer)
-        inference_start = time.time()
+        time_start = time.time()
         # Initial fit
         if model is not None:
             print(f"Fitting with {len(data)} rows")
@@ -220,8 +220,8 @@ def inference_test(targets, data, inputs, args, fname, speed=None):
         # Generate fake objectives NOW to not pollute the inference timing
         objectives = np.random.rand(args.max_evals)
 
-        time_start = time.time()
         while eval_master < args.max_evals:
+            inference_start = time.time()
             # Generate prospective points
             if args.model != 'random':
                 # Some SDV models don't realllllly support the kind of conditional sampling we need
@@ -263,12 +263,12 @@ def inference_test(targets, data, inputs, args, fname, speed=None):
             while not stop:
                 for row in new_sdv.iterrows():
                     inference_time = time.time()
-                    ss = row[1].values[1:]
+                    ss = row[1].values[1:].tolist()
                     ss.append(time.time()-inference_start)
-                    ss.append(objectives[eval_master])
+                    ss.append(objectives[eval_master]) #RANDOM
                     ss.append(time.time()-time_start)
                     # For refitting
-                    data.loc[max(data.index)+1] = row[1].values[1:]+[objectives[eval_master]]
+                    data.loc[max(data.index)+1] = row[1].values[1:-1].tolist()+[target_problem.problem_class, objectives[eval_master]]
                     # CSV and iteration
                     csvwriter.writerow(ss)
                     csvfile.flush()
@@ -387,7 +387,7 @@ def main(args=None):
         # Seed control
         targets[-1].seed(args.seed)
         # Single-target mode
-        inference_test([targets[-1]], real_data, inputs, args, f"{output_prefix}_{targets[-1].name}.csv", speed):
+        inference_test([targets[-1]], real_data, inputs, args, f"{output_prefix}_{targets[-1].name}.csv", speed)
 
 if __name__ == '__main__':
     main()
