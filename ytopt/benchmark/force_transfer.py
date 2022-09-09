@@ -42,13 +42,14 @@ def xfer_best(ins, problem, history, args):
             matches = history.iloc[full_match_idx]
             if not matches.empty:
                 # Override from history
+                print(f"Found best params from {best_params.iloc[0]['source_size']} in {problem.problem_class} history ({len(history)} records)")
                 best_params['objective'] = matches['objective'].tolist()[0]
             else:
                 # Evaluate directly
-                #best_params['objective'] = problem.objective(dict((k,v) for (k,v) in zip(param_names, search_equals)))
                 print(f"Best params from {best_params.iloc[0]['source_size']} not found in {problem.problem_class} history ({len(history)} records)"+"\n"+\
                       f"Evaluate objective {problem.objective} with input: {dict((k,v) for (k,v) in zip(param_names, search_equals))}")
-            csvwriter.writerow(best_params)
+                best_params['objective'] = problem.objective(dict((k,v) for (k,v) in zip(param_names, search_equals)))
+            csvwriter.writerow(best_params.values[0].tolist())
             csvfile.flush()
 
 def loader(fname, args, warn=True):
