@@ -85,7 +85,6 @@ def param_type(k, problem):
     return v
 
 def close_enough(frame, rows, column, target, criterion):
-    out = []
     # Eliminate rows that are too far from EVER being selected
     if target > criterion[-1]:
         possible = frame[frame[column] > criterion[-1]]
@@ -256,15 +255,15 @@ def inference_test(targets, data, inputs, args, fname, speed=None):
             ss1 = ss1.drop_duplicates(subset=param_names, keep="first")
             ss = ss1.sort_values(by='runtime')#, ascending=False)
             new_sdv = ss[:args.max_evals]
+            inference_time = time.time() - inference_start
             eval_update = 0 if resume_utilized else len(evals_infer)-args.resume_fit
             if not resume_utilized:
                 resume_utilized = True
             stop = False
             while not stop:
                 for row in new_sdv.iterrows():
-                    inference_time = time.time()
                     ss = row[1].values[1:].tolist()
-                    ss.append(time.time()-inference_start)
+                    ss.append(inference_time)
                     ss.append(objectives[eval_master]) #RANDOM
                     ss.append(time.time()-time_start)
                     # For refitting
