@@ -387,7 +387,7 @@ def main(args=None):
         # Seed control
         targets[-1].seed(args.seed)
         # Single-target mode
-        inference_test([targets[-1]], real_data, inputs, args, f"{output_prefix}_{targets[-1].name}.csv", speed):
+        inference_test([targets[-1]], real_data, inputs, args, f"{output_prefix}_{targets[-1].name}.csv", speed)
 
 if __name__ == '__main__':
     main()
