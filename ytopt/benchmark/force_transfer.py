@@ -21,6 +21,8 @@ def build():
 def parse(prs, args=None):
     if args is None:
         args = prs.parse_args()
+    if args.backups is None:
+        args.backups = []
     return args
 
 def xfer_best(ins, problem, history, args):
@@ -41,6 +43,7 @@ def xfer_best(ins, problem, history, args):
             print(f"Xfer {fin} --> problem.{problem.dataset_lookup[problem.problem_class][0]}")
             if not matches.empty:
                 # Override from history
+                print(f"Found best params from {best_params.iloc[0]['source_size']} in {problem.problem_class} history ({len(history)} records)")
                 best_params['objective'] = matches['objective'].tolist()[0]
                 if not problem.silent:
                     print(f"CONFIG: {dict((k,v) for (k,v) in zip(problem.params, search_equals))}")

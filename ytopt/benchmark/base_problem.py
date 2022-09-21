@@ -6,7 +6,7 @@ import ConfigSpace as CS
 import ConfigSpace.hyperparameters as CSH
 from sdv.constraints import Between
 import inspect
-from ytopt.benchmark.base_plopper import ECP_Plopper, Polybench_Plopper
+from ytopt.benchmark.base_plopper import ECP_Plopper, Polybench_Plopper, Dummy_Plopper
 
 parameter_lookups = {'UniformInt': CSH.UniformIntegerHyperparameter,
                      'NormalInt': CSH.NormalIntegerHyperparameter,
@@ -172,6 +172,40 @@ def import_method_builder(clsref, lookup, default):
         else:
             raise AttributeError(f"module defining {clsref.__name__} has no attribute '{name}'")
     return getattr_fn
+
+def dummy_problem_builder(lookup, input_space_definition, there, default=None, name="Dummy_Problem", plopper_class=Dummy_Plopper, **original_kwargs):
+    if type(input_space_definition) is not CS.ConfigurationSpace:
+        input_space_definition = BaseProblem.configure_space(input_space_definition)
+    class Dummy_Problem(BaseProblem):
+        input_space = input_space_definition
+        parameter_space = None
+        output_space = Space([Real(0.0, inf, name='time')])
+        problem_params = dict((p.lower(), 'categorical') for p in input_space_definition.get_hyperparameter_names())
+        categorical_cast = dict((p.lower(), 'str') for p in input_space_definition.get_hyperparameter_names())
+        constraints = [Between(column='input', low=min(lookup.keys()), high=max(lookup.keys()))]
+        dataset_lookup = lookup
+        def __init__(self, class_size, **kwargs):
+            # Allow anything to be overridden by passing it in as top priority
+            for k, v in original_kwargs.items():
+                kwargs.setdefault(k,v)
+            expect_kwargs = {'use_capital_params': True,
+                             'problem_class': class_size,
+                             'dataset': class_size,
+                             'plopper': plopper_class(),
+                             'silent': False,
+                            }
+            for k, v in expect_kwargs.items():
+                kwargs.setdefault(k,v)
+            super().__init__(**kwargs)
+        def objective(self, point, *args, **kwargs):
+            return super().objective(point, self.dataset, *args, **kwargs)
+        def O3(self):
+            return super().objective({}, self.dataset, O3=True)
+    Dummy_Problem.__name__ = name
+    inv_lookup = dict((v[0], k) for (k,v) in lookup.items())
+    if default is None:
+        default = inv_lookup['S']
+    return import_method_builder(Dummy_Problem, inv_lookup, default)
 
 def ecp_problem_builder(lookup, input_space_definition, there, default=None, name="ECP_Problem", plopper_class=ECP_Plopper, **original_kwargs):
     if type(input_space_definition) is not CS.ConfigurationSpace:
