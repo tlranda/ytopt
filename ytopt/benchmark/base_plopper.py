@@ -219,6 +219,11 @@ class Plopper:
             env = self.set_os_environ() if hasattr(self, 'set_os_environ') else None
             execution_status = subprocess.run(run_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
             duration = time.time() - start
+            if execution_status.returncode != 0:
+                # FAILURE
+                failures += 1
+                print(f"FAILED: {run_str}")
+                continue
             # Find the execution time
             try:
                 derived_time = self.getTime(execution_status, dictVal, *args, **kwargs)

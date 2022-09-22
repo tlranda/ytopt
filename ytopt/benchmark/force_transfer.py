@@ -25,36 +25,32 @@ def parse(prs, args=None):
         args.backups = []
     return args
 
-def xfer_best(ins, problem, history, args):
-    param_names = sorted(problem.params)
-    csv_fields = param_names+['source_size','source_objective','objective']
-    with open(f"{args.output_prefix}_{problem.dataset_lookup[problem.problem_class][0]}.csv", 'w') as csvfile:
-        csvwriter = writer(csvfile)
-        csvwriter.writerow(csv_fields)
-        for fin, inp in zip(args.inputs, ins):
-            # Since params zip will be limited by #params, add known values here
-            best_params = inp.loc[inp['objective'] == min(inp['objective'])][param_names+['source_size','objective']]
-            best_params.rename(columns={'objective': 'source_objective'}, inplace=True)
-            # Search for params in history
-            search_equals = tuple(best_params[param_names].values[0].tolist())
-            n_matching_columns = (history[param_names] == search_equals).sum(1)
-            full_match_idx = np.where(n_matching_columns == len(param_names))[0]
-            matches = history.iloc[full_match_idx]
-            print(f"Xfer {fin} --> problem.{problem.dataset_lookup[problem.problem_class][0]}")
-            if not matches.empty:
-                # Override from history
-                print(f"Found best params from {best_params.iloc[0]['source_size']} in {problem.problem_class} history ({len(history)} records)")
-                best_params['objective'] = matches['objective'].tolist()[0]
-                if not problem.silent:
-                    print(f"CONFIG: {dict((k,v) for (k,v) in zip(problem.params, search_equals))}")
-                    print(f"OUTPUT: {matches['objective'].tolist()[0]}")
-            else:
-                # Evaluate directly
-                best_params['objective'] = problem.objective(dict((k,v) for (k,v) in zip(param_names, search_equals)))
-                #print(f"Best params from {best_params.iloc[0]['source_size']} not found in {problem.problem_class} history ({len(history)} records)"+"\n"+\
-                #      f"Evaluate objective {problem.objective} with input: {dict((k,v) for (k,v) in zip(param_names, search_equals))}")
-            csvwriter.writerow(best_params)
-            csvfile.flush()
+def xfer_best(ins, problem, history, csvwriter, param_names, args):
+    for fin, inp in zip(args.inputs, ins):
+        # Since params zip will be limited by #params, add known values here
+        best_params = inp.loc[inp['objective'] == min(inp['objective'])][param_names+['source_size','objective']]
+        best_params.rename(columns={'objective': 'source_objective'}, inplace=True)
+        best_params['target_size'] = problem.problem_class
+        # Search for params in history
+        search_equals = tuple(best_params[param_names].values[0].tolist())
+        n_matching_columns = (history[param_names] == search_equals).sum(1)
+        full_match_idx = np.where(n_matching_columns == len(param_names))[0]
+        matches = history.iloc[full_match_idx]
+        print(f"Xfer {fin} --> problem.{problem.dataset_lookup[problem.problem_class][0]}")
+        if not matches.empty:
+            # Override from history
+            print(f"Found best params from {best_params.iloc[0]['source_size']} in {problem.problem_class} history ({len(history)} records)")
+            best_params['target_objective'] = matches['objective'].tolist()[0]
+            if not problem.silent:
+                print(f"CONFIG: {dict((k,v) for (k,v) in zip(problem.params, search_equals))}")
+                print(f"OUTPUT: {matches['objective'].tolist()[0]}")
+        else:
+            # Evaluate directly
+            best_params['target_objective'] = problem.objective(dict((k,v) for (k,v) in zip(param_names, search_equals)))
+            #print(f"Best params from {best_params.iloc[0]['source_size']} not found in {problem.problem_class} history ({len(history)} records)"+"\n"+\
+            #      f"Evaluate objective {problem.objective} with input: {dict((k,v) for (k,v) in zip(param_names, search_equals))}")
+        csvwriter.writerow(best_params.values.tolist()[0])
+        #csvfile.flush()
 
 def loader(fname, args, warn=True):
     if fname.endswith('.py'):
@@ -87,14 +83,29 @@ def loader(fname, args, warn=True):
 
 def main(args=None):
     args = parse(build(), args)
-    ins, outs = [], []
-    for fin in args.inputs:
-        # Just the history
-        ins.append(loader(fin, args)[1])
-    for fout in args.targets:
-        print(f"Load/Xfer problem {fout}")
-        problem, history = loader(fout, args, warn=False)
-        xfer_best(ins, problem, history, args)
+    ins, outs, remove = [], [], []
+    for count, fin in enumerate(args.inputs):
+        if count == 0:
+            problem, hist = loader(fin, args)
+            problem_name = problem.name[:problem.name.index('_Problem')].lower()
+            param_names = sorted(problem.params)
+            csv_fields = param_names+['source_size','source_objective','target_size','target_objective']
+            del problem
+        else:
+            _, hist = loader(fin, args)
+        if hist is None:
+            remove.append(fin)
+        else:
+            ins.append(hist)
+    args.inputs = [_ for _ in args.inputs if _ not in remove]
+    print(f"Will not transfer from problems {remove}")
+    with open(f"{args.output_prefix}_{problem_name}.csv", 'w') as csvfile:
+        csvwriter = writer(csvfile)
+        csvwriter.writerow(csv_fields)
+        for fout in args.targets:
+            print(f"Load/Xfer problem {fout}")
+            problem, history = loader(fout, args, warn=False)
+            xfer_best(ins, problem, history, csvwriter, param_names, args)
 
 if __name__ == '__main__':
     main()

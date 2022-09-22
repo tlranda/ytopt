@@ -258,6 +258,14 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
         info = verify_output(f"{experiment}_TSNE.png", runtype, invoke, expect, args)
         calls += info[0]
         bluffs += info[1]
+    elif key == "XFER":
+        invoke = "python -m ytopt.benchmark.force_transfer --inputs "+\
+                 f"{' '.join(['problem.'+_ for _ in sect['sizes']])} "+\
+                 "--targets "+\
+                 f"{' '.join(['problem.'+_ for _ in sect['inputs']])} "
+        if sect['backup'] is not None and len(sect['backup']) > 0:
+            invoke += f" --backups {' '.join(sect['backup'])}"
+        info = verify_output(f"xfer_results_{experiment.lstrip('_')}.csv", runtype, invoke, expect, args)
     else:
         raise ValueError(f"Unknown section {key}")
     print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made & {bluffs} calls bluffed >>")
