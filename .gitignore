@@ -113,6 +113,7 @@ venv.bak/
 .AppleDouble
 .LSOverride
 
+*.o
 *-old/
 *.csv
 *.json
