@@ -47,8 +47,8 @@ def build():
                         default='GaussianCopula', help='SDV model')
     parser.add_argument('--unique', action='store_true',
                         help='Do not re-evaluate points seen since the last dataset generation')
-    parser.add_argument('--output-prefix', type=str, default='results_sdv',
-                        help='Output files are created using this prefix (default: [results_sdv]*.csv)')
+    parser.add_argument('--output-prefix', type=str, default='inference',
+                        help='Output files are created using this prefix (default: [inference]*.csv)')
     parser.add_argument('--no-log-objective', action='store_true',
                         help="Avoid using logarithm on objective values")
     parser.add_argument('--load-log', action='store_true',
@@ -166,9 +166,9 @@ def inference_test(targets, data, inputs, args, fname, speed=None):
                   constraints=constraints, min_value=None, max_value=None)
     else:
         model = None
-    csv_fields = param_names+['inference_time','random_predicted','elapsed_sec']
+    csv_fields = param_names+['inference_time','elapsed_sec']
     for i in range(len(targets)-1):
-        csv_fields.extend([f'inference_time_{i}',f'random_predicted_{i}',f'elapsed_sec_{i}'])
+        csv_fields.extend([f'inference_time_{i}',f'elapsed_sec_{i}'])
 
     with open(fname, 'w') as csvfile:
         # creat a csv writer object
@@ -262,9 +262,9 @@ def inference_test(targets, data, inputs, args, fname, speed=None):
             stop = False
             while not stop:
                 for row in new_sdv.iterrows():
-                    ss = row[1].values[1:].tolist()
+                    ss = row[1].values[1:-1].tolist()
                     ss.append(inference_time)
-                    ss.append(objectives[eval_master]) #RANDOM
+                    #ss.append(objectives[eval_master]) #RANDOM
                     ss.append(time.time()-time_start)
                     # For refitting
                     data.loc[max(data.index)+1] = row[1].values[1:-1].tolist()+[target_problem.problem_class, objectives[eval_master]]
@@ -386,7 +386,7 @@ def main(args=None):
         # Seed control
         targets[-1].seed(args.seed)
         # Single-target mode
-        inference_test([targets[-1]], real_data, inputs, args, f"{output_prefix}_{targets[-1].name}.csv", speed)
+        inference_test([targets[-1]], real_data, inputs, args, f"{output_prefix}_{targets[-1].name[:targets[-1].name.index('_Problem')].lower().replace('-','_')}.csv", speed)
 
 if __name__ == '__main__':
     main()
