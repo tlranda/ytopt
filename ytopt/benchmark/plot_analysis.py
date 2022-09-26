@@ -13,10 +13,11 @@ def build():
     prs.add_argument("--inputs", type=str, nargs="+", help="Files to read for plots")
     prs.add_argument("--bests", type=str, nargs="*", help="Traces to treat as best-so-far")
     prs.add_argument("--baseline-best", type=str, nargs="*", help="Traces to treat as BEST of best so far")
+    prs.add_argument("--xfers", type=str, nargs="*", help="Traces to treat as xfers (ONE PLOT PER FILE)")
     prs.add_argument("--pca", type=str, nargs="*", help="Plot as PCA (don't mix with other plots plz)")
     prs.add_argument("--pca-problem", type=str, default="", help="Problem.Attr notation to load space from (must be module or CWD/* to function)")
     prs.add_argument("--pca-points", type=int, default=None, help="Limit the number of points used for PCA (spread by quantiles, default ALL points used)")
-    prs.add_argument("--pca-tops", type=float, nargs='*', help="Top% to use for each PCA file (disables point-count/quantization, keeps k-ranking)")
+    prs.add_argument("--pca-tops", type=float, nargs='*', help="Top%% to use for each PCA file (disables point-count/quantization, keeps k-ranking)")
     prs.add_argument("--pca-algorithm", choices=['pca', 'tsne'], default='tsne', help="Algorithm to use for dimensionality reduction (default tsne)")
     prs.add_argument("--as-speedup-vs", type=str, default=None, help="Convert objectives to speedup compared against this value (float or CSV filename)")
     prs.add_argument("--show", action="store_true", help="Show figures rather than save to file")
@@ -58,31 +59,17 @@ def parse(prs, args=None):
             args.top = 1 - args.top
         if args.pca_tops is not None:
             args.pca_tops = [1-q for q in args.pca_tops]
+    # Go through plottable lists and remove things that were supposed to be unglobbed
     if args.ignore is not None:
-        if args.inputs is not None:
-            allowed = []
-            for fname in args.inputs:
-                if fname not in args.ignore:
-                    allowed.append(fname)
-            args.inputs = allowed
-        if args.bests is not None:
-            allowed = []
-            for fname in args.bests:
-                if fname not in args.ignore:
-                    allowed.append(fname)
-            args.bests = allowed
-        if args.baseline_best is not None:
-            allowed = []
-            for fname in args.baseline_best:
-                if fname not in args.ignore:
-                    allowed.append(fname)
-            args.baseline_best = allowed
-        if args.pca is not None:
-            allowed = []
-            for fname in args.pca:
-                if fname not in args.ignore:
-                    allowed.append(fname)
-            args.pca = allowed
+        plot_globs = ['inputs', 'bests', 'baseline_best', 'xfers', 'pca']
+        for glob in plot_globs:
+            attr = getattr(args, glob)
+            if attr is not None:
+                allowed = []
+                for fname in attr:
+                    if fname not in args.ignore:
+                        allowed.append(fname)
+                setattr(args, glob, allowed)
     if args.pca is not None and args.pca != [] and args.pca_problem == "":
         raise ValueError("Must define a pca problem along with PCA plots (--pca-problem)")
     if args.pca_tops is not None and args.pca_tops != [] and len(args.pca_tops) != len(args.pca):
@@ -130,6 +117,11 @@ def make_seed_invariant_name(name, args):
                           'size': name_split[-2].upper(),
                           'short_identifier': substitute[name_split[0]] if 'gptune' not in name else 'GPTune',
                           'full_identifier': name_split[:-2]}
+        elif 'xfer' in name:
+            name_split = {'benchmark': name[len('xfer_results_')+1:],
+                          'size': 'Force Transfer'}
+            name_split['short_identifier'] = f"XFER {name_split['benchmark']}"
+            name_split['full_identifier'] = f"Force Transfer {name_split['benchmark']}"
         else:
             name_split = {'benchmark': name_split[0],
                           'size': name_split[-1],
@@ -206,6 +198,16 @@ def combine_seeds(data, args):
                 # Drop the redundant 'index' column from it getting merged in there as well
                 reconstructed = pd.concat([reconstructed[reconstructed['objective'] == q] for q in quants]).drop(columns='index').reset_index()
             new_data['data'] = reconstructed
+            combined_data.append(new_data)
+            continue
+        elif entry['type'] == 'xfer':
+            new_data['data'] = pd.concat([_[['source_objective','target_objective','source_size','target_size']] for _ in entry['data']])
+            # NORMALIZE Y AXIS VALUES
+            # GLOBAL NORM
+            #tgt = new_data['data']['target_objective']
+            #new_data['data']['target_objective'] = (tgt - min(tgt)) / (max(tgt)-min(tgt))
+            # PER TARGET SIZE NORM
+            new_data['data']['target_objective'] = new_data['data'].groupby('target_size').transform(lambda x: (x - x.min())/(x.max()-x.min()))['target_objective']
             combined_data.append(new_data)
             continue
         # Change objective column to be the average
@@ -386,10 +388,10 @@ def load_all(args):
         if shortlist.count(name) == 1:
             idx = inv_names.index(fullname)
             data[idx]['name'] = name
-    # Load PCA inputs
     idx_offset = len(data)
     inv_names = []
     shortlist = []
+    # Load PCA inputs
     if args.pca is not None and args.pca != []:
         # Load all normal inputs
         for fname in args.pca:
@@ -411,6 +413,35 @@ def load_all(args):
                 data[idx]['data'].append(d)
             else:
                 data.append({'name': fullname, 'data': [d], 'type': 'pca',
+                             'fname': fname, 'dir': directory})
+                inv_names.append(fullname)
+                shortlist.append(name)
+    # Drop directory from names IF only represented once
+    for (name, fullname) in zip(shortlist, inv_names):
+        if shortlist.count(name) == 1:
+            idx = inv_names.index(fullname)
+            data[idx]['name'] = name
+    # Load xfer inputs
+    idx_offset = len(data)
+    inv_names = []
+    shortlist = []
+    if args.xfers is not None:
+        # Load all force transfer inputs
+        for fname in args.xfers:
+            #print(f"Load [XFER]: {fname}")
+            try:
+                d = pd.read_csv(fname)
+            except IOError:
+                print(f"WARNING: Could not open {fname}, removing from 'xfer' list")
+                continue
+            name, directory, legend_title = make_seed_invariant_name(fname, args)
+            fullname = directory+'.'+name
+            if fullname in inv_names:
+                idx = inv_names.index(fullname)
+                # Just put them side-by-side for now
+                data[idx]['data'].append(d)
+            else:
+                data.append({'name': fullname, 'data': [d], 'type': 'xfer',
                              'fname': fname, 'dir': directory})
                 inv_names.append(fullname)
                 shortlist.append(name)
@@ -531,6 +562,7 @@ def alter_color(color_tup, ratio=0.5, brighten=True):
     return tuple([ratio*(_+((-1)**(1+int(brighten)))) for _ in color_tup])
 
 def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
+    makeNew = False
     data = source['data']
     # Color help
     colors = [mcolors.to_rgb(_['color']) for _ in list(plt.rcParams['axes.prop_cycle'])]
@@ -544,8 +576,12 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
     #color_map = 'Reds'
     if source['type'] == 'pca':
         plt.scatter(data['x'], data['y'], c=data['z'], cmap=color_map, label=source['name'])#, labelcolor=color_map.lower().rstrip('s'))
-        return
-    if top_val is None:
+    elif source['type'] == 'xfer':
+        for target_line, color in zip(set(data['target_size']), colors):
+            subset_data = data[data['target_size'] == target_line]
+            plt.plot(subset_data['source_size'], subset_data['target_objective'], c=color, label=str(target_line), marker='.',markersize=12)
+        makeNew = True
+    elif top_val is None:
         # Shaded area = stddev
         # Prevent <0 unless arg says otherwise
         if args.stddev:
@@ -597,6 +633,7 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
             new_y.append(counter)
         ax.plot(data['exe'], new_y, label=source['name'],
                 marker='.', color=color, zorder=1)
+    return makeNew
 
 def text_analysis(all_data, args):
     best_results = {}
@@ -652,58 +689,71 @@ def text_analysis(all_data, args):
 def main(args):
     data, top_val, legend_title = load_all(args)
     fig, ax, name = prepare_fig(args)
+    figures = [fig]
+    axes = [ax]
+    names = [name]
     ntypes = len(set([_['type'] for _ in data]))
     if not args.no_text:
         text_analysis(data, args)
     if not args.no_plots:
         for idx, source in enumerate(data):
             print(f"plot {source['name']}")
-            plot_source(fig, ax, idx, source, args, ntypes, top_val)
-        # make x-axis data
-        if args.pca is not None and args.pca != []:
-            xname = f'{args.pca_algorithm.upper()} dimension 1'
-        else:
-            if args.x_axis == "evaluation":
-                xname = "Evaluation #"
-            elif args.x_axis == "walltime":
-                xname = "Elapsed Time (seconds)"
-        # make y-axis data
-        if args.pca is not None and args.pca != []:
-            yname = f'{args.pca_algorithm.upper()} dimension 2'
-        else:
-            if top_val is None:
-                if args.as_speedup_vs is not None:
-                    yname = "Speedup (over -O3 -polly)"
-                else:
-                    yname = "Objective"
+            newfig = plot_source(figures[-1], axes[-1], idx, source, args, ntypes, top_val)
+            if newfig:
+                if names[-1] == 'plot':
+                    names[-1] = source['name']
+                fig, ax, name = prepare_fig(args)
+                figures.append(fig)
+                axes.append(ax)
+                names.append(name)
+        if newfig:
+            del figures[-1], axes[-1], names[-1]
+        for (fig, ax, name) in zip(figures, axes, names):
+            # make x-axis data
+            if args.pca is not None and args.pca != []:
+                xname = f'{args.pca_algorithm.upper()} dimension 1'
             else:
-                if args.global_top:
-                    yname = f"# Configs with top {round(100*args.top,1)}% result = {round(top_val,4)}"
-                else:
-                    yname = f"# Configs with top {round(100*args.top,1)}% result per technique"
-        ax.set_xlabel(xname)
-        ax.set_ylabel(yname)
-        if args.log_x:
-            ax.set_xscale("symlog")
-        if args.log_y:
-            ax.set_yscale("symlog")
-        if args.legend is not None:
-            if len(ax.collections) > 0:
-                colors = [_.cmap.name.lower().rstrip('s') for _ in ax.collections]
-                leg_handles = [matplotlib.lines.Line2D([0],[0],
-                                        marker='o',
-                                        color='w',
-                                        label=l.get_label(),
-                                        markerfacecolor=l.cmap.name.lower().rstrip('s'),
-                                        markersize=8,
-                                        ) for l in ax.collections]
-                ax.legend(handles=leg_handles, loc=" ".join(args.legend), title=legend_title)
+                if args.x_axis == "evaluation":
+                    xname = "Evaluation #"
+                elif args.x_axis == "walltime":
+                    xname = "Elapsed Time (seconds)"
+            # make y-axis data
+            if args.pca is not None and args.pca != []:
+                yname = f'{args.pca_algorithm.upper()} dimension 2'
             else:
-                ax.legend(loc=" ".join(args.legend), title=legend_title)
-        if args.show:
-            plt.show()
-        else:
-            plt.savefig("_".join([args.output,name]))
+                if top_val is None:
+                    if args.as_speedup_vs is not None:
+                        yname = "Speedup (over -O3 -polly)"
+                    else:
+                        yname = "Objective"
+                else:
+                    if args.global_top:
+                        yname = f"# Configs with top {round(100*args.top,1)}% result = {round(top_val,4)}"
+                    else:
+                        yname = f"# Configs with top {round(100*args.top,1)}% result per technique"
+            ax.set_xlabel(xname)
+            ax.set_ylabel(yname)
+            if args.log_x:
+                ax.set_xscale("symlog")
+            if args.log_y:
+                ax.set_yscale("symlog")
+            if args.legend is not None:
+                if len(ax.collections) > 0:
+                    colors = [_.cmap.name.lower().rstrip('s') for _ in ax.collections]
+                    leg_handles = [matplotlib.lines.Line2D([0],[0],
+                                            marker='o',
+                                            color='w',
+                                            label=l.get_label(),
+                                            markerfacecolor=l.cmap.name.lower().rstrip('s'),
+                                            markersize=8,
+                                            ) for l in ax.collections]
+                    ax.legend(handles=leg_handles, loc=" ".join(args.legend), title=legend_title)
+                else:
+                    ax.legend(loc=" ".join(args.legend), title=legend_title)
+            if not args.show:
+                fig.savefig("_".join([args.output,name]))
+    if args.show:
+        plt.show()
 
 if __name__ == '__main__':
     main(parse(build()))
