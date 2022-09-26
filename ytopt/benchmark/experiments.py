@@ -100,14 +100,20 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
         expect = sect['expect']
     except KeyError:
         expect = 0
+    # Determine parallelism
+    parallel = args.parallel_id is not None and args.n_parallel is not None
     # Fetch the problem sizes
     if problem_sizes is None:
         problem_sizes = subprocess.run("python -m ytopt.benchmark.size_lookup --p "+" ".join([f"problem.{s}" for s in sect['sizes']]), shell=True, stdout=subprocess.PIPE)
         problem_sizes = dict((k, int(v)) for (k,v) in zip(sect['sizes'], problem_sizes.stdout.decode('utf-8').split()))
+    # GIANT SWITCH on experiment types
     calls = 0
     bluffs = 0
+    # DATA COLLECTION TYPES
     if key == 'OFFLINE':
-        for problem in sect['sizes']:
+        for loopct, problem in enumerate(sect['sizes']):
+            if parallel and loopct % args.n_parallel != args.parallel_id:
+                continue
             out_name = f"results_rf_{problem.lower()}_{experiment}.csv"
             resume = f"results_{problem_sizes[problem]}.csv"
             invoke = f"python -m ytopt.search.ambs --problem problem.{problem} --evaluator {sect['evaluator']} "+\
@@ -118,7 +124,9 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             calls += info[0]
             bluffs += info[1]
     elif key == 'O3':
-        for target in sect['targets']:
+        for loopct, target in enumerate(sect['targets']):
+            if parallel and loopct % args.n_parallel != args.parallel_id:
+                continue
             invoke = f"python -c \"import pandas as pd; from problem import {target}; "+\
                      f"obj = {target}.O3(); "+\
                      "pd.DataFrame({'objective': [obj], 'elapsed_time': [obj]})"+\
@@ -126,11 +134,14 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             info = verify_output(f"data/DEFAULT_{target.upper()}.csv", runtype, invoke, expect, args)
             calls += info[0]
             bluffs += info[1]
+    # DERIVATIVE DATA COLLECTION
     elif key == 'ONLINE':
         problem_prefix = sect['problem_prefix']
         for target in sect['targets']:
             for model in sect['models']:
-                for seed in sect['seeds']:
+                for loopct, seed in enumerate(sect['seeds']):
+                    if parallel and loopct % args.n_parallel != args.parallel_id:
+                        continue
                     # No Refit
                     resume = f"{experiment}_NO_REFIT_{model}_{target}_{seed}_ALL.csv"
                     invoke = "python -m ytopt.benchmark.base_online_tl --n-refit 0 "+\
@@ -146,7 +157,9 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
         problem_prefix = sect['problem_prefix']
         for target in sect['targets']:
             for model in sect['models']:
-                for seed in sect['seeds']:
+                for loopct, seed in enumerate(sect['seeds']):
+                    if parallel and loopct % args.n_parallel != args.parallel_id:
+                        continue
                     # Refit
                     resume = f"{experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed}_ALL.csv"
                     invoke = f"python -m ytopt.benchmark.base_online_tl --n-refit {sect['refits']} "+\
@@ -162,7 +175,9 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
         problem_prefix = sect['problem_prefix']
         for target in sect['targets']:
             for model in sect['models']:
-                for seed in sect['seeds']:
+                for loopct, seed in enumerate(sect['seeds']):
+                    if parallel and loopct % args.n_parallel != args.parallel_id:
+                        continue
                     # Bootstrap
                     resume = f"results_{problem_sizes[target]}.csv"
                     outfile = f"{experiment}_BOOTSTRAP_{sect['bootstrap']}_{model}_{target}_{seed}_ALL.csv"
@@ -176,6 +191,30 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                     info = verify_output(outfile, runtype, invoke, expect, args, resumable=resume)
                     calls += info[0]
                     bluffs += info[1]
+    # DERIVATIVE^2 DATA COLLECTION (Analysis Data)
+    elif key == "XFER":
+        invoke = "python -m ytopt.benchmark.force_transfer --inputs "+\
+                 f"{' '.join([problem_prefix+'.'+_ for _ in sect['sizes']])} "+\
+                 "--targets "+\
+                 f"{' '.join([problem_prefix+'.'+_ for _ in sect['inputs']])} "
+        if sect['backup'] is not None and len(sect['backup']) > 0:
+            invoke += f" --backups {' '.join(sect['backup'])}"
+        info = verify_output(f"xfer_results_{experiment.lstrip('_')}.csv", runtype, invoke, expect, args)
+        calls += info[0]
+        bluffs += info[1]
+    elif key == "INFERENCE":
+        problem_prefix = sect['problem_prefix']
+        for target in sect['targets']:
+            for model in sect['models']:
+                for seed in sect['seeds']:
+                    invoke = f"python -m ytopt.benchmark.inference_test --n-refit {sect['refits']} --max-evals "+\
+                             f"{sect['evals']} --seed {seed} --top {sect['top']} --inputs "+\
+                             f"{' '.join([problem_prefix+'.'+_ for _ in sect['inputs']])} "+\
+                             f"--target {problem_prefix}.{target} --model {model} --unique --no-log-obj "
+                    info = verify_output(f"inference_{experiment.lstrip('_')}.csv", runtype, invoke, expect, args)
+                    calls += info[0]
+                    bluffs += info[1]
+    # PLOT TYPES
     elif key == 'COMPETITIVE':
         experiment_dir = args.backup if sect['use_backup'] and args.backup is not None else './'
         if type(experiment_dir) is list:
@@ -258,28 +297,8 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
         info = verify_output(f"{experiment}_TSNE.png", runtype, invoke, expect, args)
         calls += info[0]
         bluffs += info[1]
-    elif key == "XFER":
-        invoke = "python -m ytopt.benchmark.force_transfer --inputs "+\
-                 f"{' '.join([problem_prefix+'.'+_ for _ in sect['sizes']])} "+\
-                 "--targets "+\
-                 f"{' '.join([problem_prefix+'.'+_ for _ in sect['inputs']])} "
-        if sect['backup'] is not None and len(sect['backup']) > 0:
-            invoke += f" --backups {' '.join(sect['backup'])}"
-        info = verify_output(f"xfer_results_{experiment.lstrip('_')}.csv", runtype, invoke, expect, args)
-        calls += info[0]
-        bluffs += info[1]
-    elif key == "INFERENCE":
-        problem_prefix = sect['problem_prefix']
-        for target in sect['targets']:
-            for model in sect['models']:
-                for seed in sect['seeds']:
-                    invoke = f"python -m ytopt.benchmark.inference_test --n-refit {sect['refits']} --max-evals "+\
-                             f"{sect['evals']} --seed {seed} --top {sect['top']} --inputs "+\
-                             f"{' '.join([problem_prefix+'.'+_ for _ in sect['inputs']])} "+\
-                             f"--target {problem_prefix}.{target} --model {model} --unique --no-log-obj "
-                    info = verify_output(f"inference_{experiment.lstrip('_')}.csv", runtype, invoke, expect, args)
-                    calls += info[0]
-                    bluffs += info[1]
+    # ANALYSIS CALLS
+    # TBD
     else:
         raise ValueError(f"Unknown section {key}")
     print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made & {bluffs} calls bluffed >>")
@@ -296,6 +315,8 @@ def build():
     prs.add_argument('--only', type=str, nargs='*', default=[], help="ONLY run these config sections")
     prs.add_argument('--section-sizecache', action='store_true', help="Cache problem size values between sections")
     prs.add_argument('--experiment-sizecache', action='store_true', help="Cache problem size values between experiments")
+    prs.add_argument('--parallel-id', type=int, help="Parallel identifier for this process (should be 0-max inclusive)")
+    prs.add_argument('--n-parallel', type=int, help="Total number of parallel tasks available for coordination")
     return prs
 
 def config_bind(cfg):
@@ -315,7 +336,7 @@ def config_bind(cfg):
                     print(f"Warning! {cfg} [{s}][{p}] may have incorrect python syntax")
                 cfg_dict[s][p] = ""
     # Apply priority to all elements (zero-priority == always demote to last)
-    least_priority = 0
+    last_priority = 0
     update_keys = []
     for s in cfg_dict.keys():
         if 'priority' not in cfg_dict[s].keys():
@@ -323,16 +344,16 @@ def config_bind(cfg):
         elif cfg_dict[s]['priority'] == 0:
             update_keys.append(s)
         else:
-            least_priority = max(least_priority, cfg_dict[s]['priority'])
-    least_priority += 1
+            last_priority = max(last_priority, cfg_dict[s]['priority'])
+    last_priority += 1 # Guarantee it runs later
     for s in update_keys:
-        cfg_dict[s]['priority'] = least_priority
+        cfg_dict[s]['priority'] = last_priority
     # Use OrderedDict for proper ordering
     def sortfn(kk):
         if 'priority' in cfg_dict[kk].keys():
             return cfg_dict[kk]['priority']
         else:
-            return least_priority+1
+            return last_priority+1
     cfg_dict = OrderedDict([(k, cfg_dict[k]) for k in sorted(cfg_dict.keys(), key=sortfn)])
     # Recursive loading
     for k,v in cfg_dict.items():
@@ -352,6 +373,11 @@ def config_bind(cfg):
 def parse(prs, args=None):
     if args is None:
         args = prs.parse_args()
+    # Warning on improper parallel call
+    from operator import xor
+    if xor(args.parallel_id is not None, args.n_parallel is not None):
+        raise ValueError("BOTH --parallel-id and --n-parallel must be supplied to enable parallelization")
+    del xor
     # Load data from config and bind to args
     args.cfg = config_bind(args.config_file)
     # Fix endings of backup directories
