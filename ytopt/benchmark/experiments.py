@@ -38,6 +38,8 @@ def output_check(checkname, prelude, expect, args, can_rm=True):
 def verify_output(checkname, runstatus, invoke, expect, args, resumable=None, can_rm=True):
     if runstatus not in valid_run_status:
         raise ValueError(f"Runstatus must be in {valid_run_status}")
+    if args.never_remove:
+        can_rm = False
     r = 0
     b = 0
     if os.path.exists(checkname):
@@ -109,6 +111,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
     # GIANT SWITCH on experiment types
     calls = 0
     bluffs = 0
+    verifications = 0
     # DATA COLLECTION TYPES
     if key == 'OFFLINE':
         for loopct, problem in enumerate(sect['sizes']):
@@ -123,6 +126,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             info = verify_output(out_name, runtype, invoke, expect, args, resumable=resume)
             calls += info[0]
             bluffs += info[1]
+            verifications += 1
     elif key == 'O3':
         for loopct, target in enumerate(sect['targets']):
             if parallel and loopct % args.n_parallel != args.parallel_id:
@@ -134,6 +138,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             info = verify_output(f"data/DEFAULT_{target.upper()}.csv", runtype, invoke, expect, args)
             calls += info[0]
             bluffs += info[1]
+            verifications += 1
     # DERIVATIVE DATA COLLECTION
     elif key == 'ONLINE':
         problem_prefix = sect['problem_prefix']
@@ -153,6 +158,27 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                     info = verify_output(resume, runtype, invoke, expect, args)
                     calls += info[0]
                     bluffs += info[1]
+                    verifications += 1
+    elif key == 'LEARN':
+        problem_prefix = sect['problem_prefix']
+        for target in sect['targets']:
+            for model in sect['models']:
+                for loopct, refit in enumerate(sect['refits']):
+                    if parallel and loopct % args.n_parallel != args.parallel_id:
+                        continue
+                    seed = sect['seeds'][0]
+                    inp_str = '#'.join(sect['inputs'])
+                    refit_str = "NO_REFIT" if refit == 0 else f"REFIT_{refit}"
+                    resume = f"{experiment}_{refit_str}_TOP_{int(10*sect['top'])}_INP_{inp_str}_TARG_{target}_SEED_{seed}_ALL.csv"
+                    invoke = f"python -m ytopt.benchmark.base_online_tl --n-refit {refit} "+\
+                             f"--max-evals {sect['evals']} --seed {seed} --top {sect['top']} "+\
+                             f"--inputs {' '.join([problem_prefix+'.'+i for i in sect['inputs']])} "+\
+                             f"--targets {problem_prefix}.{target} --model {model} --unique --no-log-obj "+\
+                             f"--output-prefix {resume[:-8]} --resume {resume}"
+                    info = verify_output(resume, runtype, invoke, expect, args)
+                    calls += info[0]
+                    bluffs += info[1]
+                    verifications += 1
     elif key == 'REFIT':
         problem_prefix = sect['problem_prefix']
         for target in sect['targets']:
@@ -171,6 +197,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                     info = verify_output(resume, runtype, invoke, expect, args)
                     calls += info[0]
                     bluffs += info[1]
+                    verifications += 1
     elif key == 'BOOTSTRAP':
         problem_prefix = sect['problem_prefix']
         for target in sect['targets']:
@@ -191,6 +218,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                     info = verify_output(outfile, runtype, invoke, expect, args, resumable=resume)
                     calls += info[0]
                     bluffs += info[1]
+                    verifications += 1
     # DERIVATIVE^2 DATA COLLECTION (Analysis Data)
     elif key == "XFER":
         invoke = "python -m ytopt.benchmark.force_transfer --inputs "+\
@@ -202,6 +230,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
         info = verify_output(f"xfer_results_{experiment.lstrip('_')}.csv", runtype, invoke, expect, args)
         calls += info[0]
         bluffs += info[1]
+        verifications += 1
     elif key == "INFERENCE":
         problem_prefix = sect['problem_prefix']
         for target in sect['targets']:
@@ -214,6 +243,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                     info = verify_output(f"inference_{experiment.lstrip('_')}.csv", runtype, invoke, expect, args)
                     calls += info[0]
                     bluffs += info[1]
+                    verifications += 1
     # PLOT TYPES
     elif key == 'COMPETITIVE':
         experiment_dir = args.backup if sect['use_backup'] and args.backup is not None else './'
@@ -240,6 +270,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                                     invoke, expect, args)
             calls += info[0]
             bluffs += info[1]
+            verifications += 1
     elif key in ['WALLTIME', 'EVALUATION']:
         experiment_dir = args.backup if sect['use_backup'] and args.backup is not None else './'
         if type(experiment_dir) is list:
@@ -270,6 +301,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                 info = verify_output(f"{experiment}_{target.lower()}_{axis}_plot.png", runtype, invoke, expect, args)
                 calls += info[0]
                 bluffs += info[1]
+                verifications += 1
     elif key == "PCA":
         experiment_dir = args.backup if sect['use_backup'] and args.backup is not None else './'
         if type(experiment_dir) is list:
@@ -288,6 +320,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
         info = verify_output(f"{experiment}_{sect['pca_algorithm']}.png", runtype, invoke, expect, args)
         calls += info[0]
         bluffs += info[1]
+        verifications += 1
     elif key == "TSNE":
         invoke = "python -m ytopt.benchmark.tsne_figure --problem problem.S --convert "+\
                  f"{' '.join(sect['convert'])} --quantile {' '.join([str(_) for _ in sect['quantile']])} --output "+\
@@ -297,11 +330,12 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
         info = verify_output(f"{experiment}_TSNE.png", runtype, invoke, expect, args)
         calls += info[0]
         bluffs += info[1]
+        verifications += 1
     # ANALYSIS CALLS
     # TBD
     else:
         raise ValueError(f"Unknown section {key}")
-    print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made & {bluffs} calls bluffed >>")
+    print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made & {bluffs} calls bluffed. {verifications} attempted verifies >>")
     return problem_sizes
 
 def build():
@@ -317,6 +351,7 @@ def build():
     prs.add_argument('--experiment-sizecache', action='store_true', help="Cache problem size values between experiments")
     prs.add_argument('--parallel-id', type=int, help="Parallel identifier for this process (should be 0-max inclusive)")
     prs.add_argument('--n-parallel', type=int, help="Total number of parallel tasks available for coordination")
+    prs.add_argument('--never-remove', action='store_true', help="Never delete partial results")
     return prs
 
 def config_bind(cfg):
@@ -408,17 +443,27 @@ if __name__ == '__main__':
                 continue
             if len(args.only) > 0 and section not in args.only:
                 continue
+            # Allow runstatus to define remove behavior
+            revert_remove = False
+            if runtype in checkable:
+                revert_remove = True
+                old_remove = args.never_remove
+                args.never_remove = True
             # Allow config to define backup
             revert_backup = False
             if 'backup' in args.cfg[section].keys():
                 revert_backup = True
                 old_backup = args.backup
                 args.backup = args.cfg[section]['backup']
+            # Execute and cache results if indicated
             problem_sizes = build_test_suite(experiment, runtype, args, section, problem_sizes)
             if not args.section_sizecache:
                 problem_sizes = None
+            # Restorations
             if revert_backup:
                 args.backup = old_backup
+            if revert_remove:
+                args.never_remove = old_remove
         if not args.experiment_sizecache:
             problem_sizes = None
 
