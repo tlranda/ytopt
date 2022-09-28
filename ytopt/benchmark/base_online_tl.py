@@ -174,6 +174,16 @@ def online(targets, data, inputs, args, fname, speed = None):
     for i in range(len(targets)-1):
         csv_fields.extend([f'objective_{i}',f'predicted_{i}',f'elapsed_sec_{i}'])
 
+    # Load resumable data and preserve it in new run so no need to re-merge new and existing data
+    if args.resume is not None:
+        try:
+            evals_infer = pd.read_csv(args.resume)
+        except IOError:
+            print(f"WARNING: Could not resume {args.resume}")
+            evals_infer = None
+    else:
+        evals_infer = None
+
     # writing to csv file
     with open(fname, 'w') as csvfile:
         # creating a csv writer object
@@ -182,10 +192,9 @@ def online(targets, data, inputs, args, fname, speed = None):
         csvwriter.writerow(csv_fields)
 
         # Load resumable data and preserve it in new run so no need to re-merge new and existing data
-        if args.resume is not None:
-            evals_infer = pd.read_csv(args.resume)
+        if evals_infer is not None:
             for ss in evals_infer.iterrows():
-                csvwriter.writerow(ss)
+                csvwriter.writerow(ss[1].values)
             csvfile.flush()
             evals_infer = csv_to_eval(evals_infer, targets[0].problem_class)
             if args.resume_fit < 0 and args.n_refit > 0:
