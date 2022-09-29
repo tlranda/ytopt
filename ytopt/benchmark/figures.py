@@ -12,15 +12,16 @@ rfigures = {4: ['anal_density', '4', 'time_v_exec'],
             5: ['plot_best_sofar', '5', 'elapse_v_best_speedup'],
             6: ['plot_time', '6', 'elapse_v_no_configs_speedup'],
             7: ['run_times', '7', 'no_evals_v_exec'],
+            1: ['rank_trace','1','rank_vs_eval']
            }
-figures = {}
+argfigures = {}
 for (k,v) in rfigures.items():
     for vv in v:
-        figures[vv] = k
+        argfigures[vv] = k
 
 def build():
     prs = argparse.ArgumentParser()
-    prs.add_argument('--figure', choices=list(figures.keys()), nargs='+', required=True, help="Figure(s) to plot")
+    prs.add_argument('--figure', choices=list(argfigures.keys()), nargs='+', required=True, help="Figure(s) to plot")
     prs.add_argument('--data', type=str, help='Data directory to load from')
     prs.add_argument('--files', type=str, nargs='+', required=True, help="Files to read")
     prs.add_argument('--legend', choices=legend_codes, default=None, help="Legend location; note two-word legends must be quoted on command line")
@@ -33,7 +34,7 @@ def build():
 def parse(prs, args=None):
     if args is None:
         args = prs.parse_args()
-    args.figure = [figures[f] for f in args.figure]
+    args.figure = [argfigures[f] for f in args.figure]
     if len(args.data) > 0 and not args.data.endswith('/'):
         args.data += '/'
     new_names = []
@@ -51,6 +52,8 @@ TARGETS = [_ for _ in SIZES if _ not in SOURCES]
 def labeler(fname):
     if 'bootstrap' in fname.lower():
         return 'Bootstrap'
+    elif '_top_' in fname.lower():
+        return fname
     elif 'no_refit' in fname.lower():
         return 'SDV'
     elif 'refit_' in fname.lower():
@@ -242,13 +245,40 @@ def fig7(args):
         ax.grid()
     plt.savefig(f"fig7.png")
 
+def fig1(args):
+    gathered = {}
+    for fname in args.files:
+        csv = pd.read_csv(f"{args.data}{fname}")
+        label = os.path.basename(fname)
+        try:
+            nlabel = label[label.index('REFIT')+6:]
+            nlabel = nlabel[:nlabel.index('_')]
+            label = f'REFIT {int(nlabel)}'
+        except ValueError:
+            label = 'NO REFIT'
+        gathered[label] = csv['objective'].argsort()
+    LIMIT = 40
+    fig, ax = plt.subplots()
+    for k,v in gathered.items():
+        min_sofar = [v[0]]
+        for limiter, item in zip(range(LIMIT-1), v[1:]):
+            min_sofar.append(min(min_sofar[-1], item))
+        #ax.plot([_ for _ in range(len(v))], v, label=k, linewidth=0.5, markersize=3,)
+        ax.plot([_ for _ in range(min(LIMIT,len(v)))], min_sofar, label=k, linewidth=0.5, markersize=3,)
+    ax.legend(fontsize=13)
+    ax.set_ylabel('Evaluation Rank')
+    ax.set_ylim([0,10])#int(0.1*len(v))])
+    ax.set_xlabel('Evaluation')
+    #ax.set_title()
+    ax.tick_params(axis='x',labelsize=12)
+    ax.tick_params(axis='y',labelsize=12)
+    ax.grid()
+    plt.savefig(f"fig1.png")
+
 def main(args):
-    figure_plotter = {4: fig4,
-                      5: fig5,
-                      6: fig6,
-                      7: fig7}
+    fig_methods = dict((int(k[3:]),v) for (k,v) in globals().items() if k.startswith('fig') and callable(v))
     for figure in args.figure:
-        figure_plotter[figure](args)
+        fig_methods[figure](args)
 
 if __name__ == '__main__':
     main(parse(build()))

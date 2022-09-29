@@ -6,6 +6,7 @@ def build(methods):
     prs.add_argument('-data', '--data', nargs='+', type=str, help="Files to load")
     prs.add_argument('-stack-all', '--stack-all', action='store_true', help="Don't try to group by file name similarity -- treat all data as one source")
     prs.add_argument('-analyze', '--analyze', nargs='+', choices=list(methods.keys()), required=True, help="Analyses to perform")
+    prs.add_argument('-k', '--k', type=int, default=30, help="Permitted actual evaluations for limited tuning (default: 30)")
     return prs
 
 def parse(methods, prs, args=None):
@@ -52,8 +53,8 @@ def load(args):
 
 def analyze_correlation(data_dict, look, invlook, args):
     results = dict()
-    #corr_keys = ['pearson','spearman','kendall']
-    corr_keys = ['spearman']
+    corr_keys = ['pearson','spearman','kendall']
+    #corr_keys = ['spearman']
     for k,v in data_dict.items():
         if 'predicted' not in v.columns or 'objective' not in v.columns:
             results[k] = {'error': f"Missing column(s): {', '.join(_ for _ in ['predicted', 'objective'] if _ not in v.columns)}"}
@@ -67,8 +68,8 @@ def analyze_correlation(data_dict, look, invlook, args):
 
 def analyze_accuracy(data_dict, look, invlook, args):
     results = dict()
-    #acc_keys = ['mean', 'min', 'max', 'mse', 'mae', 'mse%', 'mae%']
-    acc_keys = ['mean', 'mse', 'mae%']
+    acc_keys = ['mean', 'min', 'max', 'mse', 'mae', 'mse%', 'mae%', 'std']
+    #acc_keys = ['mean', 'mse', 'mae%', 'std']
     for k,v in data_dict.items():
         if 'predicted' not in v.columns or 'objective' not in v.columns:
             results[k] = {'error': f"Missing column(s): {', '.join(_ for _ in ['predicted', 'objective'] if _ not in v.columns)}"}
@@ -77,15 +78,38 @@ def analyze_accuracy(data_dict, look, invlook, args):
         import pdb
         #pdb.set_trace()
         basic = {
-            'min': {'predicted': min(preds), 'actual': min(actual)},
-            'max': {'predicted': max(preds), 'actual': max(actual)},
+            'min': {'predicted': min(preds), 'actual': min(actual), 'rank': f"{actual.argmin()}/{len(actual)}"},
+            'max': {'predicted': max(preds), 'actual': max(actual), 'rank': f"{actual.argmax()}/{len(actual)}"},
             'mean': {'predicted': preds.mean(), 'actual': actual.mean()},
             'mse': ((preds-actual)**2).sum() / len(actual),
             'mae': (preds-actual).abs().sum() / len(actual),
+            'std': {'predicted': preds.std(), 'actual': actual.std()},
         }
         basic.update({'mse%': 100 * basic['mse'] / basic['mean']['actual'],
                       'mae%': 100 * basic['mae'] / basic['mean']['actual']})
         results[k] = dict((k,v) for (k,v) in basic.items() if k in acc_keys)
+    pprint(results)
+
+def analyze_within_k(data_dict, look, invlook, args):
+    results = dict()
+    k_keys = ['min','max','below_half','at_above_half','avg','std']
+    for k,v in data_dict.items():
+        if 'predicted' not in v.columns or 'objective' not in v.columns:
+            results[k] = {'error': f"Missing column(s): {', '.join(_ for _ in ['predicted', 'objective'] if _ not in v.columns)}"}
+            continue
+        preds, actual = v['predicted'], v['objective']
+        import pdb
+        #pdb.set_trace()
+        avail = actual.argsort()[:args.k]
+        basic = {
+            'min': min(avail),
+            'max': max(avail),
+            'below_half': len([_ for _ in avail if _ < len(actual)//2]),
+            'at_above_half': len([_ for _ in avail if _ >= len(actual)//2]),
+            'avg': sum(avail)/len(avail),
+            'std': avail.std(),
+        }
+        results[k] = dict((k,v) for (k,v) in basic.items() if k in k_keys)
     pprint(results)
 
 def main(methods=None, prs=None, args=None):
