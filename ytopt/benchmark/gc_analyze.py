@@ -1,4 +1,5 @@
 import pandas as pd, numpy as np, os, argparse
+from math import comb
 from pprint import pprint
 
 def build(methods):
@@ -7,6 +8,9 @@ def build(methods):
     prs.add_argument('-stack-all', '--stack-all', action='store_true', help="Don't try to group by file name similarity -- treat all data as one source")
     prs.add_argument('-analyze', '--analyze', nargs='+', choices=list(methods.keys()), required=True, help="Analyses to perform")
     prs.add_argument('-k', '--k', type=int, default=30, help="Permitted actual evaluations for limited tuning (default: 30)")
+    prs.add_argument('-confidence', '--confidence', type=float, nargs='*', help="Confidence values to track")
+    prs.add_argument('-baseline', '--baseline', type=str, help="Baseline to compare against for confidence")
+    prs.add_argument('-population', '--population', type=int, default=500, help="Population size for samples in confidence")
     return prs
 
 def parse(methods, prs, args=None):
@@ -110,6 +114,34 @@ def analyze_within_k(data_dict, look, invlook, args):
             'std': avail.std(),
         }
         results[k] = dict((k,v) for (k,v) in basic.items() if k in k_keys)
+    pprint(results)
+
+def hypergeometric(pop, see, win, tgt):
+    return (comb(win, tgt) * comb(pop-win, see-tgt)) / comb(pop, see)
+
+def required_population_ratio(population, sample, target, confidence):
+    count = 1
+    probability = 0
+    # count ~~ successes in population. We'll increase it until it meets our confidence requirement
+    # As such, it can't go over the population size
+    while probability < confidence and count < population:
+        probability = 1-sum([hypergeometric(population, sample, count, _) for _ in range(target)])
+        count += 1
+    return count/population
+
+def analyze_hypergeometrics(data_dict, look, invlook, args):
+    results = dict()
+    for k,v in data_dict.items():
+        if 'objective' not in v.columns:
+            results[k] = {'error': f"Missing column: 'objective'"}
+            continue
+        population = args.population
+        sample = len(v)
+        baseline = pd.read_csv(args.baseline)
+        # Target is FIXED to describe how many successes we found
+        target = len(v[v['objective'] <= baseline.iloc[0]['objective']])
+        confidences = sorted(args.confidence) # [.1,.5,.99]
+        results[k] = dict((conf, (f"{target}/{sample}", required_population_ratio(population, sample, target, conf))) for conf in confidences)
     pprint(results)
 
 def main(methods=None, prs=None, args=None):
