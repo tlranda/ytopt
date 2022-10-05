@@ -163,16 +163,19 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
         problem_prefix = sect['problem_prefix']
         for target in sect['targets']:
             for model in sect['models']:
-                for loopct, refit in enumerate(sect['refits']):
+                for loopct, inputs in enumerate(sect['inputs']):
                     if parallel and loopct % args.n_parallel != args.parallel_id:
                         continue
                     seed = sect['seeds'][0]
-                    inp_str = '#'.join(sect['inputs'])
+                    #inputs = sect['inputs']
+                    inp_str = '#'.join(inputs)
+                    refit = sect['refits']
+                    top = sect['top']
                     refit_str = "NO_REFIT" if refit == 0 else f"REFIT_{refit}"
-                    resume = f"{experiment}_{refit_str}_TOP_{int(10*sect['top'])}_INP_{inp_str}_TARG_{target}_SEED_{seed}_ALL.csv"
+                    resume = f"{experiment}_{refit_str}_TOP_{int(10*top)}_INP_{inp_str}_TARG_{target}_SEED_{seed}_ALL.csv"
                     invoke = f"python -m ytopt.benchmark.base_online_tl --n-refit {refit} "+\
-                             f"--max-evals {sect['evals']} --seed {seed} --top {sect['top']} "+\
-                             f"--inputs {' '.join([problem_prefix+'.'+i for i in sect['inputs']])} "+\
+                             f"--max-evals {sect['evals']} --seed {seed} --top {top} "+\
+                             f"--inputs {' '.join([problem_prefix+'.'+i for i in inputs])} "+\
                              f"--targets {problem_prefix}.{target} --model {model} --unique --no-log-obj "+\
                              f"--output-prefix {resume[:-8]} --resume {resume}"
                     info = verify_output(resume, runtype, invoke, expect, args)

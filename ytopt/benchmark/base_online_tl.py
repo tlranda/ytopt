@@ -47,6 +47,8 @@ def build():
                         default='GaussianCopula', help='SDV model')
     parser.add_argument('--single-target', action='store_true',
                         help='Treat each target as a unique problem (default: solve all targets at once)')
+    parser.add_argument('--exhaust', action='store_true',
+                        help="Exhaust all configurations in the target problem (default: don't do this)")
     parser.add_argument('--unique', action='store_true',
                         help='Do not re-evaluate points seen since the last dataset generation')
     parser.add_argument('--output-prefix', type=str, default='results_sdv',
@@ -138,6 +140,98 @@ def csv_to_eval(frame, size):
     csv.insert(loc=len(csv.columns)-1, column='input', value=size)
     csv = csv.rename(columns={'objective': 'runtime'})
     return csv
+
+def exhaust(target, data, inputs, args, fname, speed = None):
+    # Rather than using a model, iterate ALL configurations
+    global time_start
+
+    # All problems (input and target alike) must utilize the same parameters or this is not going to work
+    param_names = set(target.params)
+    params = []
+    n_configs = 1
+    for _ in target.input_space.get_hyperparameters():
+        try:
+            params.append(_.sequence)
+            n_configs *= len(_.sequence)
+        except AttributeError:
+            params.append(_.choices)
+            n_configs *= len(_.choices)
+    args.max_evals = n_configs
+    criterion = []
+    for input_problem in inputs:
+        criterion.append(input_problem.problem_class)
+        other_names = set(input_problem.params)
+        if len(param_names.difference(other_names)) > 0:
+            raise ValueError(f"Target {target.name} and "
+                             f"{input_problem.name} utilize different parameters")
+    param_names = sorted(param_names)
+    n_params = len(param_names)
+
+    # Gather all constraints from all target problems
+    csv_fields = param_names+['objective','predicted','elapsed_sec']
+
+    # Load resumable data and preserve it in new run so no need to re-merge new and existing data
+    if args.resume is not None:
+        try:
+            evals_infer = pd.read_csv(args.resume)
+        except IOError:
+            print(f"WARNING: Could not resume {args.resume}")
+            evals_infer = None
+    else:
+        evals_infer = None
+
+    # writing to csv file
+    with open(fname, 'w') as csvfile:
+        # creating a csv writer object
+        csvwriter = writer(csvfile)
+        # writing the fields
+        csvwriter.writerow(csv_fields)
+
+        # Load resumable data and preserve it in new run so no need to re-merge new and existing data
+        if evals_infer is not None:
+            for ss in evals_infer.iterrows():
+                csvwriter.writerow(ss[1].values)
+            csvfile.flush()
+            evals_infer = csv_to_eval(evals_infer, target.problem_class)
+            if args.resume_fit < 0 and args.n_refit > 0:
+                # Infer best resume point based on refit
+                loaded = len(evals_infer)
+                args.resume_fit = loaded - (loaded % args.n_refit)
+            if args.resume_fit > 0:
+                data = pd.concat((data, evals_infer[:args.resume_fit])).reset_index(drop=True)
+        else:
+            evals_infer = []
+
+        # Make conditions for each target
+        eval_master = len(evals_infer)
+        if args.resume is not None:
+            # There may be additional data AFTER this fit to keep track of
+            if args.resume_fit != len(evals_infer):
+                data = pd.concat((data, evals_infer[args.resume_fit:])).reset_index(drop=True)
+            # Convert evals_infer to a list now (only needs the runtimes)
+            evals_infer = evals_infer['runtime'].to_list()
+            resume_utilized = False
+        else:
+            resume_utilized = True
+        time_start = time.time()
+        import itertools
+        for i, config in enumerate(itertools.product(*params)):
+            # Resume, skip this much
+            if i < eval_master:
+                continue
+            sample_point = dict((pp,vv) for (pp,vv) in zip(param_names, config))
+            print(f"Eval {i}/{args.max_evals}")
+            if speed is None:
+                evals_infer.append(target.objective(sample_point))
+            else:
+                evals_infer.append(speed / target.objective(sample_point))
+            now = time.time()
+            elapsed = now - time_start
+            ss = [_ for _ in config]
+            ss.extend([evals_infer[-1], target.problem_class, elapsed])
+            csvwriter.writerow(ss)
+            csvfile.flush()
+    csvfile.close()
 
 def online(targets, data, inputs, args, fname, speed = None):
     global time_start
@@ -439,7 +533,9 @@ def main(args=None):
         # Single-target mode
         if args.single_target:
             online([targets[-1]], real_data, inputs, args, f"{output_prefix}_{targets[-1].name}.csv", speed)
-    if not args.single_target:
+    if args.exhaust:
+        exhaust(targets[-1], real_data, inputs, args, f"{output_prefix}_{targets[-1].name}_EXHAUST.csv", speed)
+    elif not args.single_target:
         online(targets, real_data, inputs, args, f"{output_prefix}_ALL.csv", speed)
 
 if __name__ == '__main__':
