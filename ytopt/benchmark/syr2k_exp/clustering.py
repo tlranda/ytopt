@@ -23,7 +23,7 @@ def loader(args):
         nvals = len(pvals)-1
         parameterizer.append((pvals,nvals))
     # Load exhaustive
-    exhaust = pd.read_csv(args.exhaust)
+    exhaust = pd.read_csv(args.exhaust).sort_values(by='objective').reset_index(drop=True)
     # Load and transform candidates
     # X: Rank from original data
     # Y: Objective value
@@ -43,13 +43,22 @@ def loader(args):
             full_match_idx = np.where(n_matching_columns == len(cand_cols))[0]
             match_data = exhaust.iloc[full_match_idx]
             cx.append(match_data.index[0])
-            cy.append(match_data['objective'][cx[-1]])
+            cy.append(match_data.iloc[0]['objective'])
             transformed = []
             # Convert configuration into its categorical index as a ratio
             for val, (pvals, nvals) in zip(match_data[list(cand_cols)].iloc[0].values, parameterizer):
                 transformed.append(pvals.index(str(val))/nvals)
             cz.append(transformed)
-        print(cand, len(cx), sorted(cx))
+        if args.preview_ranks < 0 or len(cx) < args.preview_ranks+1:
+            sort_str = str(sorted(cx))
+        else:
+            sort_str = sorted(cx)
+            start = stop = args.preview_ranks//2
+            start += args.preview_ranks%2
+            stop = -stop if stop > 0 else len(sort_str)
+            sort_str = f"{sort_str[:start]}, ... {sort_str[stop:]}"
+            sort_str = f"[{sort_str.replace('[','').replace(']','')}]"
+        print(cand, len(cx), sort_str)
         x.append(cx)
         y.append(cy)
         z.append(cz)
@@ -114,6 +123,7 @@ def build():
     prs.add_argument('--problem', type=str, default="problem", help="Module to load space from (default: problem)")
     prs.add_argument('--attribute', type=str, default='S.input_space', help="Attribute to get space from (default: S.input_space)")
     prs.add_argument('--n-clusters', type=int, default=1, help="Number of clusters to iterate up to (default 5)")
+    prs.add_argument('--preview-ranks', type=int, default=6, help="Number of ranks to preview in loaded files (default 6)")
     return prs
 
 def parse(prs, args=None):
