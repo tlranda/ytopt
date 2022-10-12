@@ -102,6 +102,17 @@ def cluster_kmeans(x,y,z,args):
             est = KMeans(n_clusters=nclust).fit(data)
             print("\t"+f"{cand} Clusters: {nclust} Scores: {score_technique(z, est.cluster_centers_)}")
 
+def cluster_compare(x,y,z,args):
+    print("Compare")
+    from sklearn.cluster import KMeans
+    centroids = []
+    for xx,yy,zz in zip(x,y,z):
+        est = KMeans(n_clusters=1).fit(zz)
+        centroids.append(est.cluster_centers_)
+    for idx, centroid in enumerate(centroids):
+        for oidx in range(len(centroids)):
+            print(f"{args.candidate[idx]} centroid --> {args.candidate[oidx]} Scores: {score_technique(z[oidx], centroid)}")
+
 def get_funcs(keyword='cluster', trigger=4):
     funcs = dict((k,v) for (k,v) in globals().items() if keyword in k and callable(v))
     # Find longest common STARTING substring in strings

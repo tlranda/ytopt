@@ -24,12 +24,24 @@ def plotter_lookup(fig, ax, args):
     exhaust = pd.read_csv(args.exhaust).drop(columns=drop_cols, errors='ignore').sort_values(by='objective').reset_index(drop=True)
     ax = exhaust['objective'].plot(ax=ax, title='TBD', legend=False)
     for cand in args.candidate:
-        candidate = pd.read_csv(cand).drop(columns=drop_cols, errors='ignore').sort_values(by='objective')
+        candidate = pd.read_csv(cand).drop(columns=drop_cols, errors='ignore').sort_values(by='objective', ascending=False)
         if args.topk is not None:
             candidate = candidate.reset_index(drop=True).iloc[:args.topk]
         cand_cols = tuple([_ for _ in candidate.columns if _ != 'objective'])
-        x,y = [], []
+        x,y,z = [], [], []
+        permit_win_at = len(candidate)//2 #if 'gptune' in cand else 1
+        random_objectives = list(candidate.sort_index()['objective'].iloc[:permit_win_at])
+        gptune_objectives = {random_objectives.index(min(random_objectives)): min(random_objectives)}
         for cand_row in candidate.iterrows():
+            # Find if this was a W for GPTune over its random sampling period or not
+            win = cand_row[0] >= permit_win_at
+            # STRICT: Must improve over best random or best known so far
+            #win = win and cand_row[1]['objective'] < gptune_objectives[max([k for k in gptune_objectives.keys() if k < cand_row[0]])]
+            # LAX: Must improve over best random
+            win = win and cand_row[1]['objective'] < list(gptune_objectives.values())[0]
+            #if win:
+            #    gptune_objectives[cand_row[0]] = cand_row[1]['objective']
+            z.append(int(win))
             # Get the specific columns we want
             cand_row = cand_row[1][list(cand_cols)]
             search_equals = tuple(cand_row.values)
@@ -41,6 +53,7 @@ def plotter_lookup(fig, ax, args):
         print(cand, len(x), sorted(x))
         # Search for equals, and plot that from exhaust instead
         ax.scatter(x,y,label=f"{name_shortener(cand)}")
+        print(f"GPTUNE improvements after sampling: {sum(z)}")
     return fig, ax
 
 def plotter_mean_median(fig, ax, args):
