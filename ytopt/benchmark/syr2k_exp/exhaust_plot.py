@@ -1,4 +1,4 @@
-import argparse, pandas as pd, numpy as np, matplotlib.pyplot as plt, os
+import argparse, pandas as pd, numpy as np, matplotlib.pyplot as plt, os, itertools
 
 def name_shortener(name):
     name = os.path.basename(name)
@@ -64,6 +64,27 @@ def plotter_mean_median(fig, ax, args):
     ax.plot([_ for _ in range(len(exhaust))], [median for _ in range(len(exhaust))], label='median')
     print(f"Mean: {mean} closest to rank {np.argmin(abs(exhaust['objective']-mean))}")
     print(f"Median: {median} closest to rank {np.argmin(abs(exhaust['objective']-median))}")
+    return fig, ax
+
+def plotter_implied_area(fig,ax,args):
+    exhaust = pd.read_csv(args.exhaust).drop(columns=drop_cols, errors='ignore').sort_values(by='objective').reset_index(drop=True)
+    ax = exhaust['objective'].plot(ax=ax, title=f'Area implied by {", ".join(args.candidate)}', legend=False)
+    for cand in args.candidate:
+        candidate = pd.read_csv(cand).drop(columns=drop_cols, errors='ignore').sort_values(by='objective', ascending=False)
+        if args.topk is not None:
+            candidate = candidate.reset_index(drop=True).iloc[:args.topk]
+        cand_cols = tuple([_ for _ in candidate.columns if _ != 'objective'])
+        allowed = [set(candidate[_]) for _ in cand_cols]
+        x,y,z = [], [], []
+        for spec in itertools.product(*allowed):
+            search_equals = tuple(spec)
+            n_matching_columns = (exhaust[list(cand_cols)] == search_equals).sum(1)
+            full_match_idx = np.where(n_matching_columns == len(cand_cols))[0]
+            match_data = exhaust.iloc[full_match_idx]
+            x.append(match_data.index[0])
+            y.append(match_data['objective'][x[-1]])
+            #z.append() # Notion of how much the candidate liked this set of parameters
+        ax.scatter(x,y, label=f"{name_shortener(cand)}")
     return fig, ax
 
 def add_default_line(ax, args):
