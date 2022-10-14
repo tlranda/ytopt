@@ -68,13 +68,15 @@ def plotter_mean_median(fig, ax, args):
 
 def plotter_implied_area(fig,ax,args):
     exhaust = pd.read_csv(args.exhaust).drop(columns=drop_cols, errors='ignore').sort_values(by='objective').reset_index(drop=True)
-    ax = exhaust['objective'].plot(ax=ax, title=f'Area implied by {", ".join(args.candidate)}', legend=False)
+    supplementary = pd.concat([pd.read_csv(supp).sort_values(by='objective').iloc[:int(args.topsupp*len(pd.read_csv(supp)))] for supp in args.supplementary])
+    ax = exhaust['objective'].plot(ax=ax, title=f'Area implied by {", ".join([name_shortener(c) for c in args.candidate])}', legend=False)
     for cand in args.candidate:
         candidate = pd.read_csv(cand).drop(columns=drop_cols, errors='ignore').sort_values(by='objective', ascending=False)
         if args.topk is not None:
             candidate = candidate.reset_index(drop=True).iloc[:args.topk]
         cand_cols = tuple([_ for _ in candidate.columns if _ != 'objective'])
-        allowed = [set(candidate[_]) for _ in cand_cols]
+        allowed = [set(supplementary[_]) for _ in cand_cols]
+        supplementary_scores = [[list(supplementary[list(cand_cols)[col]]).count(val) for val in allowed[col]] for col in range(len(allowed))]
         x,y,z = [], [], []
         for spec in itertools.product(*allowed):
             search_equals = tuple(spec)
@@ -83,8 +85,44 @@ def plotter_implied_area(fig,ax,args):
             match_data = exhaust.iloc[full_match_idx]
             x.append(match_data.index[0])
             y.append(match_data['objective'][x[-1]])
-            #z.append() # Notion of how much the candidate liked this set of parameters
-        ax.scatter(x,y, label=f"{name_shortener(cand)}")
+            relevance_lookup_idx = [list(set(supplementary[col])).index(val) for (col,val) in zip(cand_cols, search_equals)]
+            relevance = sum([supplementary_scores[col][idx] for (col,idx) in zip(range(len(allowed)),relevance_lookup_idx)])/(len(supplementary)*len(allowed))
+            z.append(relevance) # Notion of how much the candidate liked this set of parameters
+        #suggest_order = np.argsort(z)
+        relevance = np.asarray(z)
+        relevance = (relevance-min(relevance))/(max(relevance)-min(relevance))
+        if args.buckets is not None:
+            # STATIC LIST
+            ok_opacities = ['green','yellow','orange','blue']
+            idx = set([_ for _ in range(len(relevance))])
+            buckets = []
+            for b in sorted(args.buckets):
+                buckets.append([_ for _ in np.where(relevance <= np.quantile(relevance, q=b))[0] if _ in idx])
+                idx = idx.difference(set().union(*buckets))
+            if len(idx) > 0:
+                buckets.append(list(idx))
+            buckets.reverse() # Put in best to worse order
+            output = []
+            for idx in range(len(z)):
+                bid = [idx in b for b in buckets].index(True)
+                output.append(ok_opacities[bid])
+            reverse_bucket = dict((k,v) for (k,v) in zip(ok_opacities, args.buckets[::-1]))
+        order = np.argsort(-np.asarray(x))
+        used = []
+        for idx in order:
+            if args.buckets is None or output[idx] in used:
+                ax.scatter(x[idx], y[idx], color=output[idx], alpha=0.5)
+            else:
+                ax.scatter(x[idx], y[idx], color=output[idx], alpha=0.5, label=f"quantile <= {reverse_bucket[output[idx]]}")
+                used.append(output[idx])
+        #if args.buckets is not None:
+        #    bucket_list = [_ for _ in args.buckets[::-1]]
+        #    for bucket_id, bucket in enumerate(bucket_list):
+        #        ax.scatter(x[order[0]], y[order[0]], color=ok_opacities[bucket_id], alpha=0, label=f"quantile <= {bucket}")
+        # Make the figure have the right legends thingsies
+        #for (xx,yy,special) in zip(x,y,output):
+        #    #ax.scatter(xx,yy,alpha=special, color='blue')
+        #    ax.scatter(xx,yy, color=special)
     return fig, ax
 
 def add_default_line(ax, args):
@@ -112,10 +150,19 @@ def common(func, args):
     ax.legend()
     global ncalls
     ncalls += 1
-    if args.xmax is not None:
-        ax.set_xlim([0, args.xmax])
-    if args.ymax is not None:
-        ax.set_ylim([0, args.ymax])
+    if args.auto_fill:
+        if args.xmin is not None and args.ymin is None:
+            args.ymin = ax.lines[0]._y[min(np.where(ax.lines[0]._x <= args.xmin)[0])]
+        if args.ymin is not None and args.xmin is None:
+            args.xmin = ax.lines[0]._x[min(np.where(ax.lines[0]._y >= args.ymin)[0])]
+        if args.xmax is not None and args.ymax is None:
+            args.ymax = ax.lines[0]._y[max(np.where(ax.lines[0]._x <= args.xmax)[0])]
+        if args.ymax is not None and args.xmax is None:
+            args.xmax = ax.lines[0]._x[max(np.where(ax.lines[0]._y <= args.ymax)[0])]
+    if args.xmax is not None or args.xmin is not None:
+        ax.set_xlim([args.xmin, args.xmax])
+    if args.ymax is not None or args.ymin is not None:
+        ax.set_ylim([args.ymin, args.ymax])
     plt.savefig(f"{args.figname}_{ncalls}.png")
 
 def build():
@@ -123,12 +170,18 @@ def build():
     prs = argparse.ArgumentParser()
     prs.add_argument('--exhaust', type=str, help="Exhaustive evaluation to compare against")
     prs.add_argument('--candidate', type=str, nargs="*", help="Candidate evaluation to compare to exhaustion")
+    prs.add_argument('--supplementary', type=str, nargs="*", help="Supplementary data for relevance calculation")
+    prs.add_argument('--topsupp', type=float, default=0.3, help="Top% of supplementary data to use")
     prs.add_argument('--func', choices=[_[8:] for _ in plotter_funcs.keys()], nargs='+', help="Function to use")
-    prs.add_argument('--figname', type=str, default="exhaust", help="Figure name")
+    prs.add_argument('--figname', type=str, default="plot", help="Figure name")
     prs.add_argument('--xmax', type=float, default=None, help="Set xlimit maximum")
+    prs.add_argument('--xmin', type=float, default=None, help="Set xlimit minimum")
     prs.add_argument('--ymax', type=float, default=None, help="Set ylimit maximum")
+    prs.add_argument('--ymin', type=float, default=None, help="Set ylimit minimum")
+    prs.add_argument('--auto-fill', action='store_true', help="Infer better xlimit/ylimit from partial specification")
     prs.add_argument('--topk', type=int, default=None, help="Only plot top k performing candidate points")
     prs.add_argument('--default', action='store_true', help="Attempt to infer a default configuration from problem.py")
+    prs.add_argument('--buckets', type=float, nargs='*', default=None, help="# Buckets for functions that use them")
     return prs
 
 def parse(prs, args=None):
