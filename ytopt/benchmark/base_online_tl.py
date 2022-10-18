@@ -173,7 +173,8 @@ def exhaust(target, data, inputs, args, fname, speed = None):
     # Load resumable data and preserve it in new run so no need to re-merge new and existing data
     if args.resume is not None:
         try:
-            evals_infer = pd.read_csv(args.resume)
+            # Better to recompute a bad line than die entirely -- use warning to alert to issue
+            evals_infer = pd.read_csv(args.resume, on_bad_lines='warn')
         except IOError:
             print(f"WARNING: Could not resume {args.resume}")
             evals_infer = None
