@@ -174,7 +174,7 @@ def exhaust(target, data, inputs, args, fname, speed = None):
     if args.resume is not None:
         try:
             # Better to recompute a bad line than die entirely -- use warning to alert to issue
-            evals_infer = pd.read_csv(args.resume, on_bad_lines='warn')
+            evals_infer = pd.read_csv(args.resume)
         except IOError:
             print(f"WARNING: Could not resume {args.resume}")
             evals_infer = None
@@ -193,6 +193,7 @@ def exhaust(target, data, inputs, args, fname, speed = None):
             for ss in evals_infer.iterrows():
                 csvwriter.writerow(ss[1].values)
             csvfile.flush()
+            loaded_evals = evals_infer
             evals_infer = csv_to_eval(evals_infer, target.problem_class)
             if args.resume_fit < 0 and args.n_refit > 0:
                 # Infer best resume point based on refit
@@ -218,10 +219,19 @@ def exhaust(target, data, inputs, args, fname, speed = None):
         import itertools
         for i, config in enumerate(itertools.product(*params)):
             # Resume, skip this much
-            if i < eval_master:
-                continue
+            #if i < eval_master:
+            #    continue
             sample_point = dict((pp,vv) for (pp,vv) in zip(param_names, config))
+            for j in [f'p{x}' for x in range(3,6)]:
+                sample_point[j] = int(sample_point[j])
+            look = tuple([sample_point[_] for _ in param_names])
+            n_matching = np.where((loaded_evals[param_names] == look).sum(1) == 6)[0]
+            if len(n_matching) > 0:
+                if len(n_matching) > 1:
+                    print(f"WARN: Found duplicate: {sample_point} @{i}")
+                continue
             print(f"Eval {i}/{args.max_evals}")
+            print(sample_point)
             if speed is None:
                 evals_infer.append(target.objective(sample_point))
             else:
