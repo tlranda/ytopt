@@ -63,6 +63,8 @@ def build():
                         help="Previous run to resume from (if specified)")
     parser.add_argument('--resume-fit', default=0, type=int,
                         help="Rows to refit on from the resuming data (default 0 -- blank model used, use -1 to infer the last fit)")
+    parser.add_argument('--all-file', default=None, type=str,
+                        help="Look up evaluation results from this file instead of actually evaluating via objective")
     return parser
 
 def parse(prs, args=None):
@@ -244,7 +246,7 @@ def exhaust(target, data, inputs, args, fname, speed = None):
             csvfile.flush()
     csvfile.close()
 
-def online(targets, data, inputs, args, fname, speed = None):
+def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
     global time_start
 
     # All problems (input and target alike) must utilize the same parameters or this is not going to work
@@ -288,6 +290,11 @@ def online(targets, data, inputs, args, fname, speed = None):
             evals_infer = None
     else:
         evals_infer = None
+
+    # Possibly substitue REAL evaluations with lookups
+    if exhaust is not None:
+        if type(exhaust) is str:
+            exhaust = pd.read_csv(exhaust).sort_values(by='objective').reset_index(drop=True)
 
     # writing to csv file
     with open(fname, 'w') as csvfile:
@@ -389,10 +396,25 @@ def online(targets, data, inputs, args, fname, speed = None):
                         for target_problem in targets:
                             # Use the target problem's .objective() call to generate an evaluation
                             print(f"Eval {eval_master+1}/{args.max_evals}")
-                            if speed is None:
-                                evals_infer.append(target_problem.objective(sample_point))
+                            # Maybe don't need to use objective?
+                            if exhaust is None:
+                                if speed is None:
+                                    evals_infer.append(target_problem.objective(sample_point))
+                                else:
+                                    evals_infer.append(speed / target_problem.objective(sample_point))
                             else:
-                                evals_infer.append(speed / target_problem.objective(sample_point))
+                                # Use previous lookup in exhaust to find the objective!
+                                # Search equals / problem tuple include 'input' which I won't want, right?
+                                n_matching_columns = (exhaust[param_names].astype(str) == tuple(list(search_equals)[:-1])).sum(1)
+                                full_match_idx = np.where(n_matching_columns == n_params)[0]
+                                if len(full_match_idx) == 0:
+                                    raise ValueError(f"Failed to find tuple {list(search_equals)[:-1]} in '--all-file' data")
+                                objective = exhaust.iloc[full_match_idx]['objective'].values[0]
+                                if speed is None:
+                                    evals_infer.append(objective)
+                                else:
+                                    evals_infer.append(speed / objective)
+                                print(f"All file rank: {full_match_idx[0]} / {len(exhaust)}")
                             #print(target_problem.name, sample_point, evals_infer[-1])
                             now = time.time()
                             elapsed = now - time_start
@@ -547,7 +569,7 @@ def main(args=None):
     if args.exhaust:
         exhaust(targets[-1], real_data, inputs, args, f"{output_prefix}_{targets[-1].name}_EXHAUST.csv", speed)
     elif not args.single_target:
-        online(targets, real_data, inputs, args, f"{output_prefix}_ALL.csv", speed)
+        online(targets, real_data, inputs, args, f"{output_prefix}_ALL.csv", speed, args.all_file)
 
 if __name__ == '__main__':
     main()
