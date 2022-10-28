@@ -82,8 +82,12 @@ def plotter_implied_area(fig,ax,args):
             search_equals = tuple(spec)
             n_matching_columns = (exhaust[list(cand_cols)] == search_equals).sum(1)
             full_match_idx = np.where(n_matching_columns == len(cand_cols))[0]
-            match_data = exhaust.iloc[full_match_idx]
-            x.append(match_data.index[0])
+            try:
+                match_data = exhaust.iloc[full_match_idx]
+                x.append(match_data.index[0])
+            except:
+                import pdb
+                pdb.set_trace()
             y.append(match_data['objective'][x[-1]])
             relevance_lookup_idx = [list(set(supplementary[col])).index(val) for (col,val) in zip(cand_cols, search_equals)]
             relevance = sum([supplementary_scores[col][idx] for (col,idx) in zip(range(len(allowed)),relevance_lookup_idx)])/(len(supplementary)*len(allowed))
@@ -171,8 +175,8 @@ def build():
     prs.add_argument('--exhaust', type=str, help="Exhaustive evaluation to compare against")
     prs.add_argument('--candidate', type=str, nargs="*", help="Candidate evaluation to compare to exhaustion")
     prs.add_argument('--supplementary', type=str, nargs="*", help="Supplementary data for relevance calculation")
-    prs.add_argument('--topsupp', type=float, default=0.3, help="Top% of supplementary data to use")
-    prs.add_argument('--func', choices=[_[8:] for _ in plotter_funcs.keys()], nargs='+', help="Function to use")
+    prs.add_argument('--topsupp', type=float, default=0.3, help="Top%% of supplementary data to use")
+    prs.add_argument('--func', choices=[_[8:] for _ in plotter_funcs.keys()], nargs='+', required=True, help="Function to use")
     prs.add_argument('--figname', type=str, default="plot", help="Figure name")
     prs.add_argument('--xmax', type=float, default=None, help="Set xlimit maximum")
     prs.add_argument('--xmin', type=float, default=None, help="Set xlimit minimum")
