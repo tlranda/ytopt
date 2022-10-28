@@ -49,8 +49,6 @@ def build():
                         help='Treat each target as a unique problem (default: solve all targets at once)')
     parser.add_argument('--exhaust', action='store_true',
                         help="Exhaust all configurations in the target problem (default: don't do this)")
-    parser.add_argument('--unique', action='store_true',
-                        help='Do not re-evaluate points seen since the last dataset generation')
     parser.add_argument('--output-prefix', type=str, default='results_sdv',
                         help='Output files are created using this prefix (default: [results_sdv]*.csv)')
     parser.add_argument('--no-log-objective', action='store_true',
@@ -65,6 +63,8 @@ def build():
                         help="Rows to refit on from the resuming data (default 0 -- blank model used, use -1 to infer the last fit)")
     parser.add_argument('--all-file', default=None, type=str,
                         help="Look up evaluation results from this file instead of actually evaluating via objective")
+    parser.add_argument('--skip-evals', action='store_true',
+                        help="Prevent actual objective calculation")
     return parser
 
 def parse(prs, args=None):
@@ -109,7 +109,7 @@ def close_enough(frame, rows, column, target, criterion):
 def sample_approximate_conditions(sdv_model, model, conditions, criterion, param_names):
     # If model supports conditional sampling, just utilize that
     if conditional_sampling_support[sdv_model]:
-        return model.sample_conditions(conditions)
+        return model.sample_conditions(conditions), 0
     # Otherwise, it can be hard to conditionally sample using reject sampling.
     # As such, we do our own reject strategy
     criterion = sorted(criterion)
@@ -117,6 +117,7 @@ def sample_approximate_conditions(sdv_model, model, conditions, criterion, param
     selected = []
     prev_len = -1
     cur_len = 0
+    rejected = 0
     # Use lack of change as indication that no additional rows could be found
     while prev_len < requested_rows and cur_len != prev_len:
         prev_len = cur_len
@@ -126,15 +127,23 @@ def sample_approximate_conditions(sdv_model, model, conditions, criterion, param
             n_rows = cond.get_num_rows()
             for (col, target) in cond.get_column_values().items():
                 candidate.append(close_enough(samples, n_rows, col, target, criterion))
+                # Difference of length between samples::candidate[-1] == closeness trimming
+                rejected += len(samples)-len(candidate[-1])
+        # Difference here represents redundancy in sampling == duplicate trimming
+        rejected += sum([len(_) for _ in candidate]) # Prepare difference
         candidate = pd.concat(candidate).drop_duplicates(subset=param_names)
+        rejected -= len(candidate) # Correct difference magnitude after drop-duplicates
         selected.append(candidate)
         cur_len = sum(map(len, selected))
+    # Difference here represents ADDITIONAL redundancy in sampling == duplicate trimming pt 2
+    rejected += sum([len(_) for _ in selected]) # Prepare difference
     selected = pd.concat(selected).drop_duplicates(subset=param_names)
+    rejected -= len(selected) # Correct difference magnitude after drop-duplicates
     # FORCE conditions to be held in this data
     for cond in conditions:
         for (col, target) in cond.get_column_values().items():
             selected[col] = target
-    return selected
+    return selected, rejected
 
 
 def csv_to_eval(frame, size):
@@ -341,6 +350,8 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
         else:
             resume_utilized = True
         time_start = time.time()
+        EFFICIENCY = {'generated': 0, 'rejected': 0}
+        dup_cols = param_names + ['input']
         while eval_master < args.max_evals:
             # Generate prospective points
             if args.model != 'random':
@@ -349,8 +360,8 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
                 # until SDV fully supports conditional sampling for those models
                 # For any model where SDV has conditional sampling support, this SHOULD utilize SDV's
                 # real conditional sampling and bypass the approximation entirely
-                ss1 = sample_approximate_conditions(args.model, model, conditions,
-                                                    sorted(criterion), param_names)
+                ss1, n_reject = sample_approximate_conditions(args.model, model, conditions,
+                                                              sorted(criterion), param_names)
                 for col in param_names:
                     ss1[col] = ss1[col].astype(str)
             else:
@@ -367,12 +378,26 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
                         inference = 1.0
                         random_data.append(tuple([cond.column_values['input']]+random_params+[inference]))
                 ss1 = np.array(random_data, dtype=dtypes)
+                n_reject = 0
                 ss1 = pd.DataFrame(ss1, columns=columns)
                 for col, dtype in zip(ss1.columns, dtypes):
                     if dtype[1] == 'str':
                         ss1[col] = ss1[col].astype('string')
             # Don't evaluate the exact same parameter configuration multiple times in a fitting round
+            #import pdb
+            #pdb.set_trace()
+            n_reject += len(ss1) # Pre-add FULL set to see what survives this round of dropping
             ss1 = ss1.drop_duplicates(subset=param_names, keep="first")
+            # Drop generated values that have already been evaluated
+            # STACK known / evaluated values with new predictions (include runtime columns but we won't compare on them)
+            stacked = pd.concat([data, ss1])
+            # Switch idx = when we return to ss1 data, ie after len(data) since we just got a new index for stacked
+            switch = len(data)
+            # Include the stacked values (after switch) that are NOT duplicates
+            ss1 = stacked.iloc[switch:][~stacked.duplicated(subset=dup_cols).iloc[switch:].values]
+            n_reject -= len(ss1) # Adjust after the fact
+            EFFICIENCY['generated'] += len(ss1)
+            EFFICIENCY['rejected'] += n_reject
             ss = ss1.sort_values(by='runtime')#, ascending=False)
             new_sdv = ss[:args.max_evals]
             eval_update = 0 if resume_utilized else len(evals_infer)-args.resume_fit
@@ -383,71 +408,61 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
                 for row in new_sdv.iterrows():
                     sample_point_val = row[1].values[1:]
                     sample_point = dict((pp,vv) for (pp,vv) in zip(param_names, sample_point_val))
-                    # Search to see if this combination of parameter values AND
-                    # problem class already exist in the data frame.
-                    # If we're unique, skip it, otherwise we will replace it with new value
-                    problem_tuple = tuple(param_names+['input'])
-                    search_equals = tuple(row[1].values[1:1+n_params].tolist()+[row[1].values[0]])
-                    n_matching_columns = (data[list(problem_tuple)] == search_equals).sum(1)
-                    full_match_idx = np.where(n_matching_columns == n_params+1)[0]
-                    matching_data = data.iloc[full_match_idx]
-                    if matching_data.empty or not args.unique:
-                        ss = []
-                        for target_problem in targets:
-                            # Use the target problem's .objective() call to generate an evaluation
-                            print(f"Eval {eval_master+1}/{args.max_evals}")
-                            # Maybe don't need to use objective?
-                            if exhaust is None:
-                                if speed is None:
-                                    evals_infer.append(target_problem.objective(sample_point))
-                                else:
-                                    evals_infer.append(speed / target_problem.objective(sample_point))
+                    ss = []
+                    for target_problem in targets:
+                        # Use the target problem's .objective() call to generate an evaluation
+                        print(f"Eval {eval_master+1}/{args.max_evals}")
+                        print(f"Generate: {EFFICIENCY['generated']} | ",end='')
+                        print(f"REJECT: {EFFICIENCY['rejected']} | ",end='')
+                        print(f"RATIO: {EFFICIENCY['generated']/sum(EFFICIENCY.values())}")
+                        # Determine objective and search_equals
+                        if exhaust is None:
+                            search_equals = tuple(row[1].values[1:1+n_params].tolist()+[row[1].values[0]])
+                            if not args.skip_evals:
+                                objective = target_problem.objective(sample_point)
                             else:
-                                # Use previous lookup in exhaust to find the objective!
-                                # Search equals / problem tuple include 'input' which I won't want, right?
-                                n_matching_columns = (exhaust[param_names].astype(str) == tuple(list(search_equals)[:-1])).sum(1)
-                                full_match_idx = np.where(n_matching_columns == n_params)[0]
-                                if len(full_match_idx) == 0:
-                                    raise ValueError(f"Failed to find tuple {list(search_equals)[:-1]} in '--all-file' data")
-                                objective = exhaust.iloc[full_match_idx]['objective'].values[0]
-                                if speed is None:
-                                    evals_infer.append(objective)
-                                else:
-                                    evals_infer.append(speed / objective)
-                                print(f"All file rank: {full_match_idx[0]} / {len(exhaust)}")
-                            #print(target_problem.name, sample_point, evals_infer[-1])
-                            now = time.time()
-                            elapsed = now - time_start
-                            if ss == []:
-                                ss = [sample_point[k] for k in param_names]
-                                ss += [evals_infer[-1]]+[sample_point_val[-1]]
-                                ss += [elapsed]
-                            else:
-                                # Append new target data to the CSV row
-                                ss2 = [evals_infer[-1]]+[sample_point_val[-1]]
-                                ss2 += [elapsed]
-                                ss.extend(ss2)
-                            # Basically: problem parameters, np.log(time), problem_class
-                            evaluated = list(search_equals)
-                            # Insert runtime before the problem class size
-                            if args.no_log_objective:
-                                evaluated.append(float(evals_infer[-1]))
-                            else:
-                                evaluated.append(float(np.log(evals_infer[-1])))
-                            # For each problem we want to denote the actual result in
-                            # our dataset to improve future data generation
-                            if matching_data.empty:
-                                data.loc[max(data.index)+1] = evaluated
-                            else:
-                                # Replace results -- should be mostly the same
-                                # Have to wrap `evaluated` in a list for pandas to be
-                                # happy with the overwrite
-                                data.loc[matching_data.index] = [evaluated]
-                        # Record in CSV and update iteration
-                        csvwriter.writerow(ss)
-                        csvfile.flush()
-                        eval_update += 1
-                        eval_master += 1
+                                objective = 1
+                        else:
+                            # Use lookup in exhaust to find the objective!
+                            search_equals = tuple(row[1].values[1:1+n_params].tolist())
+                            n_matching_columns = (exhaust[param_names].astype(str) == search_equals).sum(1)
+                            full_match_idx = np.where(n_matching_columns == n_params)[0]
+                            if len(full_match_idx) == 0:
+                                raise ValueError(f"Failed to find tuple {list(search_equals)} in '--all-file' data")
+                            objective = exhaust.iloc[full_match_idx]['objective'].values[0]
+                            # Add problem size back into search_equals
+                            search_equals = tuple(list(search_equals)+[row[1].values[0]])
+                            print(f"All file rank: {full_match_idx[0]} / {len(exhaust)}")
+                        if speed is None:
+                            evals_infer.append(objective)
+                        else:
+                            evals_infer.append(speed / objective)
+                        #print(target_problem.name, sample_point, evals_infer[-1])
+                        now = time.time()
+                        elapsed = now - time_start
+                        if ss == []:
+                            ss = [sample_point[k] for k in param_names]
+                            ss += [evals_infer[-1]]+[sample_point_val[-1]]
+                            ss += [elapsed]
+                        else:
+                            # Append new target data to the CSV row
+                            ss2 = [evals_infer[-1]]+[sample_point_val[-1]]
+                            ss2 += [elapsed]
+                            ss.extend(ss2)
+                        # Basically: problem parameters, np.log(time), problem_class
+                        evaluated = list(search_equals)
+                        # Insert runtime before the problem class size
+                        if args.no_log_objective:
+                            evaluated.append(float(evals_infer[-1]))
+                        else:
+                            evaluated.append(float(np.log(evals_infer[-1])))
+                        # Add record into dataset
+                        data.loc[max(data.index)+1] = evaluated
+                    # Record in CSV and update iteration
+                    csvwriter.writerow(ss)
+                    csvfile.flush()
+                    eval_update += 1
+                    eval_master += 1
                     # Quit when out of evaluations (no final refit check needed)
                     if eval_master >= args.max_evals:
                         stop = True
