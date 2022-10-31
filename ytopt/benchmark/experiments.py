@@ -260,7 +260,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                              f"--seed {seed} --top {sect['top']} --targets {target} --model {model} --inputs "+\
                              f"{' '.join([problem_prefix+'.'+i for i in sect['inputs']])} --skip-evals "+\
                              f"--output-prefix {outfile}"
-                    info = verify_output(outfile, runtype, invoke, expect, args)
+                    info = verify_output(outfile+'_ALL.csv', runtype, invoke, expect, args)
                     calls += info[0]
                     bluffs += info[1]
                     verifications += 1

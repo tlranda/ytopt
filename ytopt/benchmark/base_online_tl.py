@@ -329,195 +329,208 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
             exhaust = pd.read_csv(exhaust).sort_values(by='objective').reset_index(drop=True)
 
     # writing to csv file
-    with open(fname, 'w') as csvfile:
-        # creating a csv writer object
-        csvwriter = writer(csvfile)
-        # writing the fields
-        csvwriter.writerow(csv_fields)
+    supplementary_fname = fname[:-4]
+    if supplementary_fname.endswith('_ALL'):
+        supplementary_fname = supplementary_fname[:-4]
+    supplementary_fname += '_trace.csv'
+    with open(supplementary_fname, 'w') as suppfile:
+        suppwriter = writer(suppfile)
+        suppwriter.writerow(['trial','generate', 'reject','close','sample','batch','prior','sample','external'])
+        trial = 0
+        with open(fname, 'w') as csvfile:
+            # creating a csv writer object
+            csvwriter = writer(csvfile)
+            # writing the fields
+            csvwriter.writerow(csv_fields)
 
-        # Load resumable data and preserve it in new run so no need to re-merge new and existing data
-        if evals_infer is not None:
-            for ss in evals_infer.iterrows():
-                csvwriter.writerow(ss[1].values)
-            csvfile.flush()
-            evals_infer = csv_to_eval(evals_infer, targets[0].problem_class)
-            if args.resume_fit < 0 and args.n_refit > 0:
-                # Infer best resume point based on refit
-                loaded = len(evals_infer)
-                args.resume_fit = loaded - (loaded % args.n_refit)
-            if args.resume_fit > 0:
-                data = pd.concat((data, evals_infer[:args.resume_fit])).reset_index(drop=True)
-        else:
-            evals_infer = []
-
-        # Make conditions for each target
-        conditions = []
-        for target_problem in targets:
-            conditions.append(Condition({'input': target_problem.problem_class},
-                                        num_rows=max(100, args.max_evals)))
-        eval_master = len(evals_infer)
-        # Initial fit
-        if model is not None:
-            print(f"Fitting with {len(data)} rows")
-            import warnings
-            warnings.simplefilter("ignore")
-            model.fit(data)
-            warnings.simplefilter('default')
-        if args.resume is not None:
-            # There may be additional data AFTER this fit to keep track of
-            if args.resume_fit != len(evals_infer):
-                data = pd.concat((data, evals_infer[args.resume_fit:])).reset_index(drop=True)
-            # Convert evals_infer to a list now (only needs the runtimes)
-            evals_infer = evals_infer['runtime'].to_list()
-            resume_utilized = False
-        else:
-            resume_utilized = True
-        time_start = time.time()
-        EFFICIENCY = {'generated': 0, 'rejections': {}, 'durations': {}}
-        dup_cols = param_names + ['input']
-        while eval_master < args.max_evals:
-            rejections = {}
-            durations = {}
-            # Generate prospective points
-            if args.model != 'random':
-                # Some SDV models don't realllllly support the kind of conditional sampling we need
-                # So this call will bend the condition rules a bit to help them produce usable data
-                # until SDV fully supports conditional sampling for those models
-                # For any model where SDV has conditional sampling support, this SHOULD utilize SDV's
-                # real conditional sampling and bypass the approximation entirely
-                ss1, rejections, durations = sample_approximate_conditions(args.model, model, conditions,
-                                                                           sorted(criterion), param_names)
-                for col in param_names:
-                    ss1[col] = ss1[col].astype(str)
+            # Load resumable data and preserve it in new run so no need to re-merge new and existing data
+            if evals_infer is not None:
+                for ss in evals_infer.iterrows():
+                    csvwriter.writerow(ss[1].values)
+                csvfile.flush()
+                evals_infer = csv_to_eval(evals_infer, targets[0].problem_class)
+                if args.resume_fit < 0 and args.n_refit > 0:
+                    # Infer best resume point based on refit
+                    loaded = len(evals_infer)
+                    args.resume_fit = loaded - (loaded % args.n_refit)
+                if args.resume_fit > 0:
+                    data = pd.concat((data, evals_infer[:args.resume_fit])).reset_index(drop=True)
             else:
-                # random model is achieved by sampling configurations from the target problem's input space
-                columns = ['input']+param_names+['runtime']
-                dtypes = [(k,param_type(k, targets[0])) for k in columns]
-                random_data = []
-                durations['sample'] = time.time()
-                for idx, cond in enumerate(conditions):
-                    for _ in range(cond.num_rows):
-                        # Generate a random valid sample in the parameter space
-                        random_params = targets[idx].input_space.sample_configuration().get_dictionary()
-                        random_params = [random_params[k] for k in param_names]
-                        # Generate the runtime estimate
-                        inference = 1.0
-                        random_data.append(tuple([cond.column_values['input']]+random_params+[inference]))
-                ss1 = np.array(random_data, dtype=dtypes)
-                ss1 = pd.DataFrame(ss1, columns=columns)
-                durations['sample'] = time.time() - durations['sample']
-                for col, dtype in zip(ss1.columns, dtypes):
-                    if dtype[1] == 'str':
-                        ss1[col] = ss1[col].astype('string')
-            # Don't evaluate the exact same parameter configuration multiple times in a fitting round
-            rejections['prior_consideration'] = len(ss1) # Pre-add FULL set to see what survives this round of dropping
-            ss1 = ss1.drop_duplicates(subset=param_names, keep="first")
-            # Drop generated values that have already been evaluated
-            # STACK known / evaluated values with new predictions (include runtime columns but we won't compare on them)
-            stacked = pd.concat([data, ss1])
-            # Switch idx = when we return to ss1 data, ie after len(data) since we just got a new index for stacked
-            switch = len(data)
-            # Include the stacked values (after switch) that are NOT duplicates
-            ss1 = stacked.iloc[switch:][~stacked.duplicated(subset=dup_cols).iloc[switch:].values]
-            rejections['prior_consideration'] -= len(ss1) # Subtract the ones that remained new
-            EFFICIENCY['generated'] += len(ss1) # ACTUALLY USEFUL RUNNING COUNT
-            for key, value in rejections.items():
-                if key not in EFFICIENCY['rejections'].keys():
-                    EFFICIENCY['rejections'][key] = value
-                else:
-                    EFFICIENCY['rejections'][key] += value
-            for key, value in durations.items():
-                if key not in EFFICIENCY['durations'].keys():
-                    EFFICIENCY['durations'][key] = value
-                else:
-                    EFFICIENCY['durations'][key] += value
-            ss = ss1.sort_values(by='runtime')#, ascending=False)
-            new_sdv = ss[:args.max_evals]
-            eval_update = 0 if resume_utilized else len(evals_infer)-args.resume_fit
-            if not resume_utilized:
+                evals_infer = []
+
+            # Make conditions for each target
+            conditions = []
+            for target_problem in targets:
+                conditions.append(Condition({'input': target_problem.problem_class},
+                                            num_rows=max(100, args.max_evals)))
+            eval_master = len(evals_infer)
+            # Initial fit
+            if model is not None:
+                print(f"Fitting with {len(data)} rows")
+                import warnings
+                warnings.simplefilter("ignore")
+                model.fit(data)
+                warnings.simplefilter('default')
+            if args.resume is not None:
+                # There may be additional data AFTER this fit to keep track of
+                if args.resume_fit != len(evals_infer):
+                    data = pd.concat((data, evals_infer[args.resume_fit:])).reset_index(drop=True)
+                # Convert evals_infer to a list now (only needs the runtimes)
+                evals_infer = evals_infer['runtime'].to_list()
+                resume_utilized = False
+            else:
                 resume_utilized = True
-            stop = False
-            while not stop:
-                for row in new_sdv.iterrows():
-                    sample_point_val = row[1].values[1:]
-                    sample_point = dict((pp,vv) for (pp,vv) in zip(param_names, sample_point_val))
-                    ss = []
-                    for target_problem in targets:
-                        # Use the target problem's .objective() call to generate an evaluation
-                        if not args.skip_evals:
-                            print(f"Eval {eval_master+1}/{args.max_evals}")
-                        # Determine objective and search_equals
-                        if exhaust is None:
-                            search_equals = tuple(row[1].values[1:1+n_params].tolist()+[row[1].values[0]])
+            time_start = time.time()
+            EFFICIENCY = {'generated': 0, 'rejections': {}, 'durations': {}}
+            dup_cols = param_names + ['input']
+            while eval_master < args.max_evals:
+                rejections = {'closeness': 0, 'dup_samples': 0, 'dup_batch': 0, 'prior_consideration': 0}
+                durations = {'sample': 0, 'external': 0}
+                # Generate prospective points
+                if args.model != 'random':
+                    # Some SDV models don't realllllly support the kind of conditional sampling we need
+                    # So this call will bend the condition rules a bit to help them produce usable data
+                    # until SDV fully supports conditional sampling for those models
+                    # For any model where SDV has conditional sampling support, this SHOULD utilize SDV's
+                    # real conditional sampling and bypass the approximation entirely
+                    ss1, r, d = sample_approximate_conditions(args.model, model, conditions,
+                                                              sorted(criterion), param_names)
+                    rejections.update(r)
+                    durations.update(d)
+                    for col in param_names:
+                        ss1[col] = ss1[col].astype(str)
+                else:
+                    # random model is achieved by sampling configurations from the target problem's input space
+                    columns = ['input']+param_names+['runtime']
+                    dtypes = [(k,param_type(k, targets[0])) for k in columns]
+                    random_data = []
+                    durations['sample'] = time.time()
+                    for idx, cond in enumerate(conditions):
+                        for _ in range(cond.num_rows):
+                            # Generate a random valid sample in the parameter space
+                            random_params = targets[idx].input_space.sample_configuration().get_dictionary()
+                            random_params = [random_params[k] for k in param_names]
+                            # Generate the runtime estimate
+                            inference = 1.0
+                            random_data.append(tuple([cond.column_values['input']]+random_params+[inference]))
+                    ss1 = np.array(random_data, dtype=dtypes)
+                    ss1 = pd.DataFrame(ss1, columns=columns)
+                    durations['sample'] = time.time() - durations['sample']
+                    for col, dtype in zip(ss1.columns, dtypes):
+                        if dtype[1] == 'str':
+                            ss1[col] = ss1[col].astype('string')
+                # Don't evaluate the exact same parameter configuration multiple times in a fitting round
+                rejections['prior_consideration'] = len(ss1) # Pre-add FULL set to see what survives this round of dropping
+                ss1 = ss1.drop_duplicates(subset=param_names, keep="first")
+                # Drop generated values that have already been evaluated
+                # STACK known / evaluated values with new predictions (include runtime columns but we won't compare on them)
+                stacked = pd.concat([data, ss1])
+                # Switch idx = when we return to ss1 data, ie after len(data) since we just got a new index for stacked
+                switch = len(data)
+                # Include the stacked values (after switch) that are NOT duplicates
+                ss1 = stacked.iloc[switch:][~stacked.duplicated(subset=dup_cols).iloc[switch:].values]
+                rejections['prior_consideration'] -= len(ss1) # Subtract the ones that remained new
+                EFFICIENCY['generated'] += len(ss1) # ACTUALLY USEFUL RUNNING COUNT
+                for key, value in rejections.items():
+                    if key not in EFFICIENCY['rejections'].keys():
+                        EFFICIENCY['rejections'][key] = value
+                    else:
+                        EFFICIENCY['rejections'][key] += value
+                for key, value in durations.items():
+                    if key not in EFFICIENCY['durations'].keys():
+                        EFFICIENCY['durations'][key] = value
+                    else:
+                        EFFICIENCY['durations'][key] += value
+                ss = ss1.sort_values(by='runtime')#, ascending=False)
+                new_sdv = ss[:args.max_evals]
+                eval_update = 0 if resume_utilized else len(evals_infer)-args.resume_fit
+                if not resume_utilized:
+                    resume_utilized = True
+                stop = False
+                while not stop:
+                    for row in new_sdv.iterrows():
+                        sample_point_val = row[1].values[1:]
+                        sample_point = dict((pp,vv) for (pp,vv) in zip(param_names, sample_point_val))
+                        ss = []
+                        for target_problem in targets:
+                            # Use the target problem's .objective() call to generate an evaluation
                             if not args.skip_evals:
-                                objective = target_problem.objective(sample_point)
+                                print(f"Eval {eval_master+1}/{args.max_evals}")
+                            # Determine objective and search_equals
+                            if exhaust is None:
+                                search_equals = tuple(row[1].values[1:1+n_params].tolist()+[row[1].values[0]])
+                                if not args.skip_evals:
+                                    objective = target_problem.objective(sample_point)
+                                else:
+                                    objective = 1
                             else:
-                                objective = 1
-                        else:
-                            # Use lookup in exhaust to find the objective!
-                            search_equals = tuple(row[1].values[1:1+n_params].tolist())
-                            n_matching_columns = (exhaust[param_names].astype(str) == search_equals).sum(1)
-                            full_match_idx = np.where(n_matching_columns == n_params)[0]
-                            if len(full_match_idx) == 0:
-                                raise ValueError(f"Failed to find tuple {list(search_equals)} in '--all-file' data")
-                            objective = exhaust.iloc[full_match_idx]['objective'].values[0]
-                            # Add problem size back into search_equals
-                            search_equals = tuple(list(search_equals)+[row[1].values[0]])
-                            print(f"All file rank: {full_match_idx[0]} / {len(exhaust)}")
-                        if speed is None:
-                            evals_infer.append(objective)
-                        else:
-                            evals_infer.append(speed / objective)
-                        #print(target_problem.name, sample_point, evals_infer[-1])
-                        now = time.time()
-                        elapsed = now - time_start
-                        if ss == []:
-                            ss = [sample_point[k] for k in param_names]
-                            ss += [evals_infer[-1]]+[sample_point_val[-1]]
-                            ss += [elapsed]
-                        else:
-                            # Append new target data to the CSV row
-                            ss2 = [evals_infer[-1]]+[sample_point_val[-1]]
-                            ss2 += [elapsed]
-                            ss.extend(ss2)
-                        # Basically: problem parameters, np.log(time), problem_class
-                        evaluated = list(search_equals)
-                        # Insert runtime before the problem class size
-                        if args.no_log_objective:
-                            evaluated.append(float(evals_infer[-1]))
-                        else:
-                            evaluated.append(float(np.log(evals_infer[-1])))
-                        # Add record into dataset
-                        data.loc[max(data.index)+1] = evaluated
-                    # Record in CSV and update iteration
-                    csvwriter.writerow(ss)
-                    csvfile.flush()
-                    eval_update += 1
-                    eval_master += 1
-                    # Quit when out of evaluations (no final refit check needed)
-                    if eval_master >= args.max_evals:
+                                # Use lookup in exhaust to find the objective!
+                                search_equals = tuple(row[1].values[1:1+n_params].tolist())
+                                n_matching_columns = (exhaust[param_names].astype(str) == search_equals).sum(1)
+                                full_match_idx = np.where(n_matching_columns == n_params)[0]
+                                if len(full_match_idx) == 0:
+                                    raise ValueError(f"Failed to find tuple {list(search_equals)} in '--all-file' data")
+                                objective = exhaust.iloc[full_match_idx]['objective'].values[0]
+                                # Add problem size back into search_equals
+                                search_equals = tuple(list(search_equals)+[row[1].values[0]])
+                                print(f"All file rank: {full_match_idx[0]} / {len(exhaust)}")
+                            if speed is None:
+                                evals_infer.append(objective)
+                            else:
+                                evals_infer.append(speed / objective)
+                            #print(target_problem.name, sample_point, evals_infer[-1])
+                            now = time.time()
+                            elapsed = now - time_start
+                            if ss == []:
+                                ss = [sample_point[k] for k in param_names]
+                                ss += [evals_infer[-1]]+[sample_point_val[-1]]
+                                ss += [elapsed]
+                            else:
+                                # Append new target data to the CSV row
+                                ss2 = [evals_infer[-1]]+[sample_point_val[-1]]
+                                ss2 += [elapsed]
+                                ss.extend(ss2)
+                            # Basically: problem parameters, np.log(time), problem_class
+                            evaluated = list(search_equals)
+                            # Insert runtime before the problem class size
+                            if args.no_log_objective:
+                                evaluated.append(float(evals_infer[-1]))
+                            else:
+                                evaluated.append(float(np.log(evals_infer[-1])))
+                            # Add record into dataset
+                            data.loc[max(data.index)+1] = evaluated
+                        # Record in CSV and update iteration
+                        csvwriter.writerow(ss)
+                        csvfile.flush()
+                        eval_update += 1
+                        eval_master += 1
+                        # Quit when out of evaluations (no final refit check needed)
+                        if eval_master >= args.max_evals:
+                            stop = True
+                            break
+                        # Important to run refit AFTER at least one evaluation is done, else we
+                        # infinite loop when args.n_refit=0 (never)
+                        if eval_update == args.n_refit:
+                            # update model
+                            if model is not None:
+                                print("REFIT")
+                                warnings.simplefilter("ignore")
+                                model.fit(data)
+                                warnings.simplefilter('default')
+                            stop = True
+                            break
+                    if args.n_refit == 0:
                         stop = True
-                        break
-                    # Important to run refit AFTER at least one evaluation is done, else we
-                    # infinite loop when args.n_refit=0 (never)
-                    if eval_update == args.n_refit:
-                        # update model
-                        if model is not None:
-                            print("REFIT")
-                            warnings.simplefilter("ignore")
-                            model.fit(data)
-                            warnings.simplefilter('default')
-                        stop = True
-                        break
-                if args.n_refit == 0:
-                    stop = True
-            # AFTER exhausting the batch, show the generative statistics
-            print(f"Generate: {EFFICIENCY['generated']} | ",end='')
-            print(f"REJECT: {sum(EFFICIENCY['rejections'].values())} | ",end='')
-            print(f"RATIO: {EFFICIENCY['generated']/sum(EFFICIENCY['rejections'].values())}")
-            print(EFFICIENCY['rejections'])
-            print(EFFICIENCY['durations'])
-    csvfile.close()
+                # AFTER exhausting the batch, show the generative statistics
+                suppwriter.writerow([trial, EFFICIENCY['generated'], sum(EFFICIENCY['rejections'].values())]+
+                                     list(EFFICIENCY['rejections'].values())+list(EFFICIENCY['durations'].values()))
+                trial += 1
+                print(f"Generate: {EFFICIENCY['generated']} | ",end='')
+                print(f"REJECT: {sum(EFFICIENCY['rejections'].values())} | ",end='')
+                print(f"RATIO: {EFFICIENCY['generated']/sum(EFFICIENCY['rejections'].values())}")
+                print(EFFICIENCY['rejections'])
+                print(EFFICIENCY['durations'])
+        csvfile.close()
 
 def main(args=None):
     args = parse(build(), args)
