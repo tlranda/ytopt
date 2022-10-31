@@ -88,6 +88,8 @@ def param_type(k, problem):
             v = 'str'
     if v == 'integer':
         v = 'int64'
+    if v == 'str':
+        v = 'O'
     return v
 
 def close_enough(frame, rows, column, target, criterion):
@@ -107,9 +109,14 @@ def close_enough(frame, rows, column, target, criterion):
     return possible.loc[dists].reset_index(drop=True)
 
 def sample_approximate_conditions(sdv_model, model, conditions, criterion, param_names):
+    rejections = {}
+    duration = {}
     # If model supports conditional sampling, just utilize that
     if conditional_sampling_support[sdv_model]:
-        return model.sample_conditions(conditions), 0
+        duration['sample'] = time.time()
+        samples = model.sample_conditions(conditions)
+        duration['sample'] = time.time() - duration['sample']
+        return samples, rejections, duration
     # Otherwise, it can be hard to conditionally sample using reject sampling.
     # As such, we do our own reject strategy
     criterion = sorted(criterion)
@@ -117,33 +124,49 @@ def sample_approximate_conditions(sdv_model, model, conditions, criterion, param
     selected = []
     prev_len = -1
     cur_len = 0
-    rejected = 0
+    duration['sample'] = 0
+    duration['external'] = 0
     # Use lack of change as indication that no additional rows could be found
     while prev_len < requested_rows and cur_len != prev_len:
         prev_len = cur_len
+        sample_time = time.time()
         samples = model.sample(num_rows=requested_rows, randomize_samples=False)
+        duration['sample'] += time.time() - sample_time
+        prune_time = time.time()
         candidate = []
         for cond in conditions:
             n_rows = cond.get_num_rows()
             for (col, target) in cond.get_column_values().items():
                 candidate.append(close_enough(samples, n_rows, col, target, criterion))
                 # Difference of length between samples::candidate[-1] == closeness trimming
-                rejected += len(samples)-len(candidate[-1])
+                if 'closeness' in rejections.keys():
+                    rejections['closeness'] += len(samples)-len(candidate[-1])
+                else:
+                    rejections['closeness'] = len(samples)-len(candidate[-1])
         # Difference here represents redundancy in sampling == duplicate trimming
-        rejected += sum([len(_) for _ in candidate]) # Prepare difference
+        if 'dup_samples' in rejections.keys():
+            rejections['dup_samples'] += sum([len(_) for _ in candidate]) # Prepare difference
+        else:
+            rejections['dup_samples'] = sum([len(_) for _ in candidate])
         candidate = pd.concat(candidate).drop_duplicates(subset=param_names)
-        rejected -= len(candidate) # Correct difference magnitude after drop-duplicates
+        duration['external'] += time.time() - prune_time
+        rejections['dup_samples'] -= len(candidate) # Correct difference magnitude after drop-dup_samples
         selected.append(candidate)
         cur_len = sum(map(len, selected))
     # Difference here represents ADDITIONAL redundancy in sampling == duplicate trimming pt 2
-    rejected += sum([len(_) for _ in selected]) # Prepare difference
+    if 'dup_batch' in rejections.keys():
+        rejections['dup_batch'] += sum([len(_) for _ in selected]) # Prepare difference
+    else:
+        rejections['dup_batch'] = sum([len(_) for _ in selected])
+    prune_time = time.time()
     selected = pd.concat(selected).drop_duplicates(subset=param_names)
-    rejected -= len(selected) # Correct difference magnitude after drop-duplicates
+    duration['external'] += time.time() - prune_time
+    rejections['dup_batch'] -= len(selected) # Correct difference magnitude after drop-duplicates
     # FORCE conditions to be held in this data
     for cond in conditions:
         for (col, target) in cond.get_column_values().items():
             selected[col] = target
-    return selected, rejected
+    return selected, rejections, duration
 
 
 def csv_to_eval(frame, size):
@@ -350,9 +373,11 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
         else:
             resume_utilized = True
         time_start = time.time()
-        EFFICIENCY = {'generated': 0, 'rejected': 0}
+        EFFICIENCY = {'generated': 0, 'rejections': {}, 'durations': {}}
         dup_cols = param_names + ['input']
         while eval_master < args.max_evals:
+            rejections = {}
+            durations = {}
             # Generate prospective points
             if args.model != 'random':
                 # Some SDV models don't realllllly support the kind of conditional sampling we need
@@ -360,8 +385,8 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
                 # until SDV fully supports conditional sampling for those models
                 # For any model where SDV has conditional sampling support, this SHOULD utilize SDV's
                 # real conditional sampling and bypass the approximation entirely
-                ss1, n_reject = sample_approximate_conditions(args.model, model, conditions,
-                                                              sorted(criterion), param_names)
+                ss1, rejections, durations = sample_approximate_conditions(args.model, model, conditions,
+                                                                           sorted(criterion), param_names)
                 for col in param_names:
                     ss1[col] = ss1[col].astype(str)
             else:
@@ -369,6 +394,7 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
                 columns = ['input']+param_names+['runtime']
                 dtypes = [(k,param_type(k, targets[0])) for k in columns]
                 random_data = []
+                durations['sample'] = time.time()
                 for idx, cond in enumerate(conditions):
                     for _ in range(cond.num_rows):
                         # Generate a random valid sample in the parameter space
@@ -378,15 +404,13 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
                         inference = 1.0
                         random_data.append(tuple([cond.column_values['input']]+random_params+[inference]))
                 ss1 = np.array(random_data, dtype=dtypes)
-                n_reject = 0
                 ss1 = pd.DataFrame(ss1, columns=columns)
+                durations['sample'] = time.time() - durations['sample']
                 for col, dtype in zip(ss1.columns, dtypes):
                     if dtype[1] == 'str':
                         ss1[col] = ss1[col].astype('string')
             # Don't evaluate the exact same parameter configuration multiple times in a fitting round
-            #import pdb
-            #pdb.set_trace()
-            n_reject += len(ss1) # Pre-add FULL set to see what survives this round of dropping
+            rejections['prior_consideration'] = len(ss1) # Pre-add FULL set to see what survives this round of dropping
             ss1 = ss1.drop_duplicates(subset=param_names, keep="first")
             # Drop generated values that have already been evaluated
             # STACK known / evaluated values with new predictions (include runtime columns but we won't compare on them)
@@ -395,9 +419,18 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
             switch = len(data)
             # Include the stacked values (after switch) that are NOT duplicates
             ss1 = stacked.iloc[switch:][~stacked.duplicated(subset=dup_cols).iloc[switch:].values]
-            n_reject -= len(ss1) # Adjust after the fact
-            EFFICIENCY['generated'] += len(ss1)
-            EFFICIENCY['rejected'] += n_reject
+            rejections['prior_consideration'] -= len(ss1) # Subtract the ones that remained new
+            EFFICIENCY['generated'] += len(ss1) # ACTUALLY USEFUL RUNNING COUNT
+            for key, value in rejections.items():
+                if key not in EFFICIENCY['rejections'].keys():
+                    EFFICIENCY['rejections'][key] = value
+                else:
+                    EFFICIENCY['rejections'][key] += value
+            for key, value in durations.items():
+                if key not in EFFICIENCY['durations'].keys():
+                    EFFICIENCY['durations'][key] = value
+                else:
+                    EFFICIENCY['durations'][key] += value
             ss = ss1.sort_values(by='runtime')#, ascending=False)
             new_sdv = ss[:args.max_evals]
             eval_update = 0 if resume_utilized else len(evals_infer)-args.resume_fit
@@ -411,10 +444,8 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
                     ss = []
                     for target_problem in targets:
                         # Use the target problem's .objective() call to generate an evaluation
-                        print(f"Eval {eval_master+1}/{args.max_evals}")
-                        print(f"Generate: {EFFICIENCY['generated']} | ",end='')
-                        print(f"REJECT: {EFFICIENCY['rejected']} | ",end='')
-                        print(f"RATIO: {EFFICIENCY['generated']/sum(EFFICIENCY.values())}")
+                        if not args.skip_evals:
+                            print(f"Eval {eval_master+1}/{args.max_evals}")
                         # Determine objective and search_equals
                         if exhaust is None:
                             search_equals = tuple(row[1].values[1:1+n_params].tolist()+[row[1].values[0]])
@@ -478,8 +509,14 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
                             warnings.simplefilter('default')
                         stop = True
                         break
-                if args.unique or args.n_refit == 0:
+                if args.n_refit == 0:
                     stop = True
+            # AFTER exhausting the batch, show the generative statistics
+            print(f"Generate: {EFFICIENCY['generated']} | ",end='')
+            print(f"REJECT: {sum(EFFICIENCY['rejections'].values())} | ",end='')
+            print(f"RATIO: {EFFICIENCY['generated']/sum(EFFICIENCY['rejections'].values())}")
+            print(EFFICIENCY['rejections'])
+            print(EFFICIENCY['durations'])
     csvfile.close()
 
 def main(args=None):

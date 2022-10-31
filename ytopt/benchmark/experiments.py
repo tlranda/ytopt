@@ -247,6 +247,23 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                     calls += info[0]
                     bluffs += info[1]
                     verifications += 1
+    elif key == 'REJECTION':
+        problem_prefix = sect['problem_prefix']
+        for target in sect['targets']:
+            target = problem_prefix+'.'+target
+            for model in sect['models']:
+                for loopct, seed in enumerate(sect['seeds']):
+                    if parallel and loopct % args.n_parallel != args.parallel_id:
+                        continue
+                    outfile = f"REJECT_{model}_{target}_{seed}"
+                    invoke = f"python -m ytopt.benchmark.base_online_tl --max-evals {sect['evals']} --n-refit 0 "+\
+                             f"--seed {seed} --top {sect['top']} --targets {target} --model {model} --inputs "+\
+                             f"{' '.join([problem_prefix+'.'+i for i in sect['inputs']])} --skip-evals "+\
+                             f"--output-prefix {outfile}"
+                    info = verify_output(outfile, runtype, invoke, expect, args)
+                    calls += info[0]
+                    bluffs += info[1]
+                    verifications += 1
     # PLOT TYPES
     elif key == 'COMPETITIVE':
         experiment_dir = args.backup if sect['use_backup'] and args.backup is not None else './'
