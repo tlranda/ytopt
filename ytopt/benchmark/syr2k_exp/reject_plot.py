@@ -1,5 +1,6 @@
 import matplotlib, matplotlib.pyplot as plt, pandas as pd, numpy as np, argparse, inspect, os
 
+# Fetch plottable methods for use as arguments and their reference to method object
 def get_methods():
     ignore_methods = ['parse', 'main', 'load', 'finalize']
     methods = dict((k,v) for (k,v) in globals().items() if k not in ignore_methods and callable(v) and 'args' in inspect.signature(v).parameters)
@@ -13,6 +14,7 @@ def build():
     prs.add_argument('--name', type=str, help="Name suggestion for generated image files")
     prs.add_argument('--space', type=float, default=0, help="Horizontal space between bars")
     prs.add_argument('--xlim', type=float, default=None, help="Limit max x range")
+    prs.add_argument('--reject-only', action='store_true', help="Do not include accepted as a configuration type for '--call reject'")
     return prs
 
 def parse(prs, args=None):
@@ -20,29 +22,34 @@ def parse(prs, args=None):
         args = prs.parse_args()
     return args
 
+# Data loading here is just a dictionary of names: CSV representations
 def load(args):
     return dict((k,pd.read_csv(k)) for k in args.files)
 
+# Make a cleaner filename for legends etc
 def name_cleaner(name):
     name = os.path.basename(name)
+    # Expected format: REJECT_{METHOD}_problem.{SIZE}_{SEED}.csv
     fields = name.split('_')
     fields[2] = fields[2].split('.')[1]
     name = '_'.join([fields[_] for _ in [1,2]])
     return name
 
+# Plot time spent sampling (ONLY SAMPLING) vs #sampling iterations
 def iter_time(data, args):
     info = {}
     fig, ax = plt.subplots()
     for name, sequence in data.items():
         nicename = name_cleaner(name)
-        line1 = ax.plot(1+sequence.trial, sequence['sample.1'], marker=',', label=f"{nicename} 1000 Samples")
+        line1 = ax.plot(1+sequence.trial, sequence['sample.1'], marker='.', label=f"{nicename} 1000 Samples")
         #line2 = ax.plot(1+sequence.trial, sequence['sample.1']+sequence['external'], marker=',', linestyle='--', color=line1[0].get_color())
     info['min_x'] = 1
     ax.set_yscale('log')
-    ax.set_ylabel('Logscale Time')
+    ax.set_ylabel('Logscale Time (seconds)')
     ax.set_xlabel('# Sampling Iterations')
     return 'iter_time.png', info, fig, ax
 
+# Plot #accepted samples vs #sampling iterations [[DROPPED FIGURE CONCEPT: Nondescriptive for things worth talking about]]
 def generate(data, args):
     info = {}
     fig, ax = plt.subplots()
@@ -58,52 +65,78 @@ def generate(data, args):
     ax.set_xlabel('# Sampling Iterations')
     return 'generate.png', info, fig, ax
 
+# Plot #rejected samples (by reason) vs #sampling iterations
 def reject(data, args):
     info = {}
     fig, ax = plt.subplots()
     nbars = len(list(data.keys()))
     max_len = 0
-    barkeys = ['close','sample', 'batch', 'prior']
-    hatches = [None, 'XX', '--', 'OO']
+    barlookups = {'Accepted': ['generate'],
+                  'Repeated Configuration': ['sample', 'batch', 'prior'],
+                  'Ill-Conditioned': ['close'],
+                 }
+    if args.reject_only:
+        del barlookups['Accepted']
+    hatches = [None, 'OO', 'XX']
+    #barkeys = ['close','sample', 'batch', 'prior']
+    #hatches = [None, 'XX', '--', 'OO']
     for idx, (name, sequence) in enumerate(data.items()):
         nicename = name_cleaner(name)
+        nicename, SIZE = nicename.split('_')
         bottom = [0 for _ in sequence.trial]
         if len(sequence.trial) > 0:
             max_len = max(max_len, max(1+sequence.trial))
         color = None
-        for key, hatch in zip(barkeys, hatches):
-            if key != 'close':
-                label = None
-            else:
-                label = f"{nicename}"
-            bar = ax.bar(1+idx+((nbars+args.space)*sequence.trial), sequence[key], bottom=bottom, label=label, color=color, hatch=hatch, edgecolor='black')
+        #for key, hatch in zip(barkeys, hatches):
+        for ((key, keylist), hatch) in zip(barlookups.items(), hatches):
+            # Imaginary sequence for legend
+            if color is None:
+                series_color = ax.bar([1],[1], zorder=-1, label=nicename, edgecolor='black', width=1/8)
+                color = series_color.patches[0].get_facecolor()
+            sequence_stack = sequence[keylist[0]]
+            for seq in keylist[1:]:
+                sequence_stack += sequence[seq]
+            # DON'T PLOT CUMULATIVELY -- PLOT DIFFERENCES
+            if len(sequence_stack) > 1:
+                sequence_stack = [sequence_stack[0]]+[j-i for (i,j) in zip(sequence_stack[:-1], sequence_stack[1:])]
+            bar = ax.bar(1+idx+((nbars+args.space)*sequence.trial), sequence_stack, bottom=bottom, color=color, hatch=hatch, edgecolor='black')
             if len(sequence.trial) > 0:
-                bottom = [x+y for (x,y) in zip(bottom, sequence[key])]
-                color = bar.patches[0].get_facecolor()
+                bottom = np.asarray(sequence_stack) + bottom
     info['min_x'] = 0
     # This legend gets deleted so add it back afterwards
-    l1 = ax.legend() # All of the line infos
+    l1 = ax.legend(loc='upper right') # All of the line infos
     # Hatch infos
     bars = []
-    for key, hatch in zip(barkeys, hatches):
+    for key, hatch in zip(barlookups.keys(), hatches):
         bars.append(matplotlib.patches.Patch(facecolor='white', edgecolor='black', label=key, hatch=hatch))
-    l2 = ax.legend(handles=bars, loc='upper left')
+    # Put order backwards to match stack order in the plot
+    bars.reverse()
+    l2 = ax.legend(handles=bars, loc='lower right')
     ax.add_artist(l1) # Slap it back on there
     info['pre_legend'] = True
     ax.set_yscale('log')
-    ax.set_ylabel('# Rejected Configurations')
+    if args.reject_only:
+        ax.set_ylabel('# Rejected Configurations')
+    else:
+        ax.set_ylabel('# Configurations')
     ax.set_xlabel('# Sampling Iterations')
     ax.set_xticks([1+nbars//2+((nbars+args.space)*_) for _ in range(max_len)], [_ for _ in range(1,max_len+1)])
+    ax.set_title(f'Generated Configurations for SYR2K {SIZE}')
     return 'reject.png', info, fig, ax
 
+# CSV FORMAT
 # trial, generate, reject, close, sample, batch, prior, sample.1, external
 
+# Common operations to finalize the figure
 def finalize(names, infos, figures, axes, args):
     for name, info, fig, ax in zip(names, infos, figures, axes):
+        # INFO used to identify if legend applied or not
         if 'pre_legend' not in info.keys() or not info['pre_legend']:
             ax.legend()
+        # ZOOM
         if args.xlim is not None:
             ax.set_xlim([info['min_x'], args.xlim])
+        # SAVE IMAGE FILE
         name = name.rsplit('.',1)
         if args.name != '':
             name[0] += args.name
@@ -113,6 +146,7 @@ def finalize(names, infos, figures, axes, args):
 def main(args=None):
     if args is None:
         args = parse(build())
+    # Load once, drive calls while collating returns, then mass-finalize
     methods = get_methods()
     data = load(args)
     names, info, figures, axes = [], [], [], []
