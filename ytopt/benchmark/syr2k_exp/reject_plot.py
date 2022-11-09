@@ -104,7 +104,7 @@ def reject(data, args):
                 bottom = np.asarray(sequence_stack) + bottom
     info['min_x'] = 0
     # This legend gets deleted so add it back afterwards
-    l1 = ax.legend(loc='upper right') # All of the line infos
+    l1 = ax.legend(loc='lower left') # All of the line infos
     # Hatch infos
     bars = []
     for key, hatch in zip(barlookups.keys(), hatches):
