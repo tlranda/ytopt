@@ -95,5 +95,5 @@ lookup_ival = {1: ("NN", "MICRO"), 2: ("N", "TINY"), 3: ("S", "SMALL"), 4: ("SM"
                5: ("M", "MEDIUM"), 6: ("ML", "ML"), 7: ("L", "LARGE"), 8: ("XL", "EXTRALARGE"),
                9: ("H", "HUGE"), 10: ("XH", "EXTRAHUGE")}
 
-__getattr__ = ecp_problem_builder(lookup_ival, input_space, HERE, name="SW4Lite_Problem", plopper_class=SW4Lite_Plopper)
+__getattr__ = ecp_problem_builder(lookup_ival, input_space, HERE, name="SW4Lite_Problem", plopper_class=SW4Lite_Plopper, sourcefile=HERE+'/mmp_new.C')
 

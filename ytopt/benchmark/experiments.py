@@ -152,7 +152,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                     invoke = "python -m ytopt.benchmark.base_online_tl --n-refit 0 "+\
                              f"--max-evals {sect['evals']} --seed {seed} --top {sect['top']} "+\
                              f"--inputs {' '.join([problem_prefix+'.'+i for i in sect['inputs']])} "+\
-                             f"--targets {problem_prefix}.{target} --model {model} --unique --no-log-obj "+\
+                             f"--targets {problem_prefix}.{target} --model {model} --no-log-obj "+\
                              f"--output-prefix {experiment}_NO_REFIT_{model}_{target}_{seed} "+\
                              f"--resume {resume}"
                     info = verify_output(resume, runtype, invoke, expect, args)
@@ -176,7 +176,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                     invoke = f"python -m ytopt.benchmark.base_online_tl --n-refit {refit} "+\
                              f"--max-evals {sect['evals']} --seed {seed} --top {top} "+\
                              f"--inputs {' '.join([problem_prefix+'.'+i for i in inputs])} "+\
-                             f"--targets {problem_prefix}.{target} --model {model} --unique --no-log-obj "+\
+                             f"--targets {problem_prefix}.{target} --model {model} --no-log-obj "+\
                              f"--output-prefix {resume[:-8]} --resume {resume}"
                     info = verify_output(resume, runtype, invoke, expect, args)
                     calls += info[0]
@@ -194,7 +194,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                     invoke = f"python -m ytopt.benchmark.base_online_tl --n-refit {sect['refits']} "+\
                              f"--max-evals {sect['evals']} --seed {seed} --top {sect['top']} "+\
                              f"--inputs {' '.join([problem_prefix+'.'+i for i in sect['inputs']])} "+\
-                             f"--targets {problem_prefix}.{target} --model {model} --unique --no-log-obj "+\
+                             f"--targets {problem_prefix}.{target} --model {model} --no-log-obj "+\
                              f"--output-prefix {experiment}_REFIT_{sect['refits']}_{model}_{target}_{seed} "+\
                              f"--resume {resume} --resume-fit -1"
                     info = verify_output(resume, runtype, invoke, expect, args)
@@ -242,7 +242,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                     invoke = f"python -m ytopt.benchmark.inference_test --n-refit {sect['refits']} --max-evals "+\
                              f"{sect['evals']} --seed {seed} --top {sect['top']} --inputs "+\
                              f"{' '.join([problem_prefix+'.'+_ for _ in sect['inputs']])} "+\
-                             f"--target {problem_prefix}.{target} --model {model} --unique --no-log-obj "
+                             f"--target {problem_prefix}.{target} --model {model} --no-log-obj "
                     info = verify_output(f"inference_{experiment.lstrip('_')}.csv", runtype, invoke, expect, args)
                     calls += info[0]
                     bluffs += info[1]
