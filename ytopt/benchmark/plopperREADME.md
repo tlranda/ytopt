@@ -51,7 +51,7 @@ By default, uses the `time` library in Python to time the subprocess execution t
 If the process's stdout or stderr produce a float-interpretable value, this becomes the objective value instead.
 You can override the `getTime()` method to determine what overriding objective value is used.
 ```python
-def getTime(self, process, dictVal, *args, **kwargs):
+def getTime(self, process: subprocess.CompletedProcess, dictVal, *args, **kwargs):
     # Return None to default to Python's timing of the subprocess
     # Return another value to override the objective
 ```
