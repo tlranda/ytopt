@@ -37,6 +37,7 @@ using namespace std;
 
 int main( int argc, char** argv )
 {
+   //MPI_Init(&argc, &argv);
    int myRank;
    double  time_start, time_end;
    MPI_Init(&argc, &argv);
