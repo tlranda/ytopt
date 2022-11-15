@@ -114,7 +114,8 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
     verifications = 0
     # DATA COLLECTION TYPES
     if key == 'OFFLINE':
-        for loopct, problem in enumerate(sect['sizes']):
+        nontargets = [_ for _ in sect['sizes'] if _ not in sect['targets']]
+        for loopct, problem in enumerate(nontargets):
             if parallel and loopct % args.n_parallel != args.parallel_id:
                 continue
             out_name = f"results_rf_{problem.lower()}_{experiment}.csv"
