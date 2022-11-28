@@ -258,6 +258,7 @@ class Evaluator:
         except IOError:
             # Nothing can be done
             print(f"! warning: evaluator cannot resume {csv_name}: File Not Found")
+            print(f"Attempted to read from {os.getcwd()}")
             return
         self.cols = csv_rows[0]
         csv_rows = csv_rows[1:]
