@@ -449,7 +449,7 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
                 stop = False
                 while not stop:
                     for row in new_sdv.iterrows():
-                        sample_point_val = row[1].values[1:]
+                        sample_point_val = row[1][param_names+['input','runtime']]
                         sample_point = dict((pp,vv) for (pp,vv) in zip(param_names, sample_point_val))
                         ss = []
                         for target_problem in targets:
@@ -458,21 +458,21 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
                                 print(f"Eval {eval_master+1}/{args.max_evals}")
                             # Determine objective and search_equals
                             if exhaust is None:
-                                search_equals = tuple(row[1].values[1:1+n_params].tolist()+[row[1].values[0]])
+                                search_equals = tuple(row[1][param_names+['input']].tolist())
                                 if not args.skip_evals:
                                     objective = target_problem.objective(sample_point)
                                 else:
                                     objective = 1
                             else:
                                 # Use lookup in exhaust to find the objective!
-                                search_equals = tuple(row[1].values[1:1+n_params].tolist())
+                                search_equals = tuple(row[1][param_names].tolist())
                                 n_matching_columns = (exhaust[param_names].astype(str) == search_equals).sum(1)
                                 full_match_idx = np.where(n_matching_columns == n_params)[0]
                                 if len(full_match_idx) == 0:
                                     raise ValueError(f"Failed to find tuple {list(search_equals)} in '--all-file' data")
                                 objective = exhaust.iloc[full_match_idx]['objective'].values[0]
                                 # Add problem size back into search_equals
-                                search_equals = tuple(list(search_equals)+[row[1].values[0]])
+                                search_equals = tuple(list(search_equals)+[row[1]['input']])
                                 print(f"All file rank: {full_match_idx[0]} / {len(exhaust)}")
                             if speed is None:
                                 evals_infer.append(objective)
@@ -490,7 +490,7 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
                                 ss2 = [evals_infer[-1]]+[sample_point_val[-1]]
                                 ss2 += [elapsed]
                                 ss.extend(ss2)
-                            # Basically: problem parameters, np.log(time), problem_class
+                            # Data tracks problem parameters + time (perhaps log time instead)
                             evaluated = list(search_equals)
                             # Insert runtime before the problem class size
                             if args.no_log_objective:
@@ -500,6 +500,7 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
                             # Add record into dataset
                             data.loc[max(data.index)+1] = evaluated
                         # Record in CSV and update iteration
+                        # CSV records problem parameters, time (perhaps log), predicted time (perhaps predicting log), elapsed time
                         csvwriter.writerow(ss)
                         csvfile.flush()
                         eval_update += 1
