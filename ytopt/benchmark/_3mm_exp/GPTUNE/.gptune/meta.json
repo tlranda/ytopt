@@ -1,0 +1,13 @@
+{
+  "tuning_problem_name": "3mm",
+  "machine_configuration": {
+    "machine_name": "swing",
+    "intel": {
+      "nodes": 1,
+      "cores": 128
+    }
+  },
+  "software_configuration": {},
+  "loadable_machine_configurations": {},
+  "loadable_software_configurations": {}
+}
