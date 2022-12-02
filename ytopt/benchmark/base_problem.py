@@ -58,7 +58,8 @@ class BaseProblem(setWhenDefined):
     def __init__(self, input_space: Space = None, parameter_space: Space = None,
                  output_space: Space = None, problem_params: dict = None, problem_class: int = None,
                  plopper: object = None, constraints = None, models = None, name = None,
-                 constants = None, silent = False, use_capital_params = False, **kwargs):
+                 constants = None, silent = False, use_capital_params = False,
+                 returnmode = 'ytopt', **kwargs):
         # Load problem attribute defaults when available and otherwise required (and None)
         self.overrideSelfAttrs()
         if self.name is None:
@@ -140,7 +141,12 @@ class BaseProblem(setWhenDefined):
                 print(f"OUTPUT: {final}")
             else:
                 print(f"OUTPUT: {result} --> {final}")
-        return final
+        if self.returnmode == 'GPTune':
+            return [final]
+        elif self.returnmode == 'ytopt':
+            return final
+        else:
+            raise ValueError(f"Unknown objective return mode {self.returnmode}!")
 
     @staticmethod
     def configure_space(parameterization, seed=None):
