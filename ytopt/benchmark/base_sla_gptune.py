@@ -10,13 +10,7 @@ from GPTune.database import GetMachineConfiguration
 
 import openturns as ot
 import argparse, os, sys
-HERE = os.path.dirname(os.path.abspath(__file__))
-# This will also need to be changed based on the benchmark
-
 from ytopt.benchmark.base_problem import ecp_problem_builder, polybench_problem_builder
-# This should be dynamically loaded based on benchmark eventually
-sys.path.insert(0, os.path.dirname(HERE))
-from problem import input_space, lookup_ival
 
 def build():
     parser = argparse.ArgumentParser()
@@ -32,6 +26,36 @@ def parse(parser, args=None):
         args = parser.parse_args()
     return args
 
+def localized_load(benchmark):
+    real_names = [_ for _ in os.listdir() if os.path.isdir(_) and _.endswith('_exp')]
+    look_names = [_.lstrip('_')[:-4] for _ in real_names]
+    try:
+        bench_dir = real_names[look_names.index(benchmark)]
+    except ValueError:
+        raise ValueError(f"Could not locate {benchmark} -- available: {look_names}")
+    HERE = os.path.dirname(os.path.abspath(__file__))+'/'+bench_dir
+    sys.path.insert(0, HERE)
+    from problem import input_space, lookup_ival
+    kwargs = {}
+    if benchmark == 'sw4lite':
+        from problem import SW4Lite_Plopper
+        kwargs.update({'plopper_class': SW4Lite_Plopper,
+                       'sourcefile': HERE+'/mmp_new.C',})
+    elif benchmark == 'amg':
+        from problem import AMG_Plopper
+        kwargs.update({'plopper_class': AMG_Plopper,})
+    elif benchmark == 'xsbench':
+        from problem import XSBench_Plopper
+        kwargs.update({'plopper_class': XSBench_Plopper,})
+    elif benchmark == 'rsbench':
+        from problem import RSBench_Plopper
+        kwargs.update({'plopper_class': RSBench_Plopper,})
+    elif benchmark == 'floyd_warshall':
+        from problem import Floyd_Warshall_Plopper
+        kwargs.update({'plopper_class': Floyd_Warshall_Plopper,})
+    os.chdir(HERE)
+    return HERE, input_space, lookup_ival, kwargs
+
 def main():
     args = parse(build())
     ot.RandomGenerator.SetSeed(args.seed)
@@ -42,8 +66,11 @@ def main():
         problem_lookup = ecp_problem_builder
     else:
         raise ValueError(f"Unsupported problem builder {args.builder}")
-    problem_lookup = problem_lookup(lookup_ival, input_space, HERE, name=args.benchmark+"_Problem", returnmode='GPTune', selflog=HERE+'/results.csv')
+    HERE, input_space, lookup_ival, kwargs = localized_load(args.benchmark)
+    problem_lookup = problem_lookup(lookup_ival, input_space, HERE, name=args.benchmark+"_Problem", returnmode='GPTune', selflog=HERE+'/results.csv', **kwargs)
     my_problem = problem_lookup(args.size.upper())
+    import pdb
+    pdb.set_trace()
     objectives = my_problem.objective
     def seqchoice(obj):
         if hasattr(obj, 'sequence') and obj.sequence is not None:
