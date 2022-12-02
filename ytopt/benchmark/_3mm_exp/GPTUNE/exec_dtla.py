@@ -50,7 +50,7 @@ logging.getLogger('matplotlib.font_manager').disabled = True
 from autotune.search import *
 from autotune.space import *
 from autotune.problem import *
-from gptune_tl import * # import all
+from GPTune.gptune_tl import * # import all
 # from gptune import * # import all
 import openturns as ot
 import matplotlib.pyplot as plt
@@ -73,7 +73,7 @@ print ('time...now', Time_start)
 import random
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(1, os.path.dirname(HERE)+ '/plopper')
-from plopper import Plopper
+from plopper.plopper import Plopper
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 kernel_idx = dir_path.rfind('/')
