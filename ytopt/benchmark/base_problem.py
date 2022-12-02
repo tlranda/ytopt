@@ -1,4 +1,4 @@
-import numpy as np
+import numpy as np, pandas as pd
 from autotune import TuningProblem # Merge destination for BaseProblem
 from autotune.space import *
 from skopt.space import Real, Integer, Categorical
@@ -6,6 +6,8 @@ import ConfigSpace as CS
 import ConfigSpace.hyperparameters as CSH
 from sdv.constraints import Between
 import inspect
+import time
+import os
 from ytopt.benchmark.base_plopper import ECP_Plopper, Polybench_Plopper, Dummy_Plopper
 
 parameter_lookups = {'UniformInt': CSH.UniformIntegerHyperparameter,
@@ -59,7 +61,7 @@ class BaseProblem(setWhenDefined):
                  output_space: Space = None, problem_params: dict = None, problem_class: int = None,
                  plopper: object = None, constraints = None, models = None, name = None,
                  constants = None, silent = False, use_capital_params = False,
-                 returnmode = 'ytopt', **kwargs):
+                 returnmode = 'ytopt', selflog = None, **kwargs):
         # Load problem attribute defaults when available and otherwise required (and None)
         self.overrideSelfAttrs()
         if self.name is None:
@@ -92,6 +94,8 @@ class BaseProblem(setWhenDefined):
         self.params = list([k for k in self.problem_params.keys() if k not in added_keys])
         self.CAPITAL_PARAMS = [_.capitalize() for _ in self.params]
         self.n_params = len(self.params)
+        if returnmode == 'GPTune':
+            self.time_start = time.time()
 
     def seed(self, SEED):
         if self.input_space is not None:
@@ -132,6 +136,7 @@ class BaseProblem(setWhenDefined):
             result = self.plopper.findRuntime(x, self.CAPITAL_PARAMS, *args, **kwargs)
         else:
             result = self.plopper.findRuntime(x, self.params, *args, **kwargs)
+        time_stop = time.time()
         if hasattr(result, '__iter__'):
             final = self.condense_results(result)
         else:
@@ -141,6 +146,16 @@ class BaseProblem(setWhenDefined):
                 print(f"OUTPUT: {final}")
             else:
                 print(f"OUTPUT: {result} --> {final}")
+        if self.selflog is not None:
+            point['objective'] = final
+            point['elapsed_sec'] = time_stop - self.time_start
+            frame = pd.DataFrame(data=[point], columns=list(point.keys()))
+            if os.path.exists(self.selflog):
+                logs = pd.read_csv(self.selflog)
+                logs = logs.append(frame, ignore_index=True)
+            else:
+                logs = frame
+            logs.to_csv(self.selflog, index=False)
         if self.returnmode == 'GPTune':
             return [final]
         elif self.returnmode == 'ytopt':
@@ -224,7 +239,7 @@ def ecp_problem_builder(lookup, input_space_definition, there, default=None, nam
         categorical_cast = dict((p.lower(), 'str') for p in input_space_definition.get_hyperparameter_names())
         constraints = [Between(column='input', low=min(lookup.keys()), high=max(lookup.keys()))]
         dataset_lookup = lookup
-        def __init__(self, class_size, **kwargs):
+        def __init__(self, class_size, sourcefile='mmp.c', **kwargs):
             # Allow anything to be overridden by passing it in as top priority
             for k, v in original_kwargs.items():
                 kwargs.setdefault(k,v)
@@ -232,8 +247,11 @@ def ecp_problem_builder(lookup, input_space_definition, there, default=None, nam
                              'problem_class': class_size,
                              'dataset': class_size,
                              'sourcefile': there+"/mmp.c",
-                             'plopper': plopper_class(kwargs['sourcefile'], there, output_extension=".c"),
                             }
+            try:
+                expect_kwargs['plopper'] = plopper_class(kwargs['sourcefile'], there, output_extension=".c"),
+            except KeyError:
+                expect_kwargs['plopper'] = plopper_class(expect_kwargs['sourcefile'], there, output_extension=".c")
             for k, v in expect_kwargs.items():
                 kwargs.setdefault(k,v)
             super().__init__(**kwargs)
