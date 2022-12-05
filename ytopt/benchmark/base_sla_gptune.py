@@ -69,8 +69,6 @@ def main():
     HERE, input_space, lookup_ival, kwargs = localized_load(args.benchmark)
     problem_lookup = problem_lookup(lookup_ival, input_space, HERE, name=args.benchmark+"_Problem", returnmode='GPTune', selflog=HERE+'/results.csv', **kwargs)
     my_problem = problem_lookup(args.size.upper())
-    import pdb
-    pdb.set_trace()
     objectives = my_problem.objective
     def seqchoice(obj):
         if hasattr(obj, 'sequence') and obj.sequence is not None:
