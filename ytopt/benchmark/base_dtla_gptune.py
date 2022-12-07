@@ -262,6 +262,7 @@ def GPTune_TLA1_patched(self, Tnew, NS, normalized=False, max_frustrate=100, rej
         return (aprxopts, O, stats)
 
 def main():
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
     args = parse(build())
     ot.RandomGenerator.SetSeed(args.seed)
     np.random.seed(args.seed)

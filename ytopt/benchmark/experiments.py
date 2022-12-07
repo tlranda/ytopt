@@ -265,6 +265,19 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                     calls += info[0]
                     bluffs += info[1]
                     verifications += 1
+    elif key == 'GPTUNE':
+        for target in sect['targets']:
+            for loopct, seed in enumerate(sect['seeds']):
+                if parallel and loopct % args.n_parallel != args.parallel_id:
+                    continue
+                outfile = f"results_GPTune_{target}_{seed}.csv"
+                invoke = f"python -m ytopt.benchmark.base_dtla_gptune -benchmark {experiment.lstrip('_')} "+\
+                         f"-inputs {' '.join(['data/results_rf_'+i+'_'+experiment.lstrip('_')+'.csv' for i in sect['inputs']])} "+\
+                         f"-target {target} -nrun {sect['evals']} -seed {seed} -output {outfile}"
+                info = verify_output(outfile, runtype, invoke, expect, args)
+                calls += info[0]
+                bluffs += info[1]
+                verifications += 1
     # PLOT TYPES
     elif key == 'COMPETITIVE':
         experiment_dir = args.backup if sect['use_backup'] and args.backup is not None else './'
