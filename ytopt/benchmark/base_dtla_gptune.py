@@ -264,6 +264,7 @@ def GPTune_TLA1_patched(self, Tnew, NS, normalized=False, max_frustrate=100, rej
 def main():
     args = parse(build())
     ot.RandomGenerator.SetSeed(args.seed)
+    np.random.seed(args.seed)
 
     # Move into directory and fetch the relevant input space and problem description, perhaps other relevant
     # kwargs for the specified benchmark
