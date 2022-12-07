@@ -1,16 +1,16 @@
 from autotune.space import Space, Integer, Real
 from autotune.problem import TuningProblem
-from GPTune.gptune import GPTune, BuildSurrogateModel_tl
+from GPTune.gptune import GPTune
 from GPTune.computer import Computer
 from GPTune.data import Categoricalnorm, Data
 from GPTune.database import HistoryDB, GetMachineConfiguration
 from GPTune.options import Options
+from GPTune.model import GPy
 
 import openturns as ot
 import argparse, sys, os
-import pandas as pd, json, datetime, uuid
+import numpy as np, pandas as pd, uuid, time, copy
 from ytopt.benchmark.base_problem import ecp_problem_builder, polybench_problem_builder
-from pprint import pprint
 
 def build():
     parser = argparse.ArgumentParser()
@@ -20,6 +20,7 @@ def build():
     parser.add_argument('-nrun', type=int, default=2, help='Number of runs per task')
     parser.add_argument('-seed', type=int, default=1234, help='Set seed')
     parser.add_argument('-builder', choices=['polybench', 'ecp'], default='polybench', help='Problem builder')
+    parser.add_argument('-output', type=str, default="results.csv", help="Output CSV filename in the benchmark directory (default: results.csv)")
     return parser
 
 def parse(parser, args=None):
@@ -124,20 +125,6 @@ def csvs_to_gptune(fnames, tuning_metadata, lookup_ival):
             new_eval['evaluation_result'] = {'time': row['objective']}
             new_eval['evaluation_detail'] = {'time': {'evaluations': row['objective'],
                                                       'objective_scheme': 'average'}}
-            # Time data maybe not needed?
-            """
-            now = datetime.datetime.now()
-            new_eval['time']: {'tm_year': now.year,
-                               'tm_mon': now.month,
-                               'tm_mday': now.day,
-                               'tm_hour': now.hour,
-                               'tm_min': now.minute,
-                               'tm_sec': now.second,
-                               'tm_wday': now.weekday(),
-                               'tm_yday': now.toordinal() - datetime.date(now.year, 1, 1).toordinal() + 1,
-                               'tm_isdst': -1,
-                              }
-            """
             new_eval['uid'] = uuid.uuid4()
             gptune_dict['func_eval'].append(new_eval)
         dicts.append(gptune_dict)
@@ -152,6 +139,128 @@ def seqchoice(obj):
         return obj.choices
     raise ValueError(f"Object {obj} lacks or has NONE for sequences and choices")
 
+def GPTune_TLA1_patched(self, Tnew, NS, normalized=False, max_frustrate=100, reject_generate=1000):
+        print('\n\n\n------Starting TLA1 for task: ',Tnew)
+        stats = {
+            "time_total": 0,
+            "time_fun": 0
+        }
+        time_fun=0
+
+        t3=time.time_ns()
+        # Initialization
+        kwargs = copy.deepcopy(self.options)
+        ntso = len(self.data.I)
+        ntsn = len(Tnew)
+
+        if(self.data.O[0].shape[1]>1):
+            raise Exception("TLA1 only works for single-objective tuning")
+
+        PSopt =[]
+        for i in range(ntso):
+            PSopt.append(self.data.P[i][np.argmin(self.data.O[i])])
+        # YSopt = np.array([[self.data.O[k].min()] for k in range(ntso)])
+        MSopt = []
+
+        # Data may already be normalized -- only normalize UNNORMALIZED data
+        if normalized:
+            INorms = self.data.I
+        else:
+            # convert the task spaces to the normalized spaces
+            INorms=[]
+            for t in self.data.I:
+                INorm = self.problem.IS.transform(np.array(t, ndmin=2))[0]
+                INorms.append(INorm.reshape((-1, self.problem.DI)))
+            INorms = np.vstack([INorms[i] for i in range(ntso)]).reshape((ntso,self.problem.DI))
+
+        tmp=[]
+        for t in Tnew:
+            INorm = self.problem.IS.transform(np.array(t, ndmin=2))[0]
+            tmp.append(INorm.reshape((-1, self.problem.DI)))
+        InewNorms=np.vstack([tmp[i] for i in range(ntsn)]).reshape((ntsn,self.problem.DI))
+
+        if normalized:
+            PSoptNorms = PSopt
+        else:
+            # convert the parameter spaces to the normalized spaces
+            PSoptNorms = self.problem.PS.transform(PSopt)
+        columns = []
+        for j in range(self.problem.DP):
+            columns.append([])
+        for i in range(ntso):
+            for j in range(self.problem.DP):
+                columns[j].append(PSoptNorms[i][j])
+        PSoptNorms = []
+        for j in range(self.problem.DP):
+            PSoptNorms.append(np.asarray(columns[j]).reshape((ntso, -1)))
+
+        # Predict optimums of new tasks
+        stacks = []
+        meanvars = []
+        for k in range(self.problem.DP):
+            K = GPy.kern.RBF(input_dim=self.problem.DI)
+            M = GPy.models.GPRegression(INorms, PSoptNorms[k], K)
+            # M.optimize_restarts(num_restarts = 10, robust=True, verbose=False, parallel=False, num_processes=None, messages="False")
+            M.optimize_restarts(num_restarts = kwargs['model_restarts'], robust=True, verbose = kwargs['verbose'], parallel = (kwargs['model_threads'] > 1), num_processes = kwargs['model_threads'], messages = kwargs['verbose'], optimizer = 'lbfgs', start = None, max_iters = kwargs['model_max_iters'], ipython_notebook = False, clear_after_finish = True)
+            MSopt.append(M)
+            # Create NS-1 samples drawn around the mean
+            mean, var = MSopt[-1].predict_noiseless(InewNorms)
+            stacks.append(np.vstack((mean, np.random.normal(mean, var, (NS-1,1)))))
+            meanvars.append((mean,var))
+
+        #aprxoptsNorm=np.hstack([MSopt[k].predict_noiseless(InewNorms)[0] for k in range(self.problem.DP)])  # the index [0] is the mean value, [1] is the variance
+        aprxoptsNorm = np.hstack(stacks)
+        aprxoptsNorm=np.minimum(aprxoptsNorm,(1-1e-12)*np.ones((ntsn,self.problem.DP)))
+        aprxoptsNorm=np.maximum(aprxoptsNorm,(1e-12)*np.ones((ntsn,self.problem.DP)))
+        # print('aprxoptsNorm',aprxoptsNorm,type(aprxoptsNorm))
+        aprxopts = self.problem.PS.inverse_transform(aprxoptsNorm)
+        # print('aprxopts',aprxopts,type(aprxopts),type(aprxopts[0]))
+
+        # Ensure we end up having enough unique samples
+        tired = 0
+        n_remain = lambda : NS - len(set([tuple(a) for a in aprxopts]))
+        prev = n_remain()
+        while prev > 0 and tired < max_frustrate:
+            tired += 1
+            new_sample = np.hstack([np.random.normal(m, v, (reject_generate,1)) for (m,v) in meanvars])
+            new_sample = np.minimum(new_sample,(1-1e-12)*np.ones((ntsn,self.problem.DP)))
+            new_sample = np.maximum(new_sample,(1e-12)*np.ones((ntsn,self.problem.DP)))
+            new_sample_inv = self.problem.PS.inverse_transform(new_sample)
+            aprxopts.extend(new_sample_inv)
+            remain = n_remain()
+            # Iterations that produce any number of new results are "free"
+            if prev > remain:
+                tired -= 1
+                aprxoptsNorm = np.vstack((aprxoptsNorm, new_sample))
+            else:
+                aprxopts = aprxopts[:-reject_generate]
+            prev = remain
+        # Find the actual ones that matter
+        lookup = [tuple(a) for a in aprxopts]
+        lids = [lookup.index(a) for a in set(lookup)][:NS] # Limit to NS such configurations
+        aprxopts = [lookup[i] for i in lids]
+        aprxoptsNorm = np.asarray([aprxoptsNorm[i,:] for i in lids])
+
+        aprxoptsNormList=[[_ for _ in aprxoptsNorm[:,]]]
+        # TnewNormList=[]
+        #for i in range(ntsn):
+        #    aprxoptsNormList[i].append(aprxoptsNorm)  # this makes sure for each task, there is only one sample parameter set
+        #    # InewNormList.append(InewNorms[i,:])
+
+        t1 = time.time_ns()
+        O = self.computer.evaluate_objective(problem = self.problem, I = InewNorms, P =aprxoptsNormList, history_db = self.historydb, options = kwargs)
+        t2 = time.time_ns()
+        time_fun = time_fun + (t2-t1)/1e9
+
+        #        print(aprxopts)
+        #        pickle.dump(aprxopts, open('TLA1.pkl', 'w'))
+
+        t4 = time.time_ns()
+        stats['time_total'] = (t4-t3)/1e9
+        stats['time_fun'] = time_fun
+
+        return (aprxopts, O, stats)
+
 def main():
     args = parse(build())
     ot.RandomGenerator.SetSeed(args.seed)
@@ -165,7 +274,7 @@ def main():
                                   HERE,
                                   name=args.benchmark+"_Problem",
                                   returnmode='GPTune',
-                                  selflog=HERE+'/results.csv',
+                                  selflog=HERE+'/'+args.output,
                                   **kwargs)
     # Next build the actual instance for evaluating the target problem
     target_problem = problem_lookup(args.target.upper())
@@ -254,7 +363,6 @@ def main():
                     'model_class': 'Model_GPy_LCM',
                     'verbose': False, # True
                     'sample_class': 'SampleOpenTURNS',
-                    #'model_max_iters': args.nrun,
                    })
     options.validate(computer=computer)
     # Create the GPTune object
@@ -262,19 +370,7 @@ def main():
 
     # Load prior evaluations in GPTune-ready format
     prior_traces, prior_sizes = csvs_to_gptune(args.inputs, tuning_metadata, lookup_ival)
-
-    # Use surrogate models to show the prior data to GPTune
-    #model_functions = {}
-    #for prior_data, prior_task in zip(prior_traces, prior_sizes):
-    #    meta_dict = dict((k,v) for (k,v) in base_meta_dict.items())
-    #    if type(prior_task) is not list:
-    #        prior_task = [prior_task]
-    #    meta_dict['task_parameter'] = [prior_task]
-    #    model_functions[tuple(prior_task)] = BuildSurrogateModel_tl(metadata_path=None,
-    #                                                                metadata=meta_dict,
-    #                                                                function_evaluations=prior_data['func_eval'])
-
-    # ALTERNATIVE SPEC FOR ABOVE LOOP BLOCK
+    # Teach GPTune about these prior evaluations
     func_evals = []
     for prior_data in prior_traces:
         func_evals.extend(prior_data['func_eval'])
@@ -286,8 +382,8 @@ def main():
     # Normalized = True is NOT a typical argument -- I modified GPTune.TLA1() to use this to
     # SKIP the normalization on self.data.I and self.data.P because the surrogate function already
     # normalizes this
-    data, modeler, stats = gt.TLA1(transfer_task, args.nrun, normalized=True)
-    #data, modeler, stats = gt.TLA(args.nrun, Igiven=transfer_task, models_transfer=models)
+    data, modeler, stats = GPTune_TLA1_patched(gt, transfer_task, args.nrun, normalized=True)
+    #data, modeler, stats = gt.TLA1(transfer_task, args.nrun, normalized=True)
     print(f"Stats: {stats}")
 
 if __name__ == "__main__":
