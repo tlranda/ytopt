@@ -1,6 +1,6 @@
 from autotune.space import Space, Integer, Real
 from autotune.problem import TuningProblem
-from GPTune.gptune import GPTune
+from GPTune.gptune import GPTune, BuildSurrogateModel_tl as BuildSurrogateModel
 from GPTune.computer import Computer
 from GPTune.data import Categoricalnorm, Data
 from GPTune.database import HistoryDB, GetMachineConfiguration
@@ -18,9 +18,12 @@ def build():
     parser.add_argument('-inputs', type=str, nargs='+', required=True, help='Problem sizes as predefined knowledge')
     parser.add_argument('-target', type=str, required=True, help='Target task to train on')
     parser.add_argument('-nrun', type=int, default=2, help='Number of runs per task')
+    parser.add_argument('-ninit', type=int, default=-1, help='Set initial configs')
     parser.add_argument('-seed', type=int, default=1234, help='Set seed')
     parser.add_argument('-builder', choices=['polybench', 'ecp'], default='polybench', help='Problem builder')
     parser.add_argument('-output', type=str, default="results.csv", help="Output CSV filename in the benchmark directory (default: results.csv)")
+    parser.add_argument('-experiment', action='store_false', help='Substitute TLA for MLA')
+    parser.add_argument('-preserve-history', action='store_true', help='Rename rather than remove old history files (gptune.db/benchmark.json)')
     return parser
 
 def parse(parser, args=None):
@@ -33,8 +36,10 @@ def parse(parser, args=None):
         args.builder = ecp_problem_builder
     else:
         raise ValueError(f"Unsupported problem builder {args.builder}")
+
     return args
 
+# Special rules for certain benchmarks that are otherwise hard to rip out of the problem import
 def localized_load(benchmark):
     real_names = [_ for _ in os.listdir() if os.path.isdir(_) and _.endswith('_exp')]
     look_names = [_.lstrip('_')[:-4] for _ in real_names]
@@ -49,6 +54,8 @@ def localized_load(benchmark):
     sys.path.insert(0, HERE)
     from problem import input_space, lookup_ival
     kwargs = {}
+    # TODO: Make these ploppers unnecessary to import for kwargs
+    # TODO: Make sw4lite actually use its default sourcefile correctly (move to mmp.C as typical)
     if benchmark == 'sw4lite':
         from problem import SW4Lite_Plopper
         kwargs.update({'plopper_class': SW4Lite_Plopper,
@@ -261,6 +268,36 @@ def GPTune_TLA1_patched(self, Tnew, NS, normalized=False, max_frustrate=100, rej
 
         return (aprxopts, O, stats)
 
+def wrap_objective(objective, surrogate_to_size_dict):
+    def new_objective(point: dict):
+        # Task identifier is 'isize'
+        task = point['isize']
+        if task in surrogate_to_size_dict.keys():
+            result = surrogate_to_size_dict[task](point)
+            # NO NEED TO LOG RESULTS
+        else:
+            # Should auto-log results
+            result = objective(point)
+            # BUG: GPTune's second configuration is unique despite same seed/input. Attempt static eval
+            #print(point)
+            #result = [1]
+        return result
+    return new_objective
+
+def cleanup_history(args, problem_name):
+    historyfile = f'gptune.db/{problem_name}.json'
+    if os.path.exists(historyfile):
+        if args.preserve_history:
+            contents = os.listdir('gptune.db')
+            next_avail = 0
+            while os.path.exists(f'gptune.db/{problem_name}_{next_avail}.json'):
+                next_avail += 1
+            print(f"--PRESERVE HISTORY-- Move {historyfile} --> gptune.db/{problem_name}_{next_avail}.json")
+            import shutil
+            # Preserves metadata as best as possible in case that is relevant to user
+            shutil.copy2(historyfile, f'gptune.db/{problem_name}_{next_avail}.json')
+        os.remove(historyfile)
+
 def main():
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     args = parse(build())
@@ -330,10 +367,6 @@ def main():
                       'loadable_machine_configurations': {'swing': {'intel': {'nodes': 1, 'cores': 128}}},
                       'loadable_software_configurations': {}
                      }
-    constraints = {}
-    objectives = target_problem.objective
-    problem = TuningProblem(IS,PS,OS, objectives, constraints, None) # None = models (dict of names : func(point_dict) -> list(outputs)
-
     # Used to have consistent machine definition
     tuning_metadata = {
         "tuning_problem_name": base_meta_dict['tuning_problem_name'],
@@ -346,6 +379,29 @@ def main():
         "loadable_machine_configurations": base_meta_dict['loadable_machine_configurations'],
         "loadable_software_configurations": base_meta_dict['loadable_software_configurations'],
     }
+    # IF there is already a historyDB file, it can mess things up. Clean it up nicely
+    cleanup_history(args, base_meta_dict['tuning_problem_name'])
+
+    constraints = {}
+    objectives = target_problem.objective
+    # Load prior evaluations in GPTune-ready format
+    prior_traces, prior_sizes = csvs_to_gptune(args.inputs, tuning_metadata, lookup_ival)
+    # Teach GPTune about these prior evaluations
+    surrogate_metadata = dict((k,v) for (k,v) in base_meta_dict.items())
+    model_functions = {}
+    for size, data in zip(prior_sizes, prior_traces):
+        surrogate_metadata['task_parameter'] = [[size]]
+        model_functions[size] = BuildSurrogateModel(metadata_path=None,
+                                                    metadata=surrogate_metadata,
+                                                    function_evaluations=data['func_eval'])
+    wrapped_objectives = wrap_objective(objectives, model_functions)
+    #func_evals = []
+    #for prior_data in prior_traces:
+    #    func_evals.extend(prior_data['func_eval'])
+    #models, model_functions = gt.GenSurrogateModel([[s] for s in prior_sizes], func_evals)
+
+    problem = TuningProblem(IS,PS,OS, wrapped_objectives, constraints, None) # None = models (dict of names : func(point_dict) -> list(outputs)
+
     machine, processor, nodes, cores = GetMachineConfiguration(meta_dict=tuning_metadata)
     print(f"Machine: {machine} | Processor: {processor} | Num_Nodes: {nodes} | Num_Cores: {cores}")
 
@@ -370,22 +426,27 @@ def main():
     # Create the GPTune object
     gt = GPTune(problem, computer=computer, data=data, options=options, historydb=historydb)
 
-    # Load prior evaluations in GPTune-ready format
-    prior_traces, prior_sizes = csvs_to_gptune(args.inputs, tuning_metadata, lookup_ival)
-    # Teach GPTune about these prior evaluations
-    func_evals = []
-    for prior_data in prior_traces:
-        func_evals.extend(prior_data['func_eval'])
-    models, model_functions = gt.GenSurrogateModel([[s] for s in prior_sizes], func_evals)
-    # gptune.data is properly set by the above call
-
     # Set up the actual transfer learning task
-    transfer_task = [[target_problem.problem_class]]
-    # Normalized = True is NOT a typical argument -- I modified GPTune.TLA1() to use this to
-    # SKIP the normalization on self.data.I and self.data.P because the surrogate function already
-    # normalizes this
-    data, modeler, stats = GPTune_TLA1_patched(gt, transfer_task, args.nrun, normalized=True)
-    #data, modeler, stats = gt.TLA1(transfer_task, args.nrun, normalized=True)
+    if args.experiment:
+        # THIS is what GPTune's HistoryDB says you should do for TLA; same # evals in all problems,
+        # but leverage model functions on prior tasks to simulate their results
+        transfer_task = [[target_problem.problem_class]]
+        transfer_task.extend([[s] for s in prior_sizes])
+        if args.ninit == -1:
+            NS1 = max(args.nrun//2,1)
+        else:
+            NS1 = args.ninit
+        data, modeler, stats = gt.MLA(Igiven=transfer_task, NS=args.nrun, NI=len(transfer_task),
+                                      NS1=NS1)
+    else:
+        # THIS is a patched implementation of GPTune's actual TLA api call that allows TLA to produce
+        # multiple results in the new target problem rather than just one
+        transfer_task = [[target_problem.problem_class]]
+        # Normalized = True is NOT a typical argument -- I modified GPTune.TLA1() to use this to
+        # SKIP the normalization on self.data.I and self.data.P because the surrogate function already
+        # normalizes this
+        data, modeler, stats = GPTune_TLA1_patched(gt, transfer_task, args.nrun, normalized=True)
+        #data, modeler, stats = gt.TLA1(transfer_task, args.nrun, normalized=True)
     print(f"Stats: {stats}")
 
 if __name__ == "__main__":
