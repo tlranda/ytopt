@@ -249,7 +249,7 @@ def ecp_problem_builder(lookup, input_space_definition, there, default=None, nam
                              'sourcefile': there+"/mmp.c",
                             }
             try:
-                expect_kwargs['plopper'] = plopper_class(kwargs['sourcefile'], there, output_extension=".c"),
+                expect_kwargs['plopper'] = plopper_class(kwargs['sourcefile'], there, output_extension=".c")
             except KeyError:
                 expect_kwargs['plopper'] = plopper_class(expect_kwargs['sourcefile'], there, output_extension=".c")
             for k, v in expect_kwargs.items():
