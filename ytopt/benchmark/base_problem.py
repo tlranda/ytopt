@@ -61,7 +61,7 @@ class BaseProblem(setWhenDefined):
                  output_space: Space = None, problem_params: dict = None, problem_class: int = None,
                  plopper: object = None, constraints = None, models = None, name = None,
                  constants = None, silent = False, use_capital_params = False,
-                 returnmode = 'ytopt', selflog = None, **kwargs):
+                 returnmode = 'ytopt', selflog = None, ignore_runtime_failure = False, **kwargs):
         # Load problem attribute defaults when available and otherwise required (and None)
         self.overrideSelfAttrs()
         if self.name is None:
@@ -249,9 +249,11 @@ def ecp_problem_builder(lookup, input_space_definition, there, default=None, nam
                              'sourcefile': there+"/mmp.c",
                             }
             try:
-                expect_kwargs['plopper'] = plopper_class(kwargs['sourcefile'], there, output_extension=".c")
+                expect_kwargs['plopper'] = plopper_class(kwargs['sourcefile'], there, output_extension=".c",
+                                                         ignore_runtime_failure=kwargs['ignore_runtime_failure'])
             except KeyError:
-                expect_kwargs['plopper'] = plopper_class(expect_kwargs['sourcefile'], there, output_extension=".c")
+                expect_kwargs['plopper'] = plopper_class(expect_kwargs['sourcefile'], there, output_extension=".c",
+                                                         ignore_runtime_failure=kwargs['ignore_runtime_failure'])
             for k, v in expect_kwargs.items():
                 kwargs.setdefault(k,v)
             super().__init__(**kwargs)

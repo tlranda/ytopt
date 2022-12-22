@@ -46,10 +46,10 @@ def localized_load(benchmark):
         kwargs.update({'plopper_class': AMG_Plopper,})
     elif benchmark == 'xsbench':
         from problem import XSBench_Plopper
-        kwargs.update({'plopper_class': XSBench_Plopper,})
+        kwargs.update({'plopper_class': XSBench_Plopper, 'ignore_runtime_failure': True, })
     elif benchmark == 'rsbench':
         from problem import RSBench_Plopper
-        kwargs.update({'plopper_class': RSBench_Plopper,})
+        kwargs.update({'plopper_class': RSBench_Plopper, 'ignore_runtime_failure': True, })
     elif benchmark == 'floyd_warshall':
         from problem import Floyd_Warshall_Plopper
         kwargs.update({'plopper_class': Floyd_Warshall_Plopper,})
