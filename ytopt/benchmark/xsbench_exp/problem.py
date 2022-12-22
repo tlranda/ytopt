@@ -52,5 +52,5 @@ class XSBench_Plopper(ECP_Plopper):
 # Based on
 lookup_ival = {100000: ("S", "SMALL"), 500000: ("SM", "SM"), 1000000: ("M", "MEDIUM"),
                2500000: ("ML", "ML"), 5000000: ("L", "LARGE"), 10000000: ("XL", "EXTRALARGE")}
-__getattr__ = ecp_problem_builder(lookup_ival, input_space, HERE, name="XSBench_Problem", plopper_class=XSBench_Plopper)
+__getattr__ = ecp_problem_builder(lookup_ival, input_space, HERE, name="XSBench_Problem", plopper_class=XSBench_Plopper, ignore_runtime_failure=True)
 
