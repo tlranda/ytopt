@@ -115,7 +115,7 @@ class findReplaceRegex:
 class Plopper:
     def __init__(self, sourcefile, outputdir=None, output_extension='.tmp',
                  evaluation_tries=3, retries=0, findReplace=None,
-                 infinity=1, force_plot=False, **kwargs):
+                 infinity=1, force_plot=False, ignore_runtime_failure=False, **kwargs):
         self.sourcefile = sourcefile # Basis for runtime / plotting values
         self.kernel_dir = os.path.abspath(self.sourcefile[:self.sourcefile.rfind('/')])
 
@@ -134,6 +134,7 @@ class Plopper:
         self.findReplace = findReplace # findReplaceRegex object
         self.infinity = infinity # Very large value to return on failure to compile or execute
         self.force_plot = force_plot # Always utilize plotValues() even if there is no compilation string
+        self.ignore_runtime_failure = ignore_runtime_failure # Some processes may permit bad return codes
 
         self.buffer = None
 
@@ -141,16 +142,17 @@ class Plopper:
         pass
 
     def __str__(self):
-        return str({'sourcefile': self.sourcefile,
-                    'kernel_dir': self.kernel_dir,
-                    'outputdir': self.outputdir,
-                    'output_extension': self.output_extension,
-                    'evaluation_tries': self.evaluation_tries,
-                    'retries': self.retries,
-                    'findReplace': self.findReplace,
-                    'infinity': self.infinity,
-                    'force_plot': self.force_plot,
-                    'buffer': self.buffer is not None})
+        return str(dict((k,v) for (k,v) in self.__dict__ if not callable(v)))
+        #return str({'sourcefile': self.sourcefile,
+        #            'kernel_dir': self.kernel_dir,
+        #            'outputdir': self.outputdir,
+        #            'output_extension': self.output_extension,
+        #            'evaluation_tries': self.evaluation_tries,
+        #            'retries': self.retries,
+        #            'findReplace': self.findReplace,
+        #            'infinity': self.infinity,
+        #            'force_plot': self.force_plot,
+        #            'buffer': self.buffer is not None})
 
     def compileString(self, outfile, dictVal, *args, **kwargs):
         # Return None to skip compilation
@@ -219,7 +221,7 @@ class Plopper:
             env = self.set_os_environ() if hasattr(self, 'set_os_environ') else None
             execution_status = subprocess.run(run_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
             duration = time.time() - start
-            if execution_status.returncode != 0:
+            if not self.ignore_runtime_failure and execution_status.returncode != 0:
                 # FAILURE
                 failures += 1
                 print(f"FAILED: {run_str}")
