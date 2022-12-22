@@ -84,8 +84,10 @@ def parse(prs, args=None):
     return args
 
 substitute = {'BOOTSTRAP': "Bootstrap",
-              'NO': 'Infer',
-              'REFIT': "Infer with Refit",
+              'NO': 'Gaussian Copula',
+              'gptune': "GPTune",
+              'GPTune': "GPTune",
+              'REFIT': "Gaussian Copula with Refit",
               'results': "Vanilla"}
 
 def make_seed_invariant_name(name, args):
@@ -113,10 +115,14 @@ def make_seed_invariant_name(name, args):
         name_split = name.split('_')
         # Decompose for ease of semantics
         if name.startswith('results'):
-            name_split = {'benchmark': name_split[-1].rstrip('.csv'),
-                          'size': name_split[-2].upper(),
-                          'short_identifier': substitute[name_split[0]] if 'gptune' not in name else 'GPTune',
-                          'full_identifier': name_split[:-2]}
+            if 'gptune' in name.lower() and len(name_split) < 4:
+                off = 0
+            else:
+                off = 1
+            name_split = {'benchmark': name_split[-off].rstrip('.csv'),
+                          'size': name_split[-1-off].upper(),
+                          'short_identifier': substitute[name_split[0]] if 'gptune' not in name.lower() else 'GPTune',
+                          'full_identifier': name_split[:-1-off]}
         elif 'xfer' in name:
             name_split = {'benchmark': name[len('xfer_results_')+1:],
                           'size': 'Force Transfer'}
@@ -165,7 +171,7 @@ def combine_seeds(data, args):
     combined_data = []
     offset = 0
     for nentry, entry in enumerate(data):
-        new_data = {'name': entry['name'], 'type': entry['type']}
+        new_data = {'name': entry['name'], 'type': entry['type'], 'fname': entry['fname']}
         if entry['type'] == 'pca':
             # PCA requires special data combination beyond this point
             pca = pd.concat(entry['data'])
@@ -486,6 +492,10 @@ def load_all(args):
                 idx = inv_names.index(fullname)
                 # Just put them side-by-side for now
                 data[idx_offset+idx]['data'].append(d)
+                if type(data[idx_offset+idx]['fname']) is str:
+                    data[idx_offset+idx]['fname'] = [data[idx_offset+idx]['fname'], fname]
+                else:
+                    data[idx_offset+idx]['fname'].append(fname)
             else:
                 data.append({'name': fullname, 'data': [d], 'type': 'best',
                              'fname': fname, 'dir': directory})
@@ -697,7 +707,7 @@ def main(args):
         text_analysis(data, args)
     if not args.no_plots:
         for idx, source in enumerate(data):
-            print(f"plot {source['name']}")
+            print(f"plot {source['name']} based upon {source['fname']}")
             newfig = plot_source(figures[-1], axes[-1], idx, source, args, ntypes, top_val)
             if newfig:
                 if names[-1] == 'plot':

@@ -333,9 +333,10 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                 if key.lower() != axis:
                     continue
                 invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_{target.lower()}_{axis} "+\
-                         f"--best {experiment_dir}*_{target.upper()}_*.csv "+\
+                         f"--best {experiment_dir}/*_{target.upper()}_*.csv "+\
                          f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
-                         f"results_gptune_*{target.lower()}* data/thomas_experiments/*_{target.upper()}_*.csv "#+\
+                         f"results_gptune_*{target.lower()}* data/gptune_experiments/results_*{target.upper()}* "+\
+                         f"data/thomas_experiments/*_{target.upper()}_*.csv "#+\
                          #f"--baseline data/results_rf_{target.lower()}_{experiment.lstrip('_')}.csv "
                 if sect['as_speedup']:
                     invoke += f"--as-speedup-vs data/DEFAULT_{target.upper()}.csv --max-objective "
@@ -343,8 +344,8 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                     invoke += "data/DEFAULT.csv --log-y "
                 invoke += f"--x-axis {axis} --log-x --unname {experiment_dir}_ "+\
                          f"--trim data/results_{problem_sizes[target]}.csv --legend best --synchronous "+\
-                         "--ignore data/jaehoon_experiments/*200eval* data/thomas_experiments/*1337*.csv "+\
-                         "data/thomas_experiments/*5555*.csv --no-text --drop-overhead --clean-names"
+                         "--ignore data/jaehoon_experiments/*200eval* data/*/*_trace.csv --drop-seeds 1337 5555 "+\
+                         "--no-text --drop-overhead --clean-names"
                 if sect['show']:
                     invoke += " --show"
                 info = verify_output(f"{experiment}_{target.lower()}_{axis}_plot.png", runtype, invoke, expect, args)
