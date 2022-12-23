@@ -247,13 +247,14 @@ def ecp_problem_builder(lookup, input_space_definition, there, default=None, nam
                              'problem_class': class_size,
                              'dataset': class_size,
                              'sourcefile': there+"/mmp.c",
+                             'ignore_runtime_failure': False,
                             }
-            try:
-                expect_kwargs['plopper'] = plopper_class(kwargs['sourcefile'], there, output_extension=".c",
-                                                         ignore_runtime_failure=kwargs['ignore_runtime_failure'])
-            except KeyError:
-                expect_kwargs['plopper'] = plopper_class(expect_kwargs['sourcefile'], there, output_extension=".c",
-                                                         ignore_runtime_failure=kwargs['ignore_runtime_failure'])
+            if 'sourcefile' in kwargs:
+                expect_kwargs['sourcefile'] = kwargs['sourcefile']
+            if 'ignore_runtime_failure' in kwargs:
+                expect_kwargs['ignore_runtime_failure'] = kwargs['ignore_runtime_failure']
+            expect_kwargs['plopper'] = plopper_class(expect_kwargs['sourcefile'], there, output_extension=".c",
+                                                     ignore_runtime_failure=expect_kwargs['ignore_runtime_failure'])
             for k, v in expect_kwargs.items():
                 kwargs.setdefault(k,v)
             super().__init__(**kwargs)
