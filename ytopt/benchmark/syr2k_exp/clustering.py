@@ -129,7 +129,7 @@ def build():
     prs = argparse.ArgumentParser()
     prs.add_argument('--exhaust', type=str, help="Exhaustive evaluation to compare against")
     prs.add_argument('--candidate', type=str, nargs="*", help="Candidate evaluation to compare to exhaustion")
-    prs.add_argument('--func', choices=list(funcs.keys()), nargs='+', help="Function to use")
+    prs.add_argument('--func', choices=list(funcs.keys()), nargs='+', required=True, help="Function to use")
     prs.add_argument('--topk', type=int, default=None, help="Only include top k performing candidate points")
     prs.add_argument('--problem', type=str, default="problem", help="Module to load space from (default: problem)")
     prs.add_argument('--attribute', type=str, default='S.input_space', help="Attribute to get space from (default: S.input_space)")
