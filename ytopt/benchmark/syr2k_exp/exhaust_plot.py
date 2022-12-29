@@ -1,5 +1,6 @@
 import matplotlib
 import argparse, pandas as pd, numpy as np, matplotlib.pyplot as plt, os, itertools
+import pdb
 
 def name_shortener(name):
     name = os.path.basename(name)
@@ -66,6 +67,115 @@ def plotter_mean_median(fig, ax, args):
     ax.plot([_ for _ in range(len(exhaust))], [median for _ in range(len(exhaust))], label='median')
     print(f"Mean: {mean} closest to rank {np.argmin(abs(exhaust['objective']-mean))}")
     print(f"Median: {median} closest to rank {np.argmin(abs(exhaust['objective']-median))}")
+    return fig, ax
+
+def plotter_heat_map(fig, ax, args):
+    global drop_cols
+    exhaust = pd.read_csv(args.exhaust).drop(columns=drop_cols, errors='ignore').sort_values(by='objective').reset_index(drop=True)
+    N_EXHAUST = len(exhaust)
+    # Supplementary data determines RELEVANCE SCORES
+    supplementary = [pd.read_csv(supp).sort_values(by='objective') for supp in args.supplementary]
+    supplementary = pd.concat([_.iloc[:int(args.topsupp*len(_))] for _ in supplementary])
+
+    # All allowable parameters are detailed in exhaustive data
+    COLUMNS = [_ for _ in exhaust.columns if _ != 'objective']
+    N_COLUMNS = len(COLUMNS)
+    parameter_sets = [list(set(exhaust[_])) for _ in COLUMNS]
+    longest_set = max(map(len,parameter_sets))
+
+    # Determine occurrence counts over the supplementary data
+    counts_from_supplementary = [[supplementary[col].tolist().count(val) for val in parameter_sets[idx]]
+                                 for idx, col in enumerate(COLUMNS)]
+    npy_counts_from_supplementary = -1 * np.ones((N_COLUMNS, longest_set))
+    for idx, count in enumerate(counts_from_supplementary):
+        npy_counts_from_supplementary[idx,:len(count)] = count
+    # Maximum count that could appear for a value
+    max_supplementary_count = len(supplementary) * N_COLUMNS
+
+    # Give a relevance score to each exhaustive configuration
+    relevance = np.zeros(N_EXHAUST)
+    for idx, config in exhaust.iterrows():
+        # Use list to figure out what parameter value is set for each column
+        relevance_indices = [li.index(val) for li, val in zip(parameter_sets, config)]
+        relevance[idx] = sum([npy_counts_from_supplementary[i,j] for (i,j) in enumerate(relevance_indices)])
+        # Normalize
+        relevance[idx] /= max_supplementary_count
+    # Secondary normalization -- maybe only need one of them??
+    relevance = (relevance-min(relevance))/(max(relevance)-min(relevance))
+    # Descending order of relevance
+    relevance_index = np.argsort(-relevance)
+
+    # Make sure ALL values get bucketed
+    for required in [0.0, 1.0]:
+        if required not in args.buckets:
+            args.buckets.append(required)
+    # Splice indices for buckets -- may be uneven so cannot be ndarray
+    args.buckets = sorted(args.buckets)
+    # Slices are based on proportional length
+    bucket_slices = [(int(start*N_EXHAUST), int(stop*N_EXHAUST)) for (start, stop) in zip(args.buckets[:-1],args.buckets[1:])]
+    # Slices convert to quantiles
+    buckets = [relevance_index[bucket_start:bucket_stop] for (bucket_start, bucket_stop) in bucket_slices]
+
+    # Density measure on buckets
+    density = np.zeros((len(args.buckets), N_EXHAUST))
+    width = N_EXHAUST // 2
+    # Weights towards density are based on proximity -- symmetric
+    denominator = np.asarray([1/_ for _ in range(width,0,-1)]+[1]+[1/_ for _ in range(1,width+1)])
+    denom_density = denominator.sum()
+    for idx, bucket in enumerate(args.buckets[:-1]):
+        import time
+        start = time.time()
+        # Presence represented as binary indicator
+        indicator = np.zeros(N_EXHAUST)
+        try:
+            indicator[buckets[idx]] = 1
+        except:
+            pdb.set_trace()
+        # Iteration boundaries
+        left = -1
+        right = width
+        # SPLIT INTO 3 CASE LOOPS -- WRITING ONE LOOP IS REALLY HARD TO BE SEMANTICALLY CORRECT -- NO TANGIBLE PERFORMANCE GAIN TO BE MADE
+        for it in range(width):
+            left += 1
+            # Mask of values is LEFT PADDED to match denominator
+            mask = np.hstack((np.zeros(width-left), indicator[ : it+1+right]))
+            density[idx,it] = (mask * denominator).sum() / denom_density
+        if N_EXHAUST % 2 == 0:
+            # Middle of an even-length series (LIKELY) has special handling since width on both sides INCLUDES the element itself
+            it += 1
+            right -= 1
+            mask = np.hstack((indicator, np.zeros(1)))
+            density[idx,it] = (mask * denominator).sum() / denom_density
+        # Right loop picks up where we left off -- state may be adjusted above in case of even-length
+        for it in np.arange(it+1, N_EXHAUST):
+            right -= 1
+            mask = np.hstack((indicator[it-width : ], np.zeros(width-right)))
+            density[idx,it] = (mask * denominator).sum() / denom_density
+        # Normalize each bucket's density
+        density[idx] = (density[idx]-min(density[idx]))/(max(density[idx])-min(density[idx]))
+        stop = time.time()
+        print(f"Density calculation took {stop-start}")
+
+    # INTENDED REPRESENTATION
+    # X : Configurations
+    x = np.arange(N_EXHAUST)
+    # Y : Buckets
+    y = args.buckets[::-1]
+    # HEAT : Density Measure per Bucket
+    heat = density[::-1,:]
+
+    # Add 'auto' aspect so that the disparity between |X| and |Y| do not break the plot (tall pixels incoming)
+    im = ax.imshow(heat, aspect='auto')
+    ax.set_xticks([_ for _ in x if _ % 1000 == 0])
+    ax.set_xlabel("Performance Rank of Configuration (Lower is Better)")
+    ax.set_yticks(np.arange(len(y)), labels=y)
+    ax.set_yticks(.5+np.arange(len(y)), minor=True)
+    ax.set_ylabel("Relevance Quantile (Lower is More Likely)")
+    # Add the density color bar
+    cbar = ax.figure.colorbar(im, ax=ax)
+    cbar.ax.set_ylabel("Density of Preference (Higher is More Preferred)", rotation=-90, va='bottom')
+    # Create the white grid
+    ax.grid(which='minor',color='w',linestyle='-',linewidth=2, axis='y')
     return fig, ax
 
 def plotter_implied_area(fig,ax,args):
@@ -194,16 +304,6 @@ def plotter_implied_area(fig,ax,args):
                     colors[i] = ((1-density_measure[i])*c1)+((density_measure[i])*c2)
                 lc = matplotlib.collections.LineCollection(vertices, colors=colors, linewidth=4)
                 ax.add_collection(lc)
-        #used = []
-        #for progress, idx in enumerate(order):
-        #    if progress % 10 == 0:
-        #        print(f" Candidate {cand_id+1}/{len(args.candidate)}: {100*progress/len(order):.2f}% ", end='\r')
-        #    if args.buckets is None or output[idx] in used:
-        #        ax.scatter(x[idx], y[idx], color=output[idx], alpha=0.5)
-        #    else:
-        #        ax.scatter(x[idx], y[idx], color=output[idx], alpha=0.5, label=f"quantile <= {reverse_bucket[output[idx]]}")
-        #        used.append(output[idx])
-        #print()
     return fig, ax
 
 def add_default_line(ax, args):
