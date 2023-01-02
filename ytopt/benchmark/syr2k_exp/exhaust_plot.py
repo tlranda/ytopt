@@ -2,6 +2,8 @@ import matplotlib
 import argparse, pandas as pd, numpy as np, matplotlib.pyplot as plt, os, itertools
 import pdb
 
+LIMIT_Y_TICKS = 10
+
 def name_shortener(name):
     name = os.path.basename(name)
     if len(name.rsplit('.')) > 0:
@@ -161,15 +163,26 @@ def plotter_heat_map(fig, ax, args):
     x = np.arange(N_EXHAUST)
     # Y : Buckets
     y = args.buckets[::-1]
-    # HEAT : Density Measure per Bucket
-    heat = density[::-1,:]
+    # HEAT : Density Measure per Bucket (reverse iterate first axis to align with plot ascending direction)
+    vertical_scale = density.shape[1] // density.shape[0]
+    heat = np.repeat(density[::-1,:], vertical_scale, axis=0)
 
     # Add 'auto' aspect so that the disparity between |X| and |Y| do not break the plot (tall pixels incoming)
-    im = ax.imshow(heat, aspect='auto')
-    ax.set_xticks([_ for _ in x if _ % 1000 == 0])
+    im = ax.imshow(heat, aspect='equal')
+    ax.set_xticks([_ for _ in x if _ % 1000 == 0], labels=[str(_//1000)+'K' for _ in x if _ % 1000 == 0])
     ax.set_xlabel("Performance Rank of Configuration (Lower is Better)")
-    ax.set_yticks(np.arange(len(y)), labels=y)
-    ax.set_yticks(.5+np.arange(len(y)), minor=True)
+    if len(y) < LIMIT_Y_TICKS:
+        ax.set_yticks(vertical_scale * np.arange(len(y)) + (vertical_scale/2), labels=y)
+        if not args.no_minor_lines:
+            ax.set_yticks(vertical_scale * np.arange(len(y)), minor=True)
+    else:
+        fair_mod = len(y) // LIMIT_Y_TICKS
+        shorter_y = np.asarray([_ for idx,_ in enumerate(y) if idx % fair_mod == 0])
+        # Rescaling required since we're omitting points
+        vertical_scale *= len(y) / len(shorter_y)
+        ax.set_yticks(vertical_scale * np.arange(len(shorter_y)) + (vertical_scale/2), labels=shorter_y)
+        if not args.no_minor_lines:
+            ax.set_yticks(vertical_scale * shorter_y, minor=True)
     ax.set_ylabel("Relevance Quantile (Lower is More Likely)")
     # Add the density color bar
     cbar = ax.figure.colorbar(im, ax=ax)
@@ -328,7 +341,8 @@ def common(func, args):
     fig, ax = func(*plt.subplots(), args)
     if args.default:
         add_default_line(ax, args)
-    ax.legend()
+    if not args.no_legend:
+        ax.legend()
     global ncalls
     ncalls += 1
     if args.auto_fill:
@@ -344,6 +358,8 @@ def common(func, args):
         ax.set_xlim([args.xmin, args.xmax])
     if args.ymax is not None or args.ymin is not None:
         ax.set_ylim([args.ymin, args.ymax])
+    if args.title is not None:
+        ax.set_title(args.title)
     print(f"Saving figure to {args.figname}_{ncalls}.png")
     plt.savefig(f"{args.figname}_{ncalls}.png")
 
@@ -361,9 +377,13 @@ def build():
     prs.add_argument('--ymax', type=float, default=None, help="Set ylimit maximum")
     prs.add_argument('--ymin', type=float, default=None, help="Set ylimit minimum")
     prs.add_argument('--auto-fill', action='store_true', help="Infer better xlimit/ylimit from partial specification")
+    prs.add_argument('--title', type=str, default=None, help="Provide a figure title")
+    prs.add_argument('--no-legend', action='store_true', help="Omit legend")
     prs.add_argument('--topk', type=int, default=None, help="Only plot top k performing candidate points")
     prs.add_argument('--default', action='store_true', help="Attempt to infer a default configuration from problem.py")
     prs.add_argument('--buckets', type=float, nargs='*', default=None, help="# Buckets for functions that use them")
+    prs.add_argument('--n-buckets', type=int, default=None, help="Ensure buckets list includes auto-range values for N entries")
+    prs.add_argument('--no-minor-lines', action='store_true', help="Disable minor axis lines")
     prs.add_argument('--problem', type=str, default=None, help='Problem for importing information')
     prs.add_argument('--attribute', type=str, default=None, help='Attribute to fetch a problem instance for information')
     return prs
@@ -371,10 +391,13 @@ def build():
 def parse(prs, args=None):
     if args is None:
         args = prs.parse_args()
+    if args.n_buckets is not None:
+        args.buckets = [_/args.n_buckets for _ in range(args.n_buckets)]
+    # Some plots are limited by known colors
+    if len(args.buckets) > len(ok_opacities) and 'implied_area' in args.func:
+        raise ValueError(f"Due to color limitations, 'implied_area' can only support {len(ok_opacities)} buckets (given {len(args.buckets)})")
     plotter_funcs = dict((k,v) for (k,v) in globals().items() if k.startswith('plotter_') and callable(v))
     args.func = [plotter_funcs['plotter_'+func] for func in args.func]
-    if len(args.buckets) > len(ok_opacities):
-        raise ValueError(f"Due to color limitations, can only support {len(ok_opacities)} buckets (given {len(args.buckets)})")
     if args.problem is not None and args.attribute is not None:
         import importlib
         item = importlib.import_module(args.problem)
