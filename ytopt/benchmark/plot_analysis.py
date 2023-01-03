@@ -89,6 +89,7 @@ substitute = {'BOOTSTRAP': "Bootstrap",
               'GPTune': "GPTune",
               'REFIT': "Gaussian Copula with Refit",
               'results': "Vanilla"}
+HAS_NOT_WARNED_MAKE_SEED_INVARIANT_NAME = True
 
 def make_seed_invariant_name(name, args):
     directory = os.path.dirname(name) if not args.merge_dirs else 'MERGE'
@@ -112,27 +113,45 @@ def make_seed_invariant_name(name, args):
     name = name.lstrip("_")
     suggest_legend_title = None
     if args.clean_names:
+        # Attempt to identify the number of _ characters from the directory name
+        if '_exp' in directory:
+            temp_split = directory.split('/')
+            decide = lambda string : True if '_exp' in string else False
+            has_exp = temp_split[[decide(_) for _ in temp_split].index(True)]
+            # Subtract 1 due to _exp being a split
+            suggest_benchmark_length = len(has_exp.split('_'))-1
+        else:
+            has_exp = os.path.dirname(os.path.abspath(os.path.curdir()))
+            if '_exp' in has_exp:
+                # Subtract 1 due to _exp being a split
+                suggest_benchmark_length = len(has_exp.split('_'))-1
+            else:
+                if HAS_NOT_WARNED_MAKE_SEED_INVARIANT_NAME:
+                    print("Warning: Unable to determine benchmark name length--this may cause errors.")
+                    print("You can address this by ensuring data is encapsulated in a directory visible on relative paths with the name \"{benchmark_name}_exp\"")
+                    HAS_NOT_WARNED_MAKE_SEED_INVARIANT_NAME = False
+                suggest_benchmark_length = 1
         name_split = name.split('_')
         # Decompose for ease of semantics
         if name.startswith('results'):
             if 'gptune' in name.lower() and len(name_split) < 4:
                 off = 0
             else:
-                off = 1
-            name_split = {'benchmark': name_split[-off].rstrip('.csv'),
+                off = suggest_benchmark_length
+            name_split = {'benchmark': '_'.join(name_split[-off:]).rstrip('.csv'),
                           'size': name_split[-1-off].upper(),
                           'short_identifier': substitute[name_split[0]] if 'gptune' not in name.lower() else 'GPTune',
-                          'full_identifier': name_split[:-1-off]}
+                          'full_identifier': '_'.join(name_split[:-1-off])}
         elif 'xfer' in name:
             name_split = {'benchmark': name[len('xfer_results_')+1:],
                           'size': 'Force Transfer'}
             name_split['short_identifier'] = f"XFER {name_split['benchmark']}"
             name_split['full_identifier'] = f"Force Transfer {name_split['benchmark']}"
         else:
-            name_split = {'benchmark': name_split[0],
+            name_split = {'benchmark': '_'.join(name_split[:suggest_benchmark_length]),
                           'size': name_split[-1],
-                          'short_identifier': substitute[name_split[1]],
-                          'full_identifier': name_split[1:-1]}
+                          'short_identifier': substitute[name_split[suggest_benchmark_length+1]],
+                          'full_identifier': name_split[suggest_benchmark_length+1:-1]}
         # Reorder in reconstruction
         name = name_split['short_identifier']
         suggest_legend_title = f"{name_split['size']} {name_split['benchmark']}"
