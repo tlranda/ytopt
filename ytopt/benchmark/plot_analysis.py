@@ -114,23 +114,24 @@ def make_seed_invariant_name(name, args):
     suggest_legend_title = None
     if args.clean_names:
         # Attempt to identify the number of _ characters from the directory name
-        if '_exp' in directory:
+        if directory.endswith('_exp'):
             temp_split = directory.split('/')
             decide = lambda string : True if '_exp' in string else False
             has_exp = temp_split[[decide(_) for _ in temp_split].index(True)]
             # Subtract 1 due to _exp being a split
-            suggest_benchmark_length = len(has_exp.split('_'))-1
+            suggest_benchmark_length = len(has_exp.lstrip('_').split('_'))-1
         else:
-            has_exp = os.path.dirname(os.path.abspath(os.path.curdir()))
-            if '_exp' in has_exp:
-                # Subtract 1 due to _exp being a split
-                suggest_benchmark_length = len(has_exp.split('_'))-1
-            else:
-                if HAS_NOT_WARNED_MAKE_SEED_INVARIANT_NAME:
-                    print("Warning: Unable to determine benchmark name length--this may cause errors.")
-                    print("You can address this by ensuring data is encapsulated in a directory visible on relative paths with the name \"{benchmark_name}_exp\"")
-                    HAS_NOT_WARNED_MAKE_SEED_INVARIANT_NAME = False
-                suggest_benchmark_length = 1
+            temp_split = os.path.dirname(os.path.abspath(name)).split('/')
+            decide = lambda string : True if '_exp' in string else False
+            has_exp = temp_split[[decide(_) for _ in temp_split].index(True)]
+            # Subtract 1 due to _exp being a split
+            suggest_benchmark_length = len(has_exp.lstrip('_').split('_'))-1
+            #global HAS_NOT_WARNED_MAKE_SEED_INVARIANT_NAME
+            #if HAS_NOT_WARNED_MAKE_SEED_INVARIANT_NAME:
+            #    print("WARNING: Unable to determine benchmark name length--this may cause errors.")
+            #    print("You can address this by ensuring data is encapsulated in a directory visible on relative paths with the name \"{benchmark_name}_exp\"")
+            #    HAS_NOT_WARNED_MAKE_SEED_INVARIANT_NAME = False
+            #suggest_benchmark_length = 1
         name_split = name.split('_')
         # Decompose for ease of semantics
         if name.startswith('results'):
@@ -138,23 +139,23 @@ def make_seed_invariant_name(name, args):
                 off = 0
             else:
                 off = suggest_benchmark_length
-            name_split = {'benchmark': '_'.join(name_split[-off:]).rstrip('.csv'),
+            name_split = {'benchmark': '_'.join([_.capitalize() for _ in name_split[-off:]]).rstrip('.csv'),
                           'size': name_split[-1-off].upper(),
                           'short_identifier': substitute[name_split[0]] if 'gptune' not in name.lower() else 'GPTune',
                           'full_identifier': '_'.join(name_split[:-1-off])}
         elif 'xfer' in name:
-            name_split = {'benchmark': name[len('xfer_results_')+1:],
+            name_split = {'benchmark': name[len('xfer_results_')+1:].capitalize(),
                           'size': 'Force Transfer'}
             name_split['short_identifier'] = f"XFER {name_split['benchmark']}"
             name_split['full_identifier'] = f"Force Transfer {name_split['benchmark']}"
         else:
-            name_split = {'benchmark': '_'.join(name_split[:suggest_benchmark_length]),
+            name_split = {'benchmark': '_'.join([_.capitalize() for _ in name_split[:suggest_benchmark_length]]),
                           'size': name_split[-1],
-                          'short_identifier': substitute[name_split[suggest_benchmark_length+1]],
-                          'full_identifier': name_split[suggest_benchmark_length+1:-1]}
+                          'short_identifier': substitute[name_split[suggest_benchmark_length]],
+                          'full_identifier': '_'.join(name_split[suggest_benchmark_length+1:-1])}
         # Reorder in reconstruction
         name = name_split['short_identifier']
-        suggest_legend_title = f"{name_split['size']} {name_split['benchmark']}"
+        suggest_legend_title = f"{name_split['size']} {name_split['benchmark'].replace('_', ' ')}"
     return name, directory, suggest_legend_title
 
 def make_baseline_name(name, args, df, col):
