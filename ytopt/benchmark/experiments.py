@@ -344,8 +344,8 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                     invoke += "data/DEFAULT.csv --log-y "
                 invoke += f"--x-axis {axis} --log-x --unname {experiment_dir}_ "+\
                          f"--trim data/results_{problem_sizes[target]}.csv --legend best --synchronous "+\
-                         "--ignore data/jaehoon_experiments/*200eval* data/*/*_trace.csv --drop-seeds 1337 5555 "+\
-                         "--no-text --drop-overhead --clean-names"
+                         "--ignore data/jaehoon_experiments/*200eval* data/*/*_trace.csv data/thomas_experiments/*BOOTSTRAP* "+\
+                         "data/*/*1337*.csv data/*/*5555*.csv --no-text --drop-overhead --clean-names"
                 if sect['show']:
                     invoke += " --show"
                 info = verify_output(f"{experiment}_{target.lower()}_{axis}_plot.png", runtype, invoke, expect, args)
