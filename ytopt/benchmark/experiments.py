@@ -373,8 +373,8 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
         verifications += 1
     elif key == "TSNE":
         invoke = "python -m ytopt.benchmark.tsne_figure --problem problem.S --convert "+\
-                 f"{' '.join(sect['convert'])} --quantile {' '.join([str(_) for _ in sect['quantile']])} --output "+\
-                 f"{experiment}_TSNE.png"
+                 f"{' '.join(sect['convert'])} --quantile {' '.join([str(_) for _ in sect['quantile']])} --marker {sect['marker']} "+\
+                 f"--output {experiment}_TSNE.png"
         if sect['rank']:
             invoke += " --rank-color"
         info = verify_output(f"{experiment}_TSNE.png", runtype, invoke, expect, args)

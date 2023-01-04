@@ -1,6 +1,7 @@
 import importlib, skopt, argparse, matplotlib
 import pandas as pd, numpy as np, matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
+from sklearn import neighbors
 
 # From syr2k_exp dir:
 # python ../tsne_figure.py --problem syr2k_exp.problem.S --convert data/results_rf*.csv data/thomas_experiments/syr2k_NO_REFIT_GaussianCopula_*_1234* --quantile 0.3 0.3 0.3 1 1 1 --rank-color
@@ -15,6 +16,8 @@ def build():
     prs.add_argument("--max-objective", action='store_true', help="Specify when objective should be MAXIMIZED instead of MINIMIZED (latter is default)")
     prs.add_argument("--rank-color", action='store_true', help="Darken color of points that are higher ranked, lighten color of points that are lower ranked")
     prs.add_argument("--seed", type=int, default=1234, help="Set seed for TSNE")
+    prs.add_argument("--stepsize", type=float, default=0.1, help="Stepsize for mesh")
+    prs.add_argument("--neighbors", type=int, default=1, help="Number of nearest neighbors")
     return prs
 
 def parse(prs, args=None):
@@ -26,8 +29,9 @@ def parse(prs, args=None):
         raise ValueError("Require 1 global quantile or 1 quantile per converted file\n"+\
                          f"Quantiles: {args.quantile}"+"\n"+f"Files: {args.convert}")
     if args.marker == []:
-        while len(args.marker) < len(args.convert):
-            args.marker.append(args.marker[-1])
+        args.marker.append('.')
+    while len(args.marker) < len(args.convert):
+        args.marker.append(args.marker[-1])
     return args
 
 def get_size(name, frame):
@@ -53,6 +57,7 @@ def load(args):
         param_cols = sorted(set(frame.columns).difference({'objective','predicted','elapsed_sec'}))
         p_values = frame[param_cols]
         p_values.insert(len(p_values.columns), "rank", [_ for _ in range(1, len(p_values)+1)])
+        #p_values.insert(len(p_values.columns), "rank", [_ for _ in range(len(p_values),0,-1)])
         p_values.insert(len(p_values.columns), "size", [size for _ in range(len(p_values))])
         loaded.append(p_values)
         print(f"Load {name} at TOP {quant*100}% ==> {len(p_values)} rows")
@@ -88,6 +93,7 @@ def plot(loaded, args):
     fig, ax = plt.subplots()
     fig.set_tight_layout(True)
     color_maps = ['Oranges', 'Blues', 'Greens', 'Purples', 'Reds', 'Greys', 'YlOrBr', 'PuRd', 'BuPu', 'YlOrRd', 'GnBu', 'OrRd', 'YlGnBu', 'YlGn',]
+    knncolor = ['moccasin','powderblue','palegreen','plum','lightcoral','gainsboro']
     leg_handles = []
     marker_sizes = {'o': 20,
                     '*': 40,
@@ -95,16 +101,39 @@ def plot(loaded, args):
                     ',': 20,
                     '.': 20,
                 }
+    # KNN background?
+    custom_cmap = matplotlib.colors.ListedColormap([knncolor[_] for _ in range(len(loaded))])
+    combined = pd.concat(loaded)
+    boundaries = [(combined[_].min()-1, combined[_].max()+1, args.stepsize) for _ in ['x','y']]
+    classifier = neighbors.KNeighborsClassifier(args.neighbors, weights='distance')
+    # Prepare classifier input
+    X = np.stack((combined['x'],combined['y']),axis=1)
+    Y = []
+    for idx, length in enumerate(map(len,loaded)):
+        Y.extend([idx]*length)
+    Y = np.asarray(Y)
+    classifier.fit(X,Y)
+    # Mesh
+    xx,yy = np.meshgrid(np.arange(*boundaries[0]), np.arange(*boundaries[1]))
+    print("start classify")
+    Z = classifier.predict(np.c_[xx.ravel(),yy.ravel()]).reshape(xx.shape)
+    print("stop classify")
+    ax.pcolormesh(xx,yy,Z, cmap=custom_cmap)
+
+    # Scatter points
     for (idx, line), cmap in zip(enumerate(loaded), color_maps):
         if idx < len(args.marker):
             marker = args.marker[idx]
         else:
             marker='o'
         markersize = marker_sizes[marker]
+        optimal_marker='x' if marker != 'x' else '*'
         if args.rank_color and len(line) > 1:
-            ax.scatter(line['x'], line['y'], c=line['z'], cmap=cmap, label=line['label'].iloc[0], marker=marker, s=markersize)
+            ax.scatter(line['x'].iloc[0], line['y'].iloc[0], color=cmap.rstrip('s').lower(), label='BEST'+line['label'].iloc[0], marker=optimal_marker, s=markersize*2)
+            ax.scatter(line['x'].iloc[1:], line['y'].iloc[1:], c=line['z'].iloc[len(line['z'])-2::-1], cmap=cmap, label=line['label'].iloc[0], marker=marker, s=markersize)
         else:
-            ax.scatter(line['x'], line['y'], color=cmap.rstrip('s').lower(), label=line['label'].iloc[0], marker=marker, s=markersize)
+            ax.scatter(line['x'].iloc[0], line['y'].iloc[0], color=cmap.rstrip('s').lower(), label='BEST'+line['label'].iloc[0], marker=optimal_marker, s=markersize*2)
+            ax.scatter(line['x'].iloc[1:], line['y'].iloc[1:], color=cmap.rstrip('s').lower(), label=line['label'].iloc[0], marker=marker, s=markersize)
         leg_handles.append(matplotlib.lines.Line2D([0],[0],marker=marker,
                             color='w',label=line['label'].iloc[0],
                             markerfacecolor=cmap.rstrip('s').lower(),
