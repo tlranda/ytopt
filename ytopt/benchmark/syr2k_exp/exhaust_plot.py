@@ -167,28 +167,33 @@ def plotter_heat_map(fig, ax, args):
     vertical_scale = density.shape[1] // density.shape[0]
     heat = np.repeat(density[::-1,:], vertical_scale, axis=0)
 
-    # Add 'auto' aspect so that the disparity between |X| and |Y| do not break the plot (tall pixels incoming)
-    im = ax.imshow(heat, aspect='equal')
     ax.set_xticks([_ for _ in x if _ % 1000 == 0], labels=[str(_//1000)+'K' for _ in x if _ % 1000 == 0])
     ax.set_xlabel("Performance Rank of Configuration (Lower is Better)")
-    if len(y) < LIMIT_Y_TICKS:
-        ax.set_yticks(vertical_scale * np.arange(len(y)) + (vertical_scale/2), labels=y)
-        if not args.no_minor_lines:
-            ax.set_yticks(vertical_scale * np.arange(len(y)), minor=True)
+    if args.collapse_heat:
+        collapsed = np.matmul(args.buckets, density) / sum(args.buckets)
+        ax.plot(x, collapsed, label=f"Weighted probability based on buckets {args.buckets}")
     else:
-        fair_mod = len(y) // LIMIT_Y_TICKS
-        shorter_y = np.asarray([_ for idx,_ in enumerate(y) if idx % fair_mod == 0])
-        # Rescaling required since we're omitting points
-        vertical_scale *= len(y) / len(shorter_y)
-        ax.set_yticks(vertical_scale * np.arange(len(shorter_y)) + (vertical_scale/2), labels=shorter_y)
-        if not args.no_minor_lines:
-            ax.set_yticks(vertical_scale * shorter_y, minor=True)
-    ax.set_ylabel("Relevance Quantile (Lower is More Likely)")
-    # Add the density color bar
-    cbar = ax.figure.colorbar(im, ax=ax)
-    cbar.ax.set_ylabel("Density of Preference (Higher is More Preferred)", rotation=-90, va='bottom')
-    # Create the white grid
-    ax.grid(which='minor',color='w',linestyle='-',linewidth=2, axis='y')
+        # Add 'auto' aspect so that the disparity between |X| and |Y| do not break the plot (tall pixels incoming)
+        im = ax.imshow(heat, aspect='equal')
+        if len(y) < LIMIT_Y_TICKS:
+            ax.set_yticks(vertical_scale * np.arange(len(y)) + (vertical_scale/2), labels=y)
+            if not args.no_minor_lines:
+                ax.set_yticks(vertical_scale * np.arange(len(y)), minor=True)
+        else:
+            fair_mod = len(y) // LIMIT_Y_TICKS
+            shorter_y = np.asarray([_ for idx,_ in enumerate(y) if idx % fair_mod == 0])
+            # Rescaling required since we're omitting points
+            vertical_scale *= len(y) / len(shorter_y)
+            ax.set_yticks(vertical_scale * np.arange(len(shorter_y)) + (vertical_scale/2), labels=shorter_y)
+            if not args.no_minor_lines:
+                ax.set_yticks(vertical_scale * shorter_y, minor=True)
+        ax.set_ylabel("Relevance Quantile (Lower is More Likely)")
+        # Add the density color bar
+        cbar = ax.figure.colorbar(im, ax=ax)
+        cbar.ax.set_ylabel("Density of Preference (Higher is More Preferred)", rotation=-90, va='bottom')
+        # Create the white grid
+        ax.grid(which='minor',color='w',linestyle='-',linewidth=2, axis='y')
+
     return fig, ax
 
 def plotter_implied_area(fig,ax,args):
@@ -386,6 +391,7 @@ def build():
     prs.add_argument('--no-minor-lines', action='store_true', help="Disable minor axis lines")
     prs.add_argument('--problem', type=str, default=None, help='Problem for importing information')
     prs.add_argument('--attribute', type=str, default=None, help='Attribute to fetch a problem instance for information')
+    prs.add_argument('--collapse-heat', action='store_true', help="Make heat as a CDF rather than a 2D map")
     return prs
 
 def parse(prs, args=None):

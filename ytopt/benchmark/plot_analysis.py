@@ -24,6 +24,7 @@ def build():
     prs.add_argument("--legend", choices=legend_codes, nargs="*", default=None, help="Legend location (default none). Two-word legends should be quoted on command line")
     prs.add_argument("--minmax", action="store_true", help="Include min and max lines")
     prs.add_argument("--stddev", action="store_true", help="Include stddev range area")
+    prs.add_argument("--current", action="store_true", help="Include area for actual evaluation")
     prs.add_argument("--x-axis", choices=["evaluation", "walltime"], default="evaluation", help="Unit for x-axis")
     prs.add_argument("--log-x", action="store_true", help="Logarithmic x axis")
     prs.add_argument("--log-y", action="store_true", help="Logarithmic y axis")
@@ -51,6 +52,8 @@ def build():
 def parse(prs, args=None):
     if args is None:
         args = prs.parse_args()
+    if args.stddev and args.current:
+        raise ValueError("Only ONE of --stddev and --current can be used in the same plot")
     if args.trim is None:
         args.trim = list()
     if not args.max_objective:
@@ -271,6 +274,7 @@ def combine_seeds(data, args):
                        'std_high': np.zeros(n_points),
                        'obj': np.zeros(n_points),
                        'exe': np.zeros(n_points),
+                       'current': np.zeros(n_points),
                       }
         prev_mean = None
         for idx, step in enumerate(steps):
@@ -306,6 +310,10 @@ def combine_seeds(data, args):
             finite = [_ for _ in step_data if np.isfinite(_)]
             mean = np.mean(finite)
             trimmed = entry['fname'] in args.trim
+            if 'old_objective' in entry['data'][0].columns:
+                new_columns['current'][idx] = np.mean([_['old_objective'].iloc[idx] for _ in entry['data']])
+            else:
+                new_columns['current'][idx] = mean
             if not trimmed or new_data['type'] != 'best' or prev_mean is None or mean != prev_mean:
                 new_columns['obj'][idx] = mean
                 prev_mean = mean
@@ -498,6 +506,8 @@ def load_all(args):
             # Transform into best-so-far dataset
             for col in ['objective', 'exe_time']:
                 if col in d.columns:
+                    old_vals = d[col].tolist()
+                    d['old_'+col] = old_vals
                     if args.max_objective:
                         d[col] = [max(d[col][:_+1]) for _ in range(0,len(d[col]))]
                     else:
@@ -589,7 +599,7 @@ def prepare_fig(args):
     return fig, ax, name
 
 def alter_color(color_tup, ratio=0.5, brighten=True):
-    return tuple([ratio*(_+((-1)**(1+int(brighten)))) for _ in color_tup])
+    return tuple(np.clip([ratio*(_+((-1)**(1+int(brighten)))) for _ in color_tup],0,1))
 
 def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
     makeNew = False
@@ -606,10 +616,12 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
     #color_map = 'Reds'
     if source['type'] == 'pca':
         plt.scatter(data['x'], data['y'], c=data['z'], cmap=color_map, label=source['name'])#, labelcolor=color_map.lower().rstrip('s'))
+        print(f"PCA Scatter {source['name']}")
     elif source['type'] == 'xfer':
         for target_line, color in zip(set(data['target_size']), colors):
             subset_data = data[data['target_size'] == target_line]
             plt.plot(subset_data['source_size'], subset_data['target_objective'], c=color, label=str(target_line), marker='.',markersize=12)
+            print(f"XFER Plot {target_line}")
         makeNew = True
     elif top_val is None:
         # Shaded area = stddev
@@ -623,15 +635,25 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
                             label=f"Stddev {source['name']}",
                             alpha=0.4,
                             color=alter_color(color), zorder=-1)
+            print(f"STDDEV Fill-Between {source['name']}")
+        # Shaded area = current progress
+        if args.current:
+            ax.fill_between(data['exe'], data['current'], data['obj'],
+                            label=f"Current {source['name']}",
+                            alpha=0.4,
+                            color=alter_color(color), zorder=-1)
+            print(f"CURRENT Fill-Between {source['name']}")
         # Main line = mean
         if len(data['obj']) > 1:
             cutoff = data['obj'].to_list().index(max(data['obj']))
             ax.plot(data['exe'][:min(cutoff+1, len(data))], data['obj'][:min(cutoff+1,len(data))],
                     label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
                     marker='x', color=color, zorder=1)
+            print(f"MEAN Plot {source['name']}")
             if not args.cutoff:
                 ax.plot(data['exe'][cutoff:], data['obj'][cutoff:],
                         marker='x', color=color, zorder=1)
+                print("\tMEAN-CUTOFF Plot")
         else:
             x_lims = [int(v) for v in ax.get_xlim()]
             x_lims[0] = max(0, x_lims[0])
@@ -640,13 +662,16 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
             ax.plot(x_lims, [data['obj'], data['obj']],
                     label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
                     marker='x', color=color, zorder=1)
+            print(f"MEAN Plot {source['name']}")
         # Flank lines = min/max
         if args.minmax:
             ax.plot(data['exe'], data['min'], linestyle='--',
                     label=f"Min/Max {source['name']}",
                     color=alter_color(color, brighten=False), zorder=0)
+            print(f"MIN Plot {source['name']}")
             ax.plot(data['exe'], data['max'], linestyle='--',
                     color=alter_color(color, brighten=False), zorder=0)
+            print(f"MAX Plot {source['name']}")
     else:
         # Make new Y that increases by 1 each time you beat the top val (based on min or max objective)
         if args.global_top:
@@ -663,6 +688,7 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
             new_y.append(counter)
         ax.plot(data['exe'], new_y, label=source['name'],
                 marker='.', color=color, zorder=1)
+        print(f"TOP_VAL Plot {source['name']}")
     return makeNew
 
 def text_analysis(all_data, args):
@@ -768,18 +794,19 @@ def main(args):
             if args.log_y:
                 ax.set_yscale("symlog")
             if args.legend is not None:
+                """
                 if len(ax.collections) > 0:
                     colors = [_.cmap.name.lower().rstrip('s') for _ in ax.collections]
                     leg_handles = [matplotlib.lines.Line2D([0],[0],
                                             marker='o',
                                             color='w',
                                             label=l.get_label(),
-                                            markerfacecolor=l.cmap.name.lower().rstrip('s'),
+                                            markerfacecolor=c,
                                             markersize=8,
-                                            ) for l in ax.collections]
+                                            ) for c,l in zip(colors,ax.collections)]
                     ax.legend(handles=leg_handles, loc=" ".join(args.legend), title=legend_title)
-                else:
-                    ax.legend(loc=" ".join(args.legend), title=legend_title)
+                """
+                ax.legend(loc=" ".join(args.legend), title=legend_title)
             if not args.show:
                 fig.savefig("_".join([args.output,name]))
     if args.show:

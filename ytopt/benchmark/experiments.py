@@ -348,6 +348,10 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                          "data/*/*1337*.csv data/*/*5555*.csv --no-text --drop-overhead --clean-names"
                 if sect['show']:
                     invoke += " --show"
+                if sect['minmax']:
+                    invoke += " --minmax"
+                if sect['stddev']:
+                    invoke += " --stddev"
                 info = verify_output(f"{experiment}_{target.lower()}_{axis}_plot.png", runtype, invoke, expect, args)
                 calls += info[0]
                 bluffs += info[1]

@@ -109,12 +109,13 @@ def fig5(args):
             if target.lower() not in fname and target.upper() not in fname:
                 continue
             csv = pd.read_csv(f"{args.data}{fname}")
-            kernel_evals = o3_time / np.array(csv['objective'])
+            kernel_evals = (o3_time / np.array(csv['objective'])).tolist()
             evals.extend(kernel_evals)
             lname = labeler(os.path.basename(fname))
             if lname in info.keys():
                 info[lname]['evals'].extend(kernel_evals)
-                info[lname]['t'].extend(np.array(csv['elapsed_sec']))
+                info[lname]['t'] = np.hstack((info[lname]['t'], np.array(csv['elapsed_sec'])))
+                #info[lname]['t'].extend(np.array(csv['elapsed_sec']))
             else:
                 info[lname] = {'evals': kernel_evals,
                                'counter': 0,
@@ -123,6 +124,8 @@ def fig5(args):
                                'idx': 0,
                                't': np.array(csv['elapsed_sec']),
                               }
+        if len(evals) == 0:
+            continue
         cutoff = sorted(evals, reverse=True)[int(len(evals)*args.alpha)]
         print(f"{target} cutoff: {cutoff}")
 

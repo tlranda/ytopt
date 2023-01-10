@@ -137,7 +137,10 @@ def demoPlot(exhaust, sampled, args):
         name = make_nice_name(name, args.p_k, args)
         fig, ax = make_histogram(fig, ax, x_breaks, y_breaks, make_dist(value_dict, sample), name, args)
     fig, ax = apply_common(fig, ax, x_breaks, y_breaks, args)
-    plt.show()
+    if args.save_name is None:
+        plt.show()
+    else:
+        fig.savefig(args.save_name)
 
 def load_files(args):
     # Load files and apply topK filtering if needed
@@ -162,6 +165,7 @@ def build():
     prs.add_argument('--y-buffer', type=float, default=0, help="Buffer between Y-groupings")
     prs.add_argument('--y-size', type=float, default=1, help="Size of a single Y-grouping")
     prs.add_argument('--collapse-y', action='store_true', help="Overlap Y with transparency")
+    prs.add_argument('--save-name', type=str, default=None, help="Save to given filename")
     return prs
 
 def parse(prs, args=None):
