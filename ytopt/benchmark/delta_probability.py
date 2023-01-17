@@ -8,8 +8,12 @@ def hyper(pop, cand, samp, req, big=False):
         return t1/t2
     else:
         accumulate = 0.
-        for n_targets in range(1,cand+1):
-            t1 = comb(cand,n_targets)*comb(pop-cand, samp-n_targets)
+        for n_targets in range(1,min(cand,samp)+1):
+            try:
+                t1 = comb(cand,n_targets)*comb(pop-cand, samp-n_targets)
+            except Exception as E:
+                print(cand, n_targets, pop-cand, samp-n_targets)
+                raise E
             t2 = comb(pop, samp)
             print(f"Hyper iteration {n_targets} = {t1/t2}")
             accumulate += (t1/t2)
@@ -38,7 +42,7 @@ def predict_ratio(pop, delta_pop, cand, delta_cand, samp, req, big=False):
         return ratio
     else:
         accumulate = 0.
-        for n_targets in range(1,cand+delta_cand+1):
+        for n_targets in range(1,min(samp,cand+delta_cand)+1):
             t1 = delta_comb(cand, delta_cand, n_targets)
             t2 = delta_comb(pop-cand, delta_pop-delta_cand, samp-n_targets)
             t3 = delta_comb(pop, delta_pop, samp)
@@ -54,18 +58,18 @@ def nice_print(d, keys = None):
     print("\n".join([f"{k:<{longest}}: {d[k]}" for k in keys])+"\n")
 
 def simple_test():
-    pop = 12
-    delta_pop = -2
-    cand = 3
-    delta_cand = -1
-    samp = 5
+    pop = 10648 # 12
+    delta_pop = -6000
+    cand = 10
+    delta_cand = -2
+    samp = 30
     req = 1
     big = True
-    input_dict = dict((k,v) for (k,v) in locals().items())
-    nice_print(input_dict)
     before, after, contraction = get_contraction(pop, delta_pop,
                                                  cand, delta_cand,
                                                  samp, req, big)
+    input_dict = dict((k,v) for (k,v) in locals().items())
+    nice_print(input_dict)
     #pdb.set_trace()
     ratio = predict_ratio(pop, delta_pop, cand, delta_cand, samp, req, big)
     local_dict = dict((k,v) for (k,v) in locals().items() if '_dict' not in k)
