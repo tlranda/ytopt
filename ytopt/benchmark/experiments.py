@@ -105,7 +105,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
     # Determine parallelism
     parallel = args.parallel_id is not None and args.n_parallel is not None
     # Fetch the problem sizes
-    if problem_sizes is None:
+    if problem_sizes is None and ('require_sizes' not in sect.keys() or sect['require_sizes']):
         problem_sizes = subprocess.run("python -m ytopt.benchmark.size_lookup --p "+" ".join([f"problem.{s}" for s in sect['sizes']]), shell=True, stdout=subprocess.PIPE)
         problem_sizes = dict((k, int(v)) for (k,v) in zip(sect['sizes'], problem_sizes.stdout.decode('utf-8').split()))
     # GIANT SWITCH on experiment types
@@ -379,12 +379,22 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
         invoke = "python -m ytopt.benchmark.tsne_figure --problem problem.S --convert "+\
                  f"{' '.join(sect['convert'])} --quantile {' '.join([str(_) for _ in sect['quantile']])} --marker {sect['marker']} "+\
                  f"--output {experiment}_TSNE.png"
+        if sect['video']:
+            invoke += " --video"
         if sect['rank']:
             invoke += " --rank-color"
         info = verify_output(f"{experiment}_TSNE.png", runtype, invoke, expect, args)
         calls += info[0]
         bluffs += info[1]
         verifications += 1
+    elif key == "EXHAUSTIVE":
+        for size in sect['targets']:
+            invoke = 'python -m ytopt.benchmark.syr2k_exp.exhaust_plot --func mean_median '+\
+                     f'--exhaust data/gc_explain/all_{size.upper()}.csv '+\
+                     f'--title "{experiment.capitalize()} SM Exhaustive Performance Ranks" --figname {experiment}_Exhaustive{size.upper()}'
+            info = verify_output(f"{experiment}_Exhaustive{size.upper()}_1.png", runtype, invoke, expect, args)
+            calls += info[0]
+            bluffs += info[1]
     # ANALYSIS CALLS
     # TBD
     else:

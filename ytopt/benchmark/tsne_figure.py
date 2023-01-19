@@ -1,5 +1,7 @@
 import importlib, skopt, argparse, matplotlib
 import pandas as pd, numpy as np, matplotlib.pyplot as plt
+plt.rcParams['animation.ffmpeg_path'] = "/usr/bin/ffmpeg"
+import matplotlib.animation as animation
 from sklearn.manifold import TSNE
 from sklearn import neighbors
 
@@ -18,6 +20,7 @@ def build():
     prs.add_argument("--seed", type=int, default=1234, help="Set seed for TSNE")
     prs.add_argument("--stepsize", type=float, default=0.1, help="Stepsize for mesh")
     prs.add_argument("--neighbors", type=int, default=1, help="Number of nearest neighbors")
+    prs.add_argument("--video", action='store_true', help='Save as video switching ranks each frame')
     return prs
 
 def parse(prs, args=None):
@@ -28,6 +31,8 @@ def parse(prs, args=None):
     if len(args.quantile) != len(args.convert):
         raise ValueError("Require 1 global quantile or 1 quantile per converted file\n"+\
                          f"Quantiles: {args.quantile}"+"\n"+f"Files: {args.convert}")
+    if args.marker is None:
+        args.marker = []
     if args.marker == []:
         args.marker.append('.')
     while len(args.marker) < len(args.convert):
@@ -121,6 +126,7 @@ def plot(loaded, args):
     ax.pcolormesh(xx,yy,Z, cmap=custom_cmap)
 
     # Scatter points
+    highlighted = []
     for (idx, line), cmap in zip(enumerate(loaded), color_maps):
         if idx < len(args.marker):
             marker = args.marker[idx]
@@ -129,19 +135,57 @@ def plot(loaded, args):
         markersize = marker_sizes[marker]
         optimal_marker='x' if marker != 'x' else '*'
         if args.rank_color and len(line) > 1:
-            ax.scatter(line['x'].iloc[0], line['y'].iloc[0], color=cmap.rstrip('s').lower(), label='BEST'+line['label'].iloc[0], marker=optimal_marker, s=markersize*2)
+            x_marker = ax.scatter(line['x'].iloc[0], line['y'].iloc[0], color=cmap.rstrip('s').lower(), label='BEST'+line['label'].iloc[0], marker=optimal_marker, s=markersize*4, linewidth=3)
             ax.scatter(line['x'].iloc[1:], line['y'].iloc[1:], c=line['z'].iloc[len(line['z'])-2::-1], cmap=cmap, label=line['label'].iloc[0], marker=marker, s=markersize)
+            x_line = ax.plot([0,line['x'].iloc[0]], [0,line['y'].iloc[0]], color='black', linewidth=0.5)
         else:
-            ax.scatter(line['x'].iloc[0], line['y'].iloc[0], color=cmap.rstrip('s').lower(), label='BEST'+line['label'].iloc[0], marker=optimal_marker, s=markersize*2)
+            x_marker = ax.scatter(line['x'].iloc[0], line['y'].iloc[0], color=cmap.rstrip('s').lower(), label='BEST'+line['label'].iloc[0], marker=optimal_marker, s=markersize*4, linewidth=3)
             ax.scatter(line['x'].iloc[1:], line['y'].iloc[1:], color=cmap.rstrip('s').lower(), label=line['label'].iloc[0], marker=marker, s=markersize)
+            x_line = ax.plot([0,line['x'].iloc[0]], [0,line['y'].iloc[0]], color='black', linewidth=0.5)
+        highlighted.append((x_marker,x_line[0]))
         leg_handles.append(matplotlib.lines.Line2D([0],[0],marker=marker,
                             color='w',label=line['label'].iloc[0],
                             markerfacecolor=cmap.rstrip('s').lower(),
                             markersize=markersize//4))
+    # Add origin lines
+    ax.axhline(y=0, color='black', linewidth=0.1)
+    ax.axvline(x=0, color='black', linewidth=0.1)
+    # Labels, legends, save
     ax.set_xlabel("TSNE dimension 1")
     ax.set_ylabel("TSNE dimension 2")
     ax.legend(handles=leg_handles, loc="best")
-    plt.savefig(args.output)
+    ax.set_xlim([min([min(line['x']) for line in loaded]), max([max(line['x']) for line in loaded])])
+    ax.set_ylim([min([min(line['y']) for line in loaded]), max([max(line['y']) for line in loaded])])
+    if not args.video:
+        plt.savefig(args.output)
+    else:
+        max_rank = min([len(line['x']) for line in loaded])-1
+        class animator:
+            def __init__(self, highlight,loaded,max_rank):
+                self.target_rank = 0
+                self.max_rank = max_rank
+                self.highlighted = highlight
+                self.loaded = loaded
+            def __call__(self, frame):
+                if self.target_rank >= max_rank:
+                    self.target_rank = 0
+                else:
+                    self.target_rank += 1
+                rank = self.target_rank
+                for hl, line in zip(self.highlighted, self.loaded):
+                    try:
+                        hl[0].set_offsets((line['x'].iloc[rank], line['y'].iloc[rank]))
+                    except:
+                        import pdb
+                        pdb.set_trace()
+                    hl[1].set_data(([0,line['x'].iloc[rank]], [0,line['y'].iloc[rank]]))
+        make_animation = animator(highlighted,loaded,max_rank)
+        anim = animation.FuncAnimation(fig,make_animation,frames=max_rank,interval=25)
+        video = anim.to_html5_video()
+        if args.output.endswith('.png'):
+            args.output = args.output.rsplit('.',1)[0]+'.mp4'
+        FFwriter = animation.FFMpegWriter(fps=10)
+        anim.save(args.output,writer=FFwriter)
 
 if __name__ == "__main__":
     args = parse(build())
