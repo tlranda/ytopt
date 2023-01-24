@@ -55,6 +55,12 @@ def build():
                         help="Previous run to resume from (if specified)")
     parser.add_argument('--resume-fit', default=0, type=int,
                         help="Rows to refit on from the resuming data (default 0 -- blank model used, use -1 to infer the last fit)")
+    parser.add_argument('--pure-generate', action='store_true',
+                        help="Just time how long it takes to generate the requested number of results and report #unique")
+    parser.add_argument('--ideal-proportion', type=float, default=0.1,
+                        help="Ratio of the ideal:total population to target in pure-generate (default: .1)")
+    parser.add_argument('--success-bar', type=float, default=0.5,
+                        help="Threshold to pass for setting k in pure-generate (default: .5)")
     return parser
 
 def parse(prs, args=None):
@@ -162,6 +168,111 @@ def csv_to_eval(frame, size):
     csv.insert(loc=len(csv.columns)-1, column='input', value=size)
     csv = csv.rename(columns={'objective': 'runtime'})
     return csv
+
+def online2(targets, data, inputs, args, fname, speed = None, exhaust = None):
+    global time_start
+
+    ORIGINAL_DATA_LENGTH = len(data)
+    # All problems (input and target alike) must utilize the same parameters or this is not going to work
+    param_names = set(targets[0].params)
+    for target_problem in targets[1:]:
+        other_names = set(target_problem.params)
+        if len(param_names.difference(other_names)) > 0:
+            raise ValueError(f"Targets {targets[0].name} and "
+                             f"{target_problem.name} utilize different parameters")
+    criterion = []
+    for input_problem in inputs:
+        criterion.append(input_problem.problem_class)
+        other_names = set(input_problem.params)
+        if len(param_names.difference(other_names)) > 0:
+            raise ValueError(f"Target {targets[0].name} and "
+                             f"{input_problem.name} utilize different parameters")
+    param_names = sorted(param_names)
+    n_params = len(param_names)
+
+    # Gather all constraints from all target problems
+    constraints = []
+    for target in targets:
+        constraints.extend(target.constraints)
+    if args.model != 'random':
+        field_names = ['input']+param_names+['runtime']
+        field_transformers = targets[0].problem_params
+        model = sdv_models[args.model](field_names=field_names, field_transformers=field_transformers,
+                  constraints=constraints, min_value=None, max_value=None)
+    else:
+        model = None
+    # Make conditions for each target
+    conditions = []
+    for target_problem in targets:
+        conditions.append(Condition({'input': target_problem.problem_class},
+                                    num_rows=max(100, args.n_sample)))
+    # Initial fit
+    if model is not None:
+        print(f"Fitting with {len(data)} rows")
+        import warnings
+        warnings.simplefilter("ignore")
+        model.fit(data)
+        warnings.simplefilter('default')
+    time_start = time.time()
+    dup_cols = param_names + ['input']
+    durations = []
+    generated = []
+    eval_master = 0
+    time_start = time.time()
+    while eval_master < args.max_evals:
+        # Generate prospective points
+        if args.model != 'random':
+            # Some SDV models don't realllllly support the kind of conditional sampling we need
+            # So this call will bend the condition rules a bit to help them produce usable data
+            # until SDV fully supports conditional sampling for those models
+            # For any model where SDV has conditional sampling support, this SHOULD utilize SDV's
+            # real conditional sampling and bypass the approximation entirely
+            ss1, r, d = sample_approximate_conditions(args.model, model, conditions,
+                                                      sorted(criterion), param_names)
+            for col in param_names:
+                ss1[col] = ss1[col].astype(str)
+        else:
+            # random model is achieved by sampling configurations from the target problem's input space
+            columns = ['input']+param_names+['runtime']
+            dtypes = [(k,param_type(k, targets[0])) for k in columns]
+            random_data = []
+            for idx, cond in enumerate(conditions):
+                for _ in range(cond.num_rows):
+                    # Generate a random valid sample in the parameter space
+                    random_params = targets[idx].input_space.sample_configuration().get_dictionary()
+                    random_params = [random_params[k] for k in param_names]
+                    # Generate the runtime estimate
+                    inference = 1.0
+                    random_data.append(tuple([cond.column_values['input']]+random_params+[inference]))
+            ss1 = np.array(random_data, dtype=dtypes)
+            ss1 = pd.DataFrame(ss1, columns=columns)
+            for col, dtype in zip(ss1.columns, dtypes):
+                if dtype[1] == 'str':
+                    ss1[col] = ss1[col].astype('string')
+        ss = ss1[dup_cols]
+        generated.append(ss)
+        eval_master += len(ss)
+    generated = pd.concat(generated).iloc[:args.max_evals].drop_duplicates()
+    print(f"Generated {len(generated)} unique values after {args.max_evals} generations ({100*len(generated)/args.max_evals}%) in {time.time()-time_start} since fit")
+    # How many to sample for odds of success?
+    args.success_bar
+    I = int(args.max_evals * args.ideal_proportion)
+    C = int(len(generated))
+    if I > C:
+        print(f"Ideal population smaller than biased population!")
+        return
+    k = 1
+    try:
+        from math import comb
+    except ImportError:
+        from math import factorial
+        def comb(n,k):
+            return factorial(n) / (factorial(k) * factorial(n-k))
+    def hypergeo(i,p,t,k):
+        return (comb(i,t)*comb((p-i),(k-t))) / comb(p,k)
+    while k < I and sum([hypergeo(I,C,_,k) for _ in range(1,k+1)]) < args.success_bar:
+        k += 1
+    print(f"Reached {args.success_bar} probability with {k} samples")
 
 def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
     global time_start
@@ -543,9 +654,12 @@ def main(args=None):
         targets[-1].seed(args.seed)
         # Single-target mode
         if args.single_target:
-            data, exhaust, param_names = online([targets[-1]], real_data, inputs, args, f"{output_prefix}_{targets[-1].name}.csv", speed, args.exhaustive)
-    print(f"Receive {len(data)} rows for evaluation")
-    make_plot(args, data, exhaust, param_names)
+            if args.pure_generate:
+                online2([targets[-1]], real_data, inputs, args, f"{output_prefix}_{targets[-1].name}.csv", speed, args.exhaustive)
+            else:
+                data, exhaust, param_names = online([targets[-1]], real_data, inputs, args, f"{output_prefix}_{targets[-1].name}.csv", speed, args.exhaustive)
+                print(f"Receive {len(data)} rows for evaluation")
+                make_plot(args, data, exhaust, param_names)
 
 
 if __name__ == '__main__':
