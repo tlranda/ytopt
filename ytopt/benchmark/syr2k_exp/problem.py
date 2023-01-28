@@ -34,6 +34,7 @@ input_space = [('Categorical',
     'default_value': '256'
     }),
     ]
+
 # Based on 
 lookup_ival = {20: ("N", "MINI"), 60: ("S", "SMALL"), 130: ("SM", "SM"), 200: ("M", "MEDIUM"),
                600: ("ML", "ML"), 1000: ("L", "LARGE"), 2000: ("XL", "EXTRALARGE"),

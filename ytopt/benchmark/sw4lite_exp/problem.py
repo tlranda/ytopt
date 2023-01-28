@@ -37,6 +37,7 @@ input_space = [('Ordinal',
                   'choices': ['MPI_Barrier(MPI_COMM_WORLD);',' '],
                   'default_value': 'MPI_Barrier(MPI_COMM_WORLD);',})
               ]
+
 class SW4Lite_Plopper(ECP_Plopper):
     retries=1
     def set_os_environ(self):
@@ -90,6 +91,7 @@ class SW4Lite_Plopper(ECP_Plopper):
                 return float(process.stderr.decode('utf-8').split(' ')[-1])
             except ValueError:
                 return None
+
 # Based on
 lookup_ival = {1: ("NN", "MICRO"), 2: ("N", "TINY"), 3: ("S", "SMALL"), 4: ("SM", "SM"),
                5: ("M", "MEDIUM"), 6: ("ML", "ML"), 7: ("L", "LARGE"), 8: ("XL", "EXTRALARGE"),

@@ -51,6 +51,7 @@ input_space = [('Ordinal',
      'default_value': 'cores'
     }),
     ]
+
 # Special compile string for plopper
 class AMG_Plopper(ECP_Plopper):
     def compileString(self, outfile, dictVal, *args, **kwargs):

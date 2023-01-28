@@ -45,6 +45,7 @@ input_space = [('Ordinal',
      'default_value': 'none',
     }),
     ]
+
 class XSBench_Plopper(ECP_Plopper):
     def runString(self, outfile, dictVal, *args, **kwargs):
         d_size = args[0]
