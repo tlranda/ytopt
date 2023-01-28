@@ -12,7 +12,7 @@ def build():
     prs = argparse.ArgumentParser()
     prs.add_argument("--problem", required=True, help="Problem to reference for params (as module import)")
     prs.add_argument("--convert", nargs="+", required=True, help="Files to collate/convert")
-    prs.add_argument("--quantile", nargs="+", required=True, type=float, help="Quantiles PER FILE or GLOBAL to apply to convert data")
+    prs.add_argument("--quantile", nargs="+", required=True, type=float, help="Quantiles PER FILE or GLOBAL to highlight 'optimum' portion of data")
     prs.add_argument("--marker", nargs="+", required=False, choices=['.',',','*','+','o'], help="Maker per file")
     prs.add_argument("--output", default="tsne.png", help="Output name")
     prs.add_argument("--max-objective", action='store_true', help="Specify when objective should be MAXIMIZED instead of MINIMIZED (latter is default)")
@@ -53,11 +53,11 @@ def get_size(name, frame):
 
 def load(args):
     loaded = []
-    for name, quant in zip(args.convert, args.quantile):
+    for name in args.convert:
         frame = pd.read_csv(name)
         size = get_size(name, frame)
         frame = frame.sort_values(by='objective', ascending=not args.max_objective)
-        frame = frame.iloc[:min(len(frame),max(1,int(quant*len(frame))))]
+        #frame = frame.iloc[:min(len(frame),max(1,int(quant*len(frame))))]
         # Get params and add ranked objectives
         param_cols = sorted(set(frame.columns).difference({'objective','predicted','elapsed_sec'}))
         p_values = frame[param_cols]
@@ -65,7 +65,7 @@ def load(args):
         #p_values.insert(len(p_values.columns), "rank", [_ for _ in range(len(p_values),0,-1)])
         p_values.insert(len(p_values.columns), "size", [size for _ in range(len(p_values))])
         loaded.append(p_values)
-        print(f"Load {name} at TOP {quant*100}% ==> {len(p_values)} rows")
+        print(f"Load {name} ==> {len(p_values)} rows")
     return loaded
 
 def tsne_reduce(loaded, args):
@@ -127,7 +127,7 @@ def plot(loaded, args):
 
     # Scatter points
     highlighted = []
-    for (idx, line), cmap in zip(enumerate(loaded), color_maps):
+    for (idx, line), cmap, quant in zip(enumerate(loaded), color_maps, args.quantile):
         if idx < len(args.marker):
             marker = args.marker[idx]
         else:
@@ -136,17 +136,24 @@ def plot(loaded, args):
         optimal_marker='x' if marker != 'x' else '*'
         if args.rank_color and len(line) > 1:
             x_marker = ax.scatter(line['x'].iloc[0], line['y'].iloc[0], color=cmap.rstrip('s').lower(), label='BEST'+line['label'].iloc[0], marker=optimal_marker, s=markersize*4, linewidth=3)
-            ax.scatter(line['x'].iloc[1:], line['y'].iloc[1:], c=line['z'].iloc[len(line['z'])-2::-1], cmap=cmap, label=line['label'].iloc[0], marker=marker, s=markersize)
+            quant_break = int(len(line['x']) * quant)
+            # Indicated Optimal
+            ax.scatter(line['x'].iloc[1:quant_break], line['y'].iloc[1:quant_break], color='black', label=line['label'].iloc[0], marker=marker, s=markersize)
+            # Indicated Sub-optimal
+            ax.scatter(line['x'].iloc[quant_break:], line['y'].iloc[quant_break:], color='white', label=line['label'].iloc[0], marker=marker, s=markersize)
+            #ax.scatter(line['x'].iloc[1:], line['y'].iloc[1:], c=line['z'].iloc[len(line['z'])-2::-1], cmap=cmap, label=line['label'].iloc[0], marker=marker, s=markersize)
             x_line = ax.plot([0,line['x'].iloc[0]], [0,line['y'].iloc[0]], color='black', linewidth=0.5)
         else:
             x_marker = ax.scatter(line['x'].iloc[0], line['y'].iloc[0], color=cmap.rstrip('s').lower(), label='BEST'+line['label'].iloc[0], marker=optimal_marker, s=markersize*4, linewidth=3)
             ax.scatter(line['x'].iloc[1:], line['y'].iloc[1:], color=cmap.rstrip('s').lower(), label=line['label'].iloc[0], marker=marker, s=markersize)
             x_line = ax.plot([0,line['x'].iloc[0]], [0,line['y'].iloc[0]], color='black', linewidth=0.5)
         highlighted.append((x_marker,x_line[0]))
-        leg_handles.append(matplotlib.lines.Line2D([0],[0],marker=marker,
-                            color='w',label=line['label'].iloc[0],
+        leg_handles.append(matplotlib.lines.Line2D([0],[0],
+                            marker=marker,
+                            color='w',
+                            label=line['label'].iloc[0].upper(),
                             markerfacecolor=cmap.rstrip('s').lower(),
-                            markersize=markersize//4))
+                            markersize=markersize))
     # Add origin lines
     ax.axhline(y=0, color='black', linewidth=0.1)
     ax.axvline(x=0, color='black', linewidth=0.1)
