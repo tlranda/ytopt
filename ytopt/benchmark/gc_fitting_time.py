@@ -14,6 +14,7 @@ def build():
     prs.add_argument('--model', choices=['GaussianCopula','GPTune'], default='GaussianCopula', help="Model to measure")
     prs.add_argument('--n-data', type=int, default=100, help="Number of simulated rows of fitting data")
     prs.add_argument('--max-power', type=int, default=3, help="Largest power of variables to attempt fitting (base 10)")
+    prs.add_argument('--powers', type=int, nargs="*", action='append', help="Explicit power list (supercedes --max-power when specified)")
     prs.add_argument('--field-type', choices=['float', 'categorical',],  default='float', help="Treat data as this kind of fittable variable")
     prs.add_argument('--seed', type=int, default=1234, help="Set RNG seeds")
     return prs
@@ -25,13 +26,20 @@ def parse(prs, args=None):
     args.max_power += 1
     # Replace experiment with function call
     args.experiment = globals()[f'experiment_{args.model}']
+    if len(args.powers[0]) > 0:
+        args.powers = args.powers[0]
+    else:
+        args.powers = None
     return args
 
 def experiment_GaussianCopula(args):
     # Define all experiment powers as same # rows but increasing # of variables
     import sdv
     from sdv.tabular import GaussianCopula
-    experiments = [(args.n_data, 10**_) for _ in range(args.max_power)]
+    if args.powers is None:
+        experiments = [(args.n_data, 10**power) for power in range(args.max_power)]
+    else:
+        experiments = [(args.n_data, power) for power in args.powers]
     fitting_times = []
     for (M,N) in experiments:
         names = [str(_) for _ in range(N)]
