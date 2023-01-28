@@ -18,6 +18,9 @@ def run(cmd, prelude, args):
         status = subprocess.run(cmd, shell=True)
 
 def output_check(checkname, prelude, expect, args, can_rm=True):
+    if checkname is None or expect is None:
+        print(f"-- NO FILE OUTPUT EXPECTED --")
+        return
     if os.path.exists(checkname):
         try:
             with open(checkname, 'r') as f:
@@ -42,6 +45,13 @@ def verify_output(checkname, runstatus, invoke, expect, args, resumable=None, ca
         can_rm = False
     r = 0
     b = 0
+    if checkname is None:
+        run(invoke, runstatus, args)
+        r = 1
+        output_check(checkname, runstatus.upper(), expect, args, can_rm)
+        if runstatus in always_announce:
+            print(invoke)
+        return r,b
     if os.path.exists(checkname):
         if runstatus == "override":
             run(invoke, runstatus, args)
@@ -396,7 +406,15 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             calls += info[0]
             bluffs += info[1]
     # ANALYSIS CALLS
-    # TBD
+    elif key == "BIAS_CHECK":
+        invoke = 'python -m ytopt.benchmark.gaussian_bias_check --inputs '+\
+                 f"{' '.join(['problem.'+SIZE for SIZE in sect['inputs']])} --targets "+\
+                 f"{' '.join(['problem.'+SIZE for SIZE in sect['targets']])} --success-bar {sect['success']} "+\
+                 f"--bad {sect['bad']} --ideal {sect['ideal']} --top {sect['top']} --seed {sect['seed']} "+\
+                 f"--model {sect['model']}"
+        info = verify_output(None, runtype, invoke, None, args)
+        calls += info[0]
+        bluffs += info[1]
     else:
         raise ValueError(f"Unknown section {key}")
     print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made & {bluffs} calls bluffed. {verifications} attempted verifies >>")
