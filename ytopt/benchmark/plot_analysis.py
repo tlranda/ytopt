@@ -129,6 +129,17 @@ substitute = {'BOOTSTRAP': "Bootstrap",
               'results': "Vanilla"}
 HAS_NOT_WARNED_MAKE_SEED_INVARIANT_NAME = True
 
+benchmark_names = {'Lu': 'LU',
+                    'Amg': 'AMG',
+                    'Rsbench': 'RSBench',
+                    'Xsbench': 'XSBench',
+                    'Sw4lite': 'SW4Lite',
+                    }
+def try_familiar(name):
+    if name in benchmark_names.keys():
+        return benchmark_names[name]
+    return name
+
 def make_seed_invariant_name(name, args):
     directory = os.path.dirname(name) if not args.merge_dirs else 'MERGE'
     name = os.path.basename(name)
@@ -193,7 +204,7 @@ def make_seed_invariant_name(name, args):
                           'full_identifier': '_'.join(name_split[suggest_benchmark_length+1:-1])}
         # Reorder in reconstruction
         name = name_split['short_identifier']
-        suggest_legend_title = f"{name_split['size']} {name_split['benchmark'].replace('_', ' ')}"
+        suggest_legend_title = f"{name_split['size']} {try_familiar(name_split['benchmark'].replace('_', ' '))}"
     return name, directory, suggest_legend_title
 
 def make_baseline_name(name, args, df, col):
