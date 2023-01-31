@@ -1,6 +1,19 @@
 import matplotlib
+font = {'size': 14,
+        'family': 'serif',
+        }
+lines = {'linewidth': 3,
+         'markersize': 6,
+        }
+matplotlib.rc('font', **font)
+matplotlib.rc('lines', **lines)
 import argparse, pandas as pd, numpy as np, matplotlib.pyplot as plt, os, itertools
-import pdb
+rcparams = {'axes.labelsize': 14,
+            'legend.fontsize': 12,
+            'xtick.labelsize': 12,
+            'ytick.labelsize': 12,
+            }
+plt.rcParams.update(rcparams)
 
 LIMIT_Y_TICKS = 10
 
@@ -187,6 +200,7 @@ def plotter_heat_map(fig, ax, args):
         try:
             indicator[buckets[idx]] = 1
         except:
+            import pdb
             pdb.set_trace()
         # Iteration boundaries
         left = -1
@@ -398,7 +412,8 @@ def add_default_line(ax, args):
 
 ncalls = 0
 def common(func, args):
-    fig, ax = func(*plt.subplots(), args)
+    fig, ax = func(*plt.subplots(figsize=tuple(args.fig_dims)), args)
+    fig.set_tight_layout(True)
     if args.default:
         add_default_line(ax, args)
     if not args.no_legend:
@@ -420,8 +435,8 @@ def common(func, args):
         ax.set_ylim([args.ymin, args.ymax])
     if args.title is not None:
         ax.set_title(args.title)
-    print(f"Saving figure to {args.figname}_{ncalls}.png")
-    plt.savefig(f"{args.figname}_{ncalls}.png")
+    print(f"Saving figure to {args.figname}_{ncalls}.{args.format}")
+    plt.savefig(f"{args.figname}_{ncalls}.{args.format}", format=args.format, bbox_inches='tight')
 
 def build():
     plotter_funcs = dict((k,v) for (k,v) in globals().items() if k.startswith('plotter_') and callable(v))
@@ -432,6 +447,11 @@ def build():
     prs.add_argument('--topsupp', type=float, default=0.3, help="Top%% of supplementary data to use")
     prs.add_argument('--func', choices=[_[8:] for _ in plotter_funcs.keys()], nargs='+', required=True, help="Function to use")
     prs.add_argument('--figname', type=str, default="plot", help="Figure name")
+    prs.add_argument("--fig-dims", metavar=("Xinches", "Yinches"), nargs=2, type=float,
+                     default=plt.rcParams["figure.figsize"], help="Figure size in inches "
+                     f"(default is {plt.rcParams['figure.figsize']})")
+    prs.add_argument("--fig-pts", type=float, default=None, help="Specify figure size using LaTeX points and Golden Ratio")
+    prs.add_argument("--format", choices=["png", "pdf", "svg","jpeg"], default="pdf", help="Format to save outputs in")
     prs.add_argument('--xmax', type=float, default=None, help="Set xlimit maximum")
     prs.add_argument('--xmin', type=float, default=None, help="Set xlimit minimum")
     prs.add_argument('--ymax', type=float, default=None, help="Set ylimit maximum")
@@ -448,6 +468,20 @@ def build():
     prs.add_argument('--attribute', type=str, default=None, help='Attribute to fetch a problem instance for information')
     prs.add_argument('--collapse-heat', action='store_true', help="Make heat as a CDF rather than a 2D map")
     return prs
+
+def set_size(width, fraction=1, subplots=(1,1)):
+    # SOURCE:
+    # https://jwalton.info/Embed-Publication-Matplotlib-Latex/
+    # Set figure dimensions to avoid scaling in LaTeX
+    # Get your width from the log file of your compiled file using "\showthe\textwdith" or "\showthe\columnwidth"
+    # You can grep/search it for that command and the line above will have the value
+    fig_width_pt = width * fraction
+    inches_per_pt = 1 / 72.27
+    golden_ratio = (5**.5 - 1) / 2
+    fig_width_in = fig_width_pt * inches_per_pt
+    fig_height_in = fig_width_in * golden_ratio * (subplots[0] / subplots[1])
+    print(f"Calculate {width} to represent inches: {fig_width_in} by {fig_height_in}")
+    return (fig_width_in, fig_height_in)
 
 def parse(prs, args=None):
     if args is None:
@@ -472,6 +506,10 @@ def parse(prs, args=None):
         del args.attribute
     elif args.problem is not None or args.attribute is not None:
         raise ValueError(f"Must specify BOTH problem and attribute")
+    if type(args.exhaust) is str:
+        args.exhaust = [args.exhaust]
+    if args.fig_pts is not None:
+        args.fig_dims = set_size(args.fig_pts)
     return args
 
 def main(args=None):

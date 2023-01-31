@@ -1,8 +1,22 @@
-import matplotlib
+import numpy as np, pandas as pd, os, argparse, matplotlib
+# Change backend if need be
+# matplotlib.use_backend()
+font = {'size': 14,
+        'family': 'serif',
+        }
+lines = {'linewidth': 3,
+         'markersize': 6,
+        }
+matplotlib.rc('font', **font)
+matplotlib.rc('lines', **lines)
 import matplotlib.pyplot as plt
-import pandas as pd
-import numpy as np
-import argparse, inspect, os, re
+rcparams = {'axes.labelsize': 14,
+            'legend.fontsize': 12,
+            'xtick.labelsize': 12,
+            'ytick.labelsize': 12,
+            }
+plt.rcParams.update(rcparams)
+import argparse, inspect, re
 
 # Fetch plottable methods for use as arguments and their reference to method object
 def get_methods():
@@ -19,11 +33,32 @@ def build():
     prs.add_argument('--space', type=float, default=0, help="Horizontal space between bars")
     prs.add_argument('--xlim', type=float, default=None, help="Limit max x range")
     prs.add_argument('--reject-only', action='store_true', help="Do not include accepted as a configuration type for '--call reject'")
+    prs.add_argument("--fig-dims", metavar=("Xinches", "Yinches"), nargs=2, type=float,
+                     default=plt.rcParams["figure.figsize"], help="Figure size in inches "
+                     f"(default is {plt.rcParams['figure.figsize']})")
+    prs.add_argument("--fig-pts", type=float, default=None, help="Specify figure size using LaTeX points and Golden Ratio")
+    prs.add_argument("--format", choices=["png", "pdf", "svg","jpeg"], default="pdf", help="Format to save outputs in")
     return prs
+
+def set_size(width, fraction=1, subplots=(1,1)):
+    # SOURCE:
+    # https://jwalton.info/Embed-Publication-Matplotlib-Latex/
+    # Set figure dimensions to avoid scaling in LaTeX
+    # Get your width from the log file of your compiled file using "\showthe\textwdith" or "\showthe\columnwidth"
+    # You can grep/search it for that command and the line above will have the value
+    fig_width_pt = width * fraction
+    inches_per_pt = 1 / 72.27
+    golden_ratio = (5**.5 - 1) / 2
+    fig_width_in = fig_width_pt * inches_per_pt
+    fig_height_in = fig_width_in * golden_ratio * (subplots[0] / subplots[1])
+    print(f"Calculate {width} to represent inches: {fig_width_in} by {fig_height_in}")
+    return (fig_width_in, fig_height_in)
 
 def parse(prs, args=None):
     if args is None:
         args = prs.parse_args()
+    if args.fig_pts is not None:
+        args.fig_dims = set_size(args.fig_pts)
     return args
 
 # Data loading here is just a dictionary of names: CSV representations
@@ -46,7 +81,8 @@ def mpl_name(li):
 # Plot time spent sampling (ONLY SAMPLING) vs #sampling iterations
 def iter_time(data, args):
     info = {}
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=tuple(args.fig_dims))
+    fig.set_tight_layout(True)
     ys, names = [],[]
     for name, sequence in data.items():
         nicename = name_cleaner(name)
@@ -67,12 +103,13 @@ def iter_time(data, args):
     ax.set_ylabel('Time to Generate 1000 Samples (seconds)')
     ax.set_xticks(range(len(names)))
     ax.set_xticklabels(mpl_name(names))
-    return 'iter_time.png', info, fig, ax
+    return f'iter_time.{args.format}', info, fig, ax
 
 # Plot #accepted samples vs #sampling iterations [[DROPPED FIGURE CONCEPT: Nondescriptive for things worth talking about]]
 def generate(data, args):
     info = {}
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=tuple(args.fig_dims))
+    fig.set_tight_layout=True
     max_len = 0
     for name, sequence in data.items():
         nicename = name_cleaner(name)
@@ -83,12 +120,13 @@ def generate(data, args):
     info['min_x'] = 1
     ax.set_ylabel('# Accepted Configurations')
     ax.set_xlabel('# Sampling Iterations')
-    return 'generate.png', info, fig, ax
+    return f'generate.{args.format}', info, fig, ax
 
 # Plot #rejected samples (by reason) vs #sampling iterations
 def reject(data, args):
     info = {}
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=tuple(args.fig_dims))
+    fig.set_tight_layout=True
     nbars = len(list(data.keys()))
     max_len = 0
     barlookups = {'Accepted': ['generate'],
@@ -142,7 +180,7 @@ def reject(data, args):
     ax.set_xlabel('# Sampling Iterations')
     ax.set_xticks([1+nbars//2+((nbars+args.space)*_) for _ in range(max_len)], [_ for _ in range(1,max_len+1)])
     ax.set_title(f'Generated Configurations for SYR2K {SIZE}')
-    return 'reject.png', info, fig, ax
+    return f'reject.{args.format}', info, fig, ax
 
 # CSV FORMAT
 # trial, generate, reject, close, sample, batch, prior, sample.1, external
@@ -161,7 +199,7 @@ def finalize(names, infos, figures, axes, args):
         if args.name is not None and args.name != '':
             name[0] += args.name
         name = '.'.join(name)
-        fig.savefig(name)
+        fig.savefig(name, format=args.format, bbox_inches='tight')
 
 def main(args=None):
     if args is None:

@@ -1,6 +1,20 @@
 import importlib, skopt, argparse, matplotlib
+font = {'size': 14,
+        'family': 'serif',
+        }
+lines = {'linewidth': 3,
+         'markersize': 6,
+        }
+matplotlib.rc('font', **font)
+matplotlib.rc('lines', **lines)
 import pandas as pd, numpy as np, matplotlib.pyplot as plt
 plt.rcParams['animation.ffmpeg_path'] = "/usr/bin/ffmpeg"
+rcparams = {'axes.labelsize': 14,
+            'legend.fontsize': 12,
+            'xtick.labelsize': 12,
+            'ytick.labelsize': 12,
+            }
+plt.rcParams.update(rcparams)
 import matplotlib.animation as animation
 from sklearn.manifold import TSNE
 from sklearn import neighbors
@@ -14,14 +28,33 @@ def build():
     prs.add_argument("--convert", nargs="+", required=True, help="Files to collate/convert")
     prs.add_argument("--quantile", nargs="+", required=True, type=float, help="Quantiles PER FILE or GLOBAL to highlight 'optimum' portion of data")
     prs.add_argument("--marker", nargs="+", required=False, choices=['.',',','*','+','o'], help="Maker per file")
-    prs.add_argument("--output", default="tsne.png", help="Output name")
+    prs.add_argument("--output", default="tsne", help="Output name")
     prs.add_argument("--max-objective", action='store_true', help="Specify when objective should be MAXIMIZED instead of MINIMIZED (latter is default)")
     prs.add_argument("--rank-color", action='store_true', help="Darken color of points that are higher ranked, lighten color of points that are lower ranked")
     prs.add_argument("--seed", type=int, default=1234, help="Set seed for TSNE")
     prs.add_argument("--stepsize", type=float, default=0.1, help="Stepsize for mesh")
     prs.add_argument("--neighbors", type=int, default=1, help="Number of nearest neighbors")
     prs.add_argument("--video", action='store_true', help='Save as video switching ranks each frame')
+    prs.add_argument("--fig-dims", metavar=("Xinches", "Yinches"), nargs=2, type=float,
+                     default=plt.rcParams["figure.figsize"], help="Figure size in inches "
+                     f"(default is {plt.rcParams['figure.figsize']})")
+    prs.add_argument("--fig-pts", type=float, default=None, help="Specify figure size using LaTeX points and Golden Ratio")
+    prs.add_argument("--format", choices=["png", "pdf", "svg","jpeg"], default="pdf", help="Format to save outputs in")
     return prs
+
+def set_size(width, fraction=1, subplots=(1,1)):
+    # SOURCE:
+    # https://jwalton.info/Embed-Publication-Matplotlib-Latex/
+    # Set figure dimensions to avoid scaling in LaTeX
+    # Get your width from the log file of your compiled file using "\showthe\textwdith" or "\showthe\columnwidth"
+    # You can grep/search it for that command and the line above will have the value
+    fig_width_pt = width * fraction
+    inches_per_pt = 1 / 72.27
+    golden_ratio = (5**.5 - 1) / 2
+    fig_width_in = fig_width_pt * inches_per_pt
+    fig_height_in = fig_width_in * golden_ratio * (subplots[0] / subplots[1])
+    print(f"Calculate {width} to represent inches: {fig_width_in} by {fig_height_in}")
+    return (fig_width_in, fig_height_in)
 
 def parse(prs, args=None):
     if args is None:
@@ -37,6 +70,8 @@ def parse(prs, args=None):
         args.marker.append('.')
     while len(args.marker) < len(args.convert):
         args.marker.append(args.marker[-1])
+    if args.fig_pts is not None:
+        args.fig_dims = set_size(args.fig_pts)
     return args
 
 def get_size(name, frame):
@@ -95,7 +130,7 @@ def tsne_reduce(loaded, args):
     return new_loaded
 
 def plot(loaded, args):
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=tuple(args.fig_dims))
     fig.set_tight_layout(True)
     color_maps = ['Oranges', 'Blues', 'Greens', 'Purples', 'Reds', 'Greys', 'YlOrBr', 'PuRd', 'BuPu', 'YlOrRd', 'GnBu', 'OrRd', 'YlGnBu', 'YlGn',]
     knncolor = ['moccasin','powderblue','palegreen','plum','lightcoral','gainsboro']
@@ -164,7 +199,7 @@ def plot(loaded, args):
     ax.set_xlim([min([min(line['x']) for line in loaded]), max([max(line['x']) for line in loaded])])
     ax.set_ylim([min([min(line['y']) for line in loaded]), max([max(line['y']) for line in loaded])])
     if not args.video:
-        plt.savefig(args.output)
+        plt.savefig(f'{args.output}.{args.format}', format=args.format, bbox_inches='tight')
     else:
         max_rank = min([len(line['x']) for line in loaded])-1
         class animator:
@@ -189,10 +224,8 @@ def plot(loaded, args):
         make_animation = animator(highlighted,loaded,max_rank)
         anim = animation.FuncAnimation(fig,make_animation,frames=max_rank,interval=25)
         video = anim.to_html5_video()
-        if args.output.endswith('.png'):
-            args.output = args.output.rsplit('.',1)[0]+'.mp4'
         FFwriter = animation.FFMpegWriter(fps=10)
-        anim.save(args.output,writer=FFwriter)
+        anim.save(f'{args.output}.mp4',writer=FFwriter)
 
 if __name__ == "__main__":
     args = parse(build())

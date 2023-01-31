@@ -399,23 +399,33 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
     elif key == "TSNE":
         invoke = "python -m ytopt.benchmark.tsne_figure --problem problem.S --convert "+\
                  f"{' '.join(sect['convert'])} --quantile {' '.join([str(_) for _ in sect['quantile']])} --marker {sect['marker']} "+\
-                 f"--output {experiment}_TSNE.png"
+                 f"--output {experiment}_TSNE"
         if sect['video']:
             invoke += " --video"
         if sect['rank']:
             invoke += " --rank-color"
-        info = verify_output(f"{experiment}_TSNE.png", runtype, invoke, expect, args)
+        info = verify_output(f"{experiment}_TSNE{'.mp4' if sect['video'] else '.pdf'}", runtype, invoke, expect, args)
         calls += info[0]
         bluffs += info[1]
         verifications += 1
     elif key == "EXHAUSTIVE":
+        invoke = 'python -m ytopt.benchmark.syr2k_exp.exhaust_plot --func multi_mean_median --exhaust '
         for size in sect['targets']:
-            invoke = 'python -m ytopt.benchmark.syr2k_exp.exhaust_plot --func mean_median '+\
-                     f'--exhaust data/gc_explain/all_{size.upper()}.csv '+\
-                     f'--title "{experiment.capitalize()} SM Exhaustive Performance Ranks" --figname {experiment}_Exhaustive{size.upper()}'
-            info = verify_output(f"{experiment}_Exhaustive{size.upper()}_1.png", runtype, invoke, expect, args)
-            calls += info[0]
-            bluffs += info[1]
+            invoke += f'data/gc_explain/all_{size.upper()}.csv '
+        invoke += f'--title "{experiment.capitalize()} Exhaustive Search" --figname {experiment}_Exhaustive_{"_".join([s.upper() for s in sect["targets"]])}'
+        info = verify_output(f"{experiment}_Exhaustive_{'_'.join([s.upper() for s in sect['targets']])}_1.pdf", runtype, invoke, expect, args)
+        calls += info[0]
+        bluffs += info[1]
+    elif key == 'GENERATED_TIME':
+        invoke = f'python reject_plot.py --files data/rejection/*XL* --call iter_time'
+        info = verify_output("iter_time.pdf", runtype, invoke, 1, args)
+        calls += info[0]
+        bluffs += info[1]
+    elif key == 'GENERATED_REJECT':
+        invoke = f'python reject_plot.py --files data/rejection/*XL* --call reject --xlim {sect["xlim"]}'
+        info = verify_output("reject.pdf", runtype, invoke, 1, args)
+        calls += info[0]
+        bluffs += info[1]
     # ANALYSIS CALLS
     elif key == "BIAS_CHECK":
         invoke = 'python -m ytopt.benchmark.gaussian_bias_check --inputs '+\
