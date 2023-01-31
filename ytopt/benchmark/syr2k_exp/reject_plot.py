@@ -179,7 +179,7 @@ def reject(data, args):
         ax.set_ylabel('# Configurations')
     ax.set_xlabel('# Sampling Iterations')
     ax.set_xticks([1+nbars//2+((nbars+args.space)*_) for _ in range(max_len)], [_ for _ in range(1,max_len+1)])
-    ax.set_title(f'Generated Configurations for SYR2K {SIZE}')
+    ax.set_title(f'Generated Configurations for Syr2k {SIZE}')
     return f'reject.{args.format}', info, fig, ax
 
 # CSV FORMAT
