@@ -1,4 +1,8 @@
-import matplotlib, matplotlib.pyplot as plt, pandas as pd, numpy as np, argparse, inspect, os
+import matplotlib
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+import argparse, inspect, os, re
 
 # Fetch plottable methods for use as arguments and their reference to method object
 def get_methods():
@@ -35,18 +39,34 @@ def name_cleaner(name):
     name = '_'.join([fields[_] for _ in [1,2]])
     return name
 
+def mpl_name(li):
+    for name in li:
+        yield re.sub(r"([A-Z]*)([a-z])([A-Z])",r"\1\2\n\3", name)
+
 # Plot time spent sampling (ONLY SAMPLING) vs #sampling iterations
 def iter_time(data, args):
     info = {}
     fig, ax = plt.subplots()
+    ys, names = [],[]
     for name, sequence in data.items():
         nicename = name_cleaner(name)
-        line1 = ax.plot(1+sequence.trial, sequence['sample.1'], marker='.', label=f"{nicename} 1000 Samples")
+        try:
+            ys.append(max(sequence['sample.1']))
+        except ValueError:
+            ys.append(np.inf)
+        names.append(nicename.rsplit('_',1)[0])
         #line2 = ax.plot(1+sequence.trial, sequence['sample.1']+sequence['external'], marker=',', linestyle='--', color=line1[0].get_color())
+    maxheight = np.asarray(ys)[np.isfinite(ys)].max()
+    for idx, (nicename, height) in enumerate(zip(names, ys)):
+        line1 = ax.bar(idx, min(height, maxheight*10), label=f"{nicename}")
+        print(f"Plot {nicename} at height {min(height, maxheight*2)}")
     info['min_x'] = 1
+    info['pre_legend'] = True
     ax.set_yscale('log')
-    ax.set_ylabel('Logscale Time (seconds)')
-    ax.set_xlabel('# Sampling Iterations')
+    ax.set_ylim([None, 10**int(round(np.log10(maxheight),0))])
+    ax.set_ylabel('Time to Generate 1000 Samples (seconds)')
+    ax.set_xticks(range(len(names)))
+    ax.set_xticklabels(mpl_name(names))
     return 'iter_time.png', info, fig, ax
 
 # Plot #accepted samples vs #sampling iterations [[DROPPED FIGURE CONCEPT: Nondescriptive for things worth talking about]]
@@ -138,7 +158,7 @@ def finalize(names, infos, figures, axes, args):
             ax.set_xlim([info['min_x'], args.xlim])
         # SAVE IMAGE FILE
         name = name.rsplit('.',1)
-        if args.name != '':
+        if args.name is not None and args.name != '':
             name[0] += args.name
         name = '.'.join(name)
         fig.savefig(name)

@@ -1,7 +1,21 @@
 import numpy as np, pandas as pd, os, argparse, matplotlib
 # Change backend if need be
 # matplotlib.use_backend()
+font = {'size': 14,
+        'family': 'serif',
+        }
+lines = {'linewidth': 3,
+         'markersize': 6,
+        }
+matplotlib.rc('font', **font)
+matplotlib.rc('lines', **lines)
 import matplotlib.pyplot as plt
+rcparams = {'axes.labelsize': 14,
+            'legend.fontsize': 12,
+            'xtick.labelsize': 12,
+            'ytick.labelsize': 12,
+            }
+plt.rcParams.update(rcparams)
 import matplotlib.colors as mcolors
 # Get legend names from matplotlib
 from matplotlib.offsetbox import AnchoredOffsetbox
@@ -22,6 +36,9 @@ def build():
     prs.add_argument("--as-speedup-vs", type=str, default=None, help="Convert objectives to speedup compared against this value (float or CSV filename)")
     prs.add_argument("--show", action="store_true", help="Show figures rather than save to file")
     prs.add_argument("--legend", choices=legend_codes, nargs="*", default=None, help="Legend location (default none). Two-word legends should be quoted on command line")
+    prs.add_argument("--budget", type=int, default=None, help="Indicate performance of each technique's best result at a budgeted # of evaluations")
+    prs.add_argument("--tzero", action="store_true", help="Assume a t=0 / step=0 entry for each loaded source where the objective == args.tobjective")
+    prs.add_argument("--tobjective", type=float, default=1.0, help="Default t=0 / step = 0 objective (default: 1.0)")
     prs.add_argument("--minmax", action="store_true", help="Include min and max lines")
     prs.add_argument("--stddev", action="store_true", help="Include stddev range area")
     prs.add_argument("--current", action="store_true", help="Include area for actual evaluation")
@@ -35,6 +52,8 @@ def build():
     prs.add_argument("--fig-dims", metavar=("Xinches", "Yinches"), nargs=2, type=float,
                      default=plt.rcParams["figure.figsize"], help="Figure size in inches "
                      f"(default is {plt.rcParams['figure.figsize']})")
+    prs.add_argument("--fig-pts", type=float, default=None, help="Specify figure size using LaTeX points and Golden Ratio")
+    prs.add_argument("--format", choices=["png", "pdf", "svg","jpeg"], default="pdf", help="Format to save outputs in")
     prs.add_argument("--synchronous", action="store_true", help="Synchronize mean time across seeds for wall-time plots")
     prs.add_argument("--no-plots", action="store_true", help="Skip plot generation")
     prs.add_argument("--no-text", action="store_true", help="Skip text generation")
@@ -48,6 +67,20 @@ def build():
     prs.add_argument("--drop-overhead", action="store_true", help="Attempt to remove initialization overhead time in seconds")
     prs.add_argument("--clean-names", action="store_true", help="Use a cleaner name format to label lines (better for final figures)")
     return prs
+
+def set_size(width, fraction=1, subplots=(1,1)):
+    # SOURCE:
+    # https://jwalton.info/Embed-Publication-Matplotlib-Latex/
+    # Set figure dimensions to avoid scaling in LaTeX
+    # Get your width from the log file of your compiled file using "\showthe\textwdith" or "\showthe\columnwidth"
+    # You can grep/search it for that command and the line above will have the value
+    fig_width_pt = width * fraction
+    inches_per_pt = 1 / 72.27
+    golden_ratio = (5**.5 - 1) / 2
+    fig_width_in = fig_width_pt * inches_per_pt
+    fig_height_in = fig_width_in * golden_ratio * (subplots[0] / subplots[1])
+    print(f"Calculate {width} to represent inches: {fig_width_in} by {fig_height_in}")
+    return (fig_width_in, fig_height_in)
 
 def parse(prs, args=None):
     if args is None:
@@ -84,6 +117,8 @@ def parse(prs, args=None):
             args.as_speedup_vs = float(args.as_speedup_vs)
         except ValueError:
             args.as_speedup_vs = pd.read_csv(args.as_speedup_vs).iloc[0]['objective']
+    if args.fig_pts is not None:
+        args.fig_dims = set_size(args.fig_pts)
     return args
 
 substitute = {'BOOTSTRAP': "Bootstrap",
@@ -406,6 +441,9 @@ def load_all(args):
                 d['elapsed_sec'] -= d['elapsed_sec'].iloc[0]-d['objective'].iloc[0]
             if args.as_speedup_vs is not None:
                 d['objective'] = args.as_speedup_vs / d['objective']
+            # Potentially add assumption that at step/t=0 the objective is 1.0
+            if args.tzero:
+                d = pd.concat((pd.DataFrame({'objective': args.tobjective, 'elapsed_sec': 0.0},index=[0]),d)).reset_index(drop=True)
             name, directory, legend_title = make_seed_invariant_name(fname, args)
             fullname = directory+'.'+name
             if fullname in inv_names:
@@ -644,15 +682,16 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
                             color=alter_color(color), zorder=-1)
             print(f"CURRENT Fill-Between {source['name']}")
         # Main line = mean
+        mpl_marker = 'o'
         if len(data['obj']) > 1:
             cutoff = data['obj'].to_list().index(max(data['obj']))
             ax.plot(data['exe'][:min(cutoff+1, len(data))], data['obj'][:min(cutoff+1,len(data))],
                     label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
-                    marker='x', color=color, zorder=1)
+                    marker=mpl_marker, color=color, zorder=1)
             print(f"MEAN Plot {source['name']}")
             if not args.cutoff:
                 ax.plot(data['exe'][cutoff:], data['obj'][cutoff:],
-                        marker='x', color=color, zorder=1)
+                        marker=mpl_marker, color=color, zorder=1)
                 print("\tMEAN-CUTOFF Plot")
         else:
             x_lims = [int(v) for v in ax.get_xlim()]
@@ -661,7 +700,7 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
                 x_lims[1] = x_lims[0]+1
             ax.plot(x_lims, [data['obj'], data['obj']],
                     label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
-                    marker='x', color=color, zorder=1)
+                    marker=mpl_marker, color=color, zorder=1)
             print(f"MEAN Plot {source['name']}")
         # Flank lines = min/max
         if args.minmax:
@@ -689,6 +728,15 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
         ax.plot(data['exe'], new_y, label=source['name'],
                 marker='.', color=color, zorder=1)
         print(f"TOP_VAL Plot {source['name']}")
+    if args.budget is not None:
+        if args.max_objective:
+            y_height = max(source['data'].iloc[:args.budget].obj)
+        else:
+            y_height = min(source['data'].iloc[:args.budget].obj)
+        x_width = data['exe'][args.budget-1]
+        # Have to collect current x/y bounds or the plot gets rescaled!
+        budget_line = ax.plot([0,x_width],[y_height, y_height],color=color, linestyle='dotted')
+        budget_vline = ax.vlines(x_width, 0,y_height, color=color, linestyle='dotted')
     return makeNew
 
 def text_analysis(all_data, args):
@@ -764,6 +812,12 @@ def main(args):
                 names.append(name)
         if newfig:
             del figures[-1], axes[-1], names[-1]
+        min_mul = 0.9983
+        max_mul = 1+(1-min_mul)
+        xlims = [min_mul * min([min(d['data'].exe) for d in data]),
+                 max_mul * max([max(d['data'].exe) for d in data])]
+        ylims = [min_mul * min([min(d['data'].obj) for d in data]),
+                 max_mul * max([max(d['data'].obj) for d in data])]
         for (fig, ax, name) in zip(figures, axes, names):
             # make x-axis data
             if args.pca is not None and args.pca != []:
@@ -793,6 +847,9 @@ def main(args):
                 ax.set_xscale("symlog")
             if args.log_y:
                 ax.set_yscale("symlog")
+            ax.set_xlim(xlims)
+            ax.set_ylim(ylims)
+            ax.grid()
             if args.legend is not None:
                 """
                 if len(ax.collections) > 0:
@@ -808,7 +865,7 @@ def main(args):
                 """
                 ax.legend(loc=" ".join(args.legend), title=legend_title)
             if not args.show:
-                fig.savefig("_".join([args.output,name]))
+                fig.savefig("_".join([args.output,name])+f'.{args.format}', format=args.format, bbox_inches='tight')
     if args.show:
         plt.show()
 

@@ -343,18 +343,29 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                 if key.lower() != axis:
                     continue
                 invoke = f"python -m ytopt.benchmark.plot_analysis --output {experiment}_{target.lower()}_{axis} "+\
-                         f"--best {experiment_dir}/*_{target.upper()}_*.csv "+\
+                         f"--inputs {experiment_dir}/*_{target.upper()}_*.csv "+\
                          f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
                          f"results_gptune_*{target.lower()}* data/gptune_experiments/results_*{target.upper()}* "+\
                          f"data/thomas_experiments/*_{target.upper()}_*.csv "#+\
                          #f"--baseline data/results_rf_{target.lower()}_{experiment.lstrip('_')}.csv "
+                if 'fig_pts' in sect.keys():
+                    invoke += f"--fig-pts {sect['fig_pts']} "
                 if sect['as_speedup']:
                     invoke += f"--as-speedup-vs data/DEFAULT_{target.upper()}.csv --max-objective "
+                    budget = None
+                    try:
+                        budget = sect['budgets'][experiment]
+                    except KeyError:
+                        print(f"!! WARNING !! No experiment budget for {experiment}")
+                    if budget is None:
+                        budget = sect['max_budget']
+                    invoke += f"--budget {budget} "
                 else:
                     invoke += "data/DEFAULT.csv --log-y "
                 invoke += f"--x-axis {axis} --log-x --unname {experiment_dir}_ "+\
                          f"--trim data/results_{problem_sizes[target]}.csv --legend best --synchronous "+\
                          "--ignore data/jaehoon_experiments/*200eval* data/*/*_trace.csv data/thomas_experiments/*BOOTSTRAP* "+\
+                         "data/thomas_experiments/*REFIT_3*.csv data/thomas_experiments/*REFIT_5*.csv "+\
                          "data/*/*1337*.csv data/*/*5555*.csv --no-text --drop-overhead --clean-names"
                 if sect['show']:
                     invoke += " --show"
@@ -362,7 +373,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                     invoke += " --minmax"
                 if sect['stddev']:
                     invoke += " --stddev"
-                info = verify_output(f"{experiment}_{target.lower()}_{axis}_plot.png", runtype, invoke, expect, args)
+                info = verify_output(f"{experiment}_{target.lower()}_{axis}_plot.pdf", runtype, invoke, expect, args)
                 calls += info[0]
                 bluffs += info[1]
                 verifications += 1
