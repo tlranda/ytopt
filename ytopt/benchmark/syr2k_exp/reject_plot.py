@@ -28,6 +28,7 @@ def build():
     methods = get_methods()
     prs = argparse.ArgumentParser()
     prs.add_argument('--files', required=True, nargs='+', type=str, help="Files to load")
+    prs.add_argument('--ignore', default=None, nargs="+", type=str, help="Globbed paths to ignore")
     prs.add_argument('--call', required=True, nargs='+', type=str, choices=list(methods.keys()), help="Methods to call")
     prs.add_argument('--name', type=str, help="Name suggestion for generated image files")
     prs.add_argument('--space', type=float, default=0, help="Horizontal space between bars")
@@ -59,6 +60,13 @@ def parse(prs, args=None):
         args = prs.parse_args()
     if args.fig_pts is not None:
         args.fig_dims = set_size(args.fig_pts)
+    if args.ignore is not None:
+        new_files = []
+        for file in args.files:
+            if file not in args.ignore:
+                new_files.append(file)
+        args.files = new_files
+    print(args.files)
     return args
 
 # Data loading here is just a dictionary of names: CSV representations
@@ -93,8 +101,10 @@ def iter_time(data, args):
         names.append(nicename.rsplit('_',1)[0])
         #line2 = ax.plot(1+sequence.trial, sequence['sample.1']+sequence['external'], marker=',', linestyle='--', color=line1[0].get_color())
     maxheight = np.asarray(ys)[np.isfinite(ys)].max()
-    for idx, (nicename, height) in enumerate(zip(names, ys)):
-        line1 = ax.bar(idx, min(height, maxheight*10), label=f"{nicename}")
+    heightsort = np.argsort(ys)
+    for leftToRight, idx in enumerate(heightsort):
+        nicename, height = names[idx], ys[idx]
+        line1 = ax.bar(leftToRight, min(height, maxheight*10), label=f"{nicename}")
         print(f"Plot {nicename} at height {min(height, maxheight*2)}")
     info['min_x'] = 1
     info['pre_legend'] = True
@@ -102,7 +112,8 @@ def iter_time(data, args):
     ax.set_ylim([None, 10**int(round(np.log10(maxheight),0))])
     ax.set_ylabel('Time to Generate 1000 Samples (seconds)')
     ax.set_xticks(range(len(names)))
-    ax.set_xticklabels(mpl_name(names))
+    sort_names = np.asarray([_ for _ in mpl_name(names)])[heightsort]
+    ax.set_xticklabels(sort_names)
     return f'iter_time.{args.format}', info, fig, ax
 
 # Plot #accepted samples vs #sampling iterations [[DROPPED FIGURE CONCEPT: Nondescriptive for things worth talking about]]

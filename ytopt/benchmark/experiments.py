@@ -422,7 +422,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
         calls += info[0]
         bluffs += info[1]
     elif key == 'GENERATED_REJECT':
-        invoke = f'python reject_plot.py --files data/rejection/*XL* --call reject --xlim {sect["xlim"]}'
+        invoke = f'python reject_plot.py --files data/rejection/*XL* --call reject --ignore data/rejection/*CopulaGAN* --xlim {sect["xlim"]}'
         info = verify_output("reject.pdf", runtype, invoke, 1, args)
         calls += info[0]
         bluffs += info[1]
