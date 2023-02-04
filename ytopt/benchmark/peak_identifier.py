@@ -47,7 +47,6 @@ for d in os.listdir():
             b_size_f = stacker(size, bo_files, bo_dir, 'b')[['objective','label']]
 
             # Get the first GC eval for each one
-            first_gc_evals = t_size_f[t_size_f.index == 0]
             self_ranks = np.where(t_size_f.sort_values(by='objective').index == 0)[0]
             stacked = pd.concat((t_size_f,g_size_f,b_size_f))
             global_ranks = np.where(np.logical_and(stacked.sort_values(by='objective').index == 0,
@@ -64,3 +63,4 @@ for d in os.listdir():
 print()
 print("GC local average ALL BENCHMARKS = ", sum(local_avg)/len(local_avg))
 print("GC global average ALL BENCHMARKS = ", sum(global_avg)/len(global_avg))
+

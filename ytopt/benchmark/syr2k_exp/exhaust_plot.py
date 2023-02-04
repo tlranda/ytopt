@@ -82,18 +82,19 @@ def plotter_multi_mean_median(fig, ax, args):
     names = [_.rsplit('_',1)[1].split('.',1)[0] for _ in args.exhaust]
     ax = exhausts[0]['objective'].plot(ax=ax,legend=False, color=colors[0], label=f"{names[0]} Objective")
     mean, median = exhausts[0]['objective'].mean(), exhausts[0]['objective'].median()
-    mean_line = ax.plot([_ for _ in range(len(exhausts[0]))], [mean for _ in range(len(exhausts[0]))], label=f'{names[0]} Mean', linestyle='--', color=colors[1])
+    #mean_line = ax.plot([_ for _ in range(len(exhausts[0]))], [mean for _ in range(len(exhausts[0]))], label=f'{names[0]} Mean', linestyle='--', color=colors[1])
     median_line = ax.plot([_ for _ in range(len(exhausts[0]))], [median for _ in range(len(exhausts[0]))], label=f'{names[0]} Median', linestyle='--', color=colors[2])
-    nearest_mean = np.argmin(abs(exhausts[0]['objective']-mean))
+    #nearest_mean = np.argmin(abs(exhausts[0]['objective']-mean))
     nearest_median = np.argmin(abs(exhausts[0]['objective']-median))
-    ax.scatter(x=[nearest_mean, nearest_median], y=[mean, median],
-               c=[mean_line[0].get_color(), median_line[0].get_color()], s=[32,32])
-    print(f"Mean: {mean} closest to rank {nearest_mean}")
+    #ax.scatter(x=[nearest_mean, nearest_median], y=[mean, median],
+    #           c=[mean_line[0].get_color(), median_line[0].get_color()], s=[32,32])
+    ax.scatter(x=[nearest_median], y=[median],
+               c=[median_line[0].get_color()], s=[32])
+    one_percent = int(0.01*len(exhausts[0]))
+    ax.fill_between([_ for _ in range(one_percent)], [0 for _ in range(one_percent)], exhausts[0]['objective'].iloc[:one_percent],
+                    alpha=0.2, color=ax.lines[0].get_color())
+    #print(f"Mean: {mean} closest to rank {nearest_mean}")
     print(f"Median: {median} closest to rank {nearest_median}")
-    ax.set_xlabel("Performance Rank of Configuration (Lower is Better)")
-    ax.set_xscale('log')
-    ax.set_yscale('log')
-    ax.set_ylabel(f"{names[0]} Objective Time (seconds)")
     color_idx = 3
     handles, labels = ax.get_legend_handles_labels()
     for exhaust, name in zip(exhausts[1:], names[1:]):
@@ -101,20 +102,29 @@ def plotter_multi_mean_median(fig, ax, args):
         bonus_ax.plot(exhaust['objective'],color=colors[color_idx], label=f"{name} Objective")
         color_idx += 1
         mean, median = exhaust['objective'].mean(), exhaust['objective'].median()
-        mean_line = bonus_ax.plot([_ for _ in range(len(exhaust))], [mean for _ in range(len(exhaust))], label=f'{name} Mean', linestyle='--', color=colors[color_idx])
+        #mean_line = bonus_ax.plot([_ for _ in range(len(exhaust))], [mean for _ in range(len(exhaust))], label=f'{name} Mean', linestyle='--', color=colors[color_idx])
         color_idx += 1
         median_line = bonus_ax.plot([_ for _ in range(len(exhaust))], [median for _ in range(len(exhaust))], label=f'{name} Median', linestyle='--', color=colors[color_idx])
-        nearest_mean = np.argmin(abs(exhaust['objective']-mean))
+        #nearest_mean = np.argmin(abs(exhaust['objective']-mean))
         nearest_median = np.argmin(abs(exhaust['objective']-median))
-        bonus_ax.scatter(x=[nearest_mean, nearest_median], y=[mean, median],
-                   c=[mean_line[0].get_color(), median_line[0].get_color()], s=[32,32])
+        #bonus_ax.scatter(x=[nearest_mean, nearest_median], y=[mean, median],
+        #           c=[mean_line[0].get_color(), median_line[0].get_color()], s=[32,32])
+        bonus_ax.scatter(x=[nearest_median], y=[median],
+                   c=[median_line[0].get_color()], s=[32])
+        one_percent = int(0.01*len(exhaust))
+        bonus_ax.fill_between([_ for _ in range(one_percent)], [0 for _ in range(one_percent)], exhaust['objective'].iloc[:one_percent],
+                              alpha=0.2, color=bonus_ax.lines[0].get_color())
+        #print(f"Mean: {mean} closest to rank {nearest_mean}")
+        print(f"Median: {median} closest to rank {nearest_median}")
         bonus_ax.set_yscale('log')
         bonus_ax.set_ylabel(f"{name} Objective Time (seconds)")
-        print(f"Mean: {mean} closest to rank {nearest_mean}")
-        print(f"Median: {median} closest to rank {nearest_median}")
         bonus_handles, bonus_labels = bonus_ax.get_legend_handles_labels()
         handles.extend(bonus_handles)
         labels.extend(bonus_labels)
+    ax.set_xlabel("Performance Rank of Configuration (Lower is Better)")
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_ylabel(f"{names[0]} Objective Time (seconds)")
     ax.legend(handles, labels)
     args.no_legend = True
     return fig, ax

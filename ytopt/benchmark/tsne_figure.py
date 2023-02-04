@@ -129,6 +129,18 @@ def tsne_reduce(loaded, args):
         print(f"TSNE of {loaded[idx]['size'].iloc[0]} queued for plot")
     return new_loaded
 
+def scale_relabel(label):
+    known = {'S': 'Small',
+             'SM': 'Small-Medium',
+             'M': 'Medium',
+             'ML': 'Medium-Large',
+             'L': 'Large',
+             'XL': 'Extra-Large',
+             }
+    if label.upper() in known.keys():
+        return known[label.upper()]
+    return label
+
 def plot(loaded, args):
     fig, ax = plt.subplots(figsize=tuple(args.fig_dims))
     fig.set_tight_layout(True)
@@ -186,7 +198,7 @@ def plot(loaded, args):
         leg_handles.append(matplotlib.lines.Line2D([0],[0],
                             marker=marker,
                             color='w',
-                            label=line['label'].iloc[0].upper(),
+                            label=scale_relabel(line['label'].iloc[0].upper()),
                             markerfacecolor=cmap.rstrip('s').lower(),
                             markersize=markersize))
     # Add origin lines
@@ -195,7 +207,7 @@ def plot(loaded, args):
     # Labels, legends, save
     ax.set_xlabel("TSNE dimension 1")
     ax.set_ylabel("TSNE dimension 2")
-    ax.legend(handles=leg_handles, loc="best")
+    ax.legend(handles=leg_handles, loc="best", title='Scale')
     ax.set_xlim([min([min(line['x']) for line in loaded]), max([max(line['x']) for line in loaded])])
     ax.set_ylim([min([min(line['y']) for line in loaded]), max([max(line['y']) for line in loaded])])
     if not args.video:
