@@ -83,7 +83,7 @@ def plotter_multi_mean_median(fig, ax, args):
     ax = exhausts[0]['objective'].plot(ax=ax,legend=False, color=colors[0], label=f"{names[0]} Objective")
     mean, median = exhausts[0]['objective'].mean(), exhausts[0]['objective'].median()
     #mean_line = ax.plot([_ for _ in range(len(exhausts[0]))], [mean for _ in range(len(exhausts[0]))], label=f'{names[0]} Mean', linestyle='--', color=colors[1])
-    median_line = ax.plot([_ for _ in range(len(exhausts[0]))], [median for _ in range(len(exhausts[0]))], label=f'{names[0]} Median', linestyle='--', color=colors[2])
+    median_line = ax.plot([_ for _ in range(len(exhausts[0]))], [median for _ in range(len(exhausts[0]))], label=f'{names[0]} Median', linestyle='--', color=ax.lines[0].get_color())#colors[2])
     #nearest_mean = np.argmin(abs(exhausts[0]['objective']-mean))
     nearest_median = np.argmin(abs(exhausts[0]['objective']-median))
     #ax.scatter(x=[nearest_mean, nearest_median], y=[mean, median],
@@ -104,7 +104,7 @@ def plotter_multi_mean_median(fig, ax, args):
         mean, median = exhaust['objective'].mean(), exhaust['objective'].median()
         #mean_line = bonus_ax.plot([_ for _ in range(len(exhaust))], [mean for _ in range(len(exhaust))], label=f'{name} Mean', linestyle='--', color=colors[color_idx])
         color_idx += 1
-        median_line = bonus_ax.plot([_ for _ in range(len(exhaust))], [median for _ in range(len(exhaust))], label=f'{name} Median', linestyle='--', color=colors[color_idx])
+        median_line = bonus_ax.plot([_ for _ in range(len(exhaust))], [median for _ in range(len(exhaust))], label=f'{name} Median', linestyle='--', color=bonus_ax.lines[0].get_color())#colors[color_idx])
         #nearest_mean = np.argmin(abs(exhaust['objective']-mean))
         nearest_median = np.argmin(abs(exhaust['objective']-median))
         #bonus_ax.scatter(x=[nearest_mean, nearest_median], y=[mean, median],

@@ -84,7 +84,7 @@ def name_cleaner(name):
 
 def mpl_name(li):
     for name in li:
-        yield re.sub(r"([A-Z]*)([a-z])([A-Z])",r"\1\2\n\3", name)
+        yield re.sub(r"([A-Z]*)([a-z])([A-Z])",r"\1\2\n\3", name[0].upper()+name[1:])
 
 # Plot time spent sampling (ONLY SAMPLING) vs #sampling iterations
 def iter_time(data, args):
