@@ -13,6 +13,8 @@ def build():
     prs.add_argument('--default-ignore', action='store_true', help="Add convenient ignore list for crawling patterns")
     prs.add_argument('--summary', action='store_true', help="Only print summary statistics")
     prs.add_argument('--quiet-crawl', action='store_true', help="Don't list crawled files")
+    prs.add_argument('--sizes', choices=['sm','ml','xl'], default=None, nargs='*', help="Only use selected sizes")
+    prs.add_argument('--details', choices=['seeds','technique'], default=None, nargs='*', help="Follow-up on collisions with more detailed view")
     return prs
 
 def parse(prs, args=None):
@@ -26,6 +28,8 @@ def parse(prs, args=None):
         args.ignore = [args.ignore]
     if args.ignore is None:
         args.ignore = []
+    if args.details is None:
+        args.details = []
     if args.default_ignore:
         args.ignore.extend(['BOOTSTRAP', 'REFIT_5', 'REFIT_3', 'REFIT_1',
                             'DEFAULT', '_INP_', 'TVAE', 'CTGAN', 'xfer',
@@ -37,6 +41,8 @@ def parse(prs, args=None):
                             '_180.', '_200.', '_260.', '_600.', '_830.',
                             '_1000.', '_1400.', '_2000.', '_3000.',
                             '_4000.'])
+    if args.sizes is None:
+        args.sizes = ['sm','ml','xl']
     return args
 
 # Search recursively through subdirectories, collecting all CSVs that do not have
@@ -114,6 +120,7 @@ def get_collisions(csvs, size, coll_dict, summ_dict):
 
     # Filter each dataframe to just the configuration parameters of each evaluation
     filtered = [frame[params] for frame in csvs[size].values()]
+    amassed = [frame for frame in csvs[size].values()]
 
     # Find duplicates between files that share the same technique (directory) -- they are already stacked
     # Pandas duplicated only tells you the SECOND and further ones, not which one was originally duplicated
@@ -142,6 +149,7 @@ def get_collisions(csvs, size, coll_dict, summ_dict):
         for sub_k, collide in zip(csvs[size].keys(), same_size_technique):
             for collision in collide:
                 tuple_key = tuple([os.path.basename(_) for _ in csvs[size][sub_k].iloc[list(collision)]['SOURCE_FILE'].tolist()])
+                colliding_ids = tuple([f"{os.path.basename(_[1]['SOURCE_FILE'])}:{_[0]}" for _ in csvs[size][sub_k].iloc[list(collision)].iterrows()])
                 objectives = np.asarray([_ for _ in csvs[size][sub_k].iloc[list(collision)]['objective'].tolist()])
                 # Subtract mean, then take average of absolute displacement from second index onward (one element is the mean and is cancelled out)
                 objectives = abs(objectives-objectives.mean())[1:].mean()
@@ -158,12 +166,12 @@ def get_collisions(csvs, size, coll_dict, summ_dict):
                 elapsed = abs(elapsed-elapsed.mean())[1:].mean()
                 if tuple_key in coll_dict[init_key][sub_k].keys():
                     coll_dict[init_key][sub_k][tuple_key]['total'] += 1
-                    coll_dict[init_key][sub_k][tuple_key]['colliding'].append(list(collision))
+                    coll_dict[init_key][sub_k][tuple_key]['colliding'].append(colliding_ids)
                     coll_dict[init_key][sub_k][tuple_key]['mean_objective_skew'] += objectives
                     coll_dict[init_key][sub_k][tuple_key]['mean_walltime_skew'] += elapsed
                 else:
                     coll_dict[init_key][sub_k][tuple_key] = {'total': 1,
-                                                             'colliding': [list(collision)],
+                                                             'colliding': [colliding_ids],
                                                              'mean_objective_skew': objectives,
                                                              'mean_walltime_skew': elapsed,
                                                              }
@@ -183,6 +191,7 @@ def get_collisions(csvs, size, coll_dict, summ_dict):
 
     # Stack unique techniques to compare across them
     all_size = pd.concat([_.drop_duplicates() for _ in filtered])
+    amassed = pd.concat([_.drop_duplicates(subset=params) for _ in csvs[size].values()])
     fidx_collisions = np.where(all_size.duplicated())[0].tolist()
     # Same collision check as before, but now across directories
     collide_pairs = [tuple([k for (k,v) in zip(*np.unique(np.where(all_size.values == all_size.iloc[i].values)[0], return_counts=True)) if v == len(params)]) for i in fidx_collisions]
@@ -194,9 +203,9 @@ def get_collisions(csvs, size, coll_dict, summ_dict):
         init_key = f'{size}_technique'
         #print(f'{init_key} should have entries for {same_size_only} (length = {len(same_size_only)})')
         coll_dict[init_key] = {} #dict((k,{}) for k in csvs[size].keys())
-        amassed = pd.concat([_.drop_duplicates() for _ in csvs[size].values()])
         for collide in same_size_only:
             tuple_key = tuple([_ for _ in amassed.iloc[list(collide)]['SOURCE_FILE'].tolist()])
+            colliding_ids = tuple([f"{_[1]['SOURCE_FILE']}:{_[0]}" for _ in amassed.iloc[list(collide)].iterrows()])
             objectives = np.asarray([_ for _ in amassed.iloc[list(collide)]['objective'].tolist()])
             # Subtract mean, then take average of absolute displacement from second index onward (one element is the mean and is cancelled out)
             objectives = abs(objectives-objectives.mean())[1:].mean()
@@ -213,12 +222,12 @@ def get_collisions(csvs, size, coll_dict, summ_dict):
             elapsed = abs(elapsed-elapsed.mean())[1:].mean()
             if tuple_key in coll_dict[init_key].keys():
                 coll_dict[init_key][tuple_key]['total'] += 1
-                coll_dict[init_key][tuple_key]['colliding'].append(list(collide))
+                coll_dict[init_key][tuple_key]['colliding'].append(colliding_ids)
                 coll_dict[init_key][tuple_key]['mean_objective_skew'] += objectives
                 coll_dict[init_key][tuple_key]['mean_walltime_skew'] += elapsed
             else:
                 coll_dict[init_key][tuple_key] = {'total': 1,
-                                                  'colliding': [list(collide)],
+                                                  'colliding': [colliding_ids],
                                                   'mean_objective_skew': objectives,
                                                   'mean_walltime_skew': elapsed,
                                                  }
@@ -244,7 +253,7 @@ def get_collisions(csvs, size, coll_dict, summ_dict):
         summ_dict[init_key]['mean_walltime_pct'] = summ_dict[init_key]['mean_walltime_skew'] / summ_dict[init_key]['mean_walltime_value']
     return coll_dict, summ_dict
 
-def validate(dirname_hint, ignore_list, quiet_crawl=False):
+def validate(dirname_hint, ignore_list, quiet_crawl=False, include_sizes=set()):
     print(dirname_hint)
     all_csv_crawls = crawl(dirname_hint, ignore_list)
     if all_csv_crawls == []:
@@ -255,6 +264,8 @@ def validate(dirname_hint, ignore_list, quiet_crawl=False):
         print("Crawled:\n\t"+"\n\t".join(all_csv_crawls))
     uniq_dirs = sorted(set([os.path.dirname(_) for _ in all_csv_crawls]))
     csvs = stack_by_size_then_dir(all_csv_crawls, uniq_dirs)
+    for key in set(['sm','ml','xl']).difference(include_sizes):
+        del csvs[key]
     collisions, summary = {}, {}
     for size in csvs.keys():
         coll_update, summ_update = get_collisions(csvs, size, collisions, summary)
@@ -262,16 +273,53 @@ def validate(dirname_hint, ignore_list, quiet_crawl=False):
         summary.update(summ_update)
     return collisions, summary
 
+def detailed_exploration(subdict):
+    usable_keys = [_ for _ in subdict.keys() if type(_) is tuple]
+    for key in usable_keys:
+        focus = subdict[key]['colliding']
+        csvs = [pd.read_csv(k) for k in key]
+        common_keys = set(csvs[0].columns)
+        for other_csv in csvs[1:]:
+            common_keys = common_keys.intersection(set(other_csv.columns))
+        common_keys = sorted(common_keys)
+        print(" || ".join(key))
+        for iterrow in focus:
+            rowids = []
+            data = []
+            for csvid,idx in enumerate(iterrow):
+                idx = int(idx.rsplit(':',1)[-1])
+                row = csvs[csvid].iloc[idx]
+                rowids.append(idx)
+                entry = []
+                for common in common_keys:
+                    val = row[common]
+                    if common == 'elapsed_sec':
+                        if row.name > 0:
+                            val -= csvs[csvid].iloc[idx-1][common]
+                    entry.append(val)
+                data.append(entry)
+            data = np.asarray(data)
+            print(f"ROWS: {' || '.join([str(_) for _ in rowids])}")
+            for idx, common in enumerate(common_keys):
+                if re.match(r'p[0-9]+', common) and len(set(data[:,idx])) == 1:
+                    print(f"\t{common}: {data[0,idx]}")
+                else:
+                    print(f"\t{common}: {' || '.join(data[:,idx])}")
+
 def main(args=None):
     if args is None:
         args = parse(build())
     for exp in args.exp:
         try:
-            collisions, summary = validate(exp, args.ignore, quiet_crawl=args.quiet_crawl)
+            collisions, summary = validate(exp, args.ignore, quiet_crawl=args.quiet_crawl, include_sizes=set(args.sizes))
             if args.summary:
                 pprint(summary)
             else:
                 pprint(collisions)
+            for det_type in args.details:
+                for key in collisions.keys():
+                    if det_type in key:
+                        detailed_exploration(collisions[key])
         except ValueError as e:
             print(f"FAILURE PARSING {exp}")
             print(e)
