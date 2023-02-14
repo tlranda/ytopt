@@ -4,6 +4,8 @@ import os
 import re
 import argparse
 from pprint import pprint
+import matplotlib
+import matplotlib.pyplot as plt
 import pdb
 
 def build():
@@ -15,6 +17,7 @@ def build():
     prs.add_argument('--quiet-crawl', action='store_true', help="Don't list crawled files")
     prs.add_argument('--sizes', choices=['sm','ml','xl'], default=None, nargs='*', help="Only use selected sizes")
     prs.add_argument('--details', choices=['seeds','technique'], default=None, nargs='*', help="Follow-up on collisions with more detailed view")
+    prs.add_argument('--plot', action='store_true', help="Generate a plot for each problem-size pairing based on observed data")
     return prs
 
 def parse(prs, args=None):
@@ -107,7 +110,7 @@ def stack_by_size_then_dir(fnames, dirnames):
                 else:
                     remove_dir_keys[sizekey] = [dirkey]
             else:
-                stack_csvs[sizekey][dirkey] = pd.concat(stack_csvs[sizekey][dirkey])
+                stack_csvs[sizekey][dirkey] = pd.concat(stack_csvs[sizekey][dirkey]).reset_index(drop=False, names=['evaluation_number'])
     for k in remove_dir_keys:
         for v in remove_dir_keys[k]:
             del stack_csvs[k][v]
@@ -139,6 +142,16 @@ def get_collisions(csvs, size, coll_dict, summ_dict):
             candidate.append(tuple([k for(k,v) in zip(*np.unique(np.where(filtered[i].values == filtered[i].iloc[jj].values)[0], return_counts=True)) if v == len(params)]))
         collide_pairs.append(candidate)
     same_size_technique = [_ for _ in collide_pairs]
+    # Add reference to what collisions occur
+    for collisions, sub_csvs in zip(collide_pairs, csvs[size].values()):
+        sub_csvs.insert(0, 'seed_collision', [[] for _ in range(len(sub_csvs))])
+        sub_csvs.insert(0, 'seed_idx', [_ for _ in range(len(sub_csvs))])
+        for collide in collisions:
+            for idx in collide:
+                existing_collisions = set(sub_csvs.iloc[idx]['seed_collision'])
+                proposed_collisions = existing_collisions.union(set(collide))
+                # Use .at to set the list value appropriately
+                sub_csvs.at[idx,'seed_collision'] = sorted(proposed_collisions)
 
     same_technique_sum = sum([len(_) for _ in same_size_technique])
     if same_technique_sum > 0:
@@ -189,36 +202,77 @@ def get_collisions(csvs, size, coll_dict, summ_dict):
                                'mean_walltime_skew': np.asarray([tup_value['mean_walltime_skew'] for sub_key in coll_dict[init_key].keys() if type(coll_dict[init_key][sub_key]) is dict for tup_value in coll_dict[init_key][sub_key].values() if type(tup_value) is dict]).mean(),
                               }
 
-    # Stack unique techniques to compare across them
-    all_size = pd.concat([_.drop_duplicates() for _ in filtered])
-    amassed = pd.concat([_.drop_duplicates(subset=params) for _ in csvs[size].values()])
-    fidx_collisions = np.where(all_size.duplicated())[0].tolist()
-    # Same collision check as before, but now across directories
-    collide_pairs = [tuple([k for (k,v) in zip(*np.unique(np.where(all_size.values == all_size.iloc[i].values)[0], return_counts=True)) if v == len(params)]) for i in fidx_collisions]
-    same_size_only = [_ for _ in collide_pairs]
+    #unfilter_stack = pd.concat([csvs[size][list(csvs[size].keys())[i]][[_ for _ in csvs[size][list(csvs[size].keys())[i]].columns if not _.startswith('p')]] for i in range(len(csvs[size].keys()))]).reset_index(drop=True)
+    # Stack each set of CSVs of this size together for cross-technique duplicate searches
+    unfilter_stack = pd.concat([csvs[size][list(csvs[size].keys())[i]] for i in range(len(csvs[size].keys()))]).reset_index(drop=True)
+    unfilter_stack.insert(0, 'stacked_seed_collision', [[] for _ in range(len(unfilter_stack))])
+    unfilter_stack.insert(0, 'cross_technique_collision', [[] for _ in range(len(unfilter_stack))])
+    unfilter_stack.insert(0, 'cross_technique_idx', [_ for _ in range(len(unfilter_stack))])
+    # Determine the global index for known collisions and pre-track it
+    stack_breaks = [0]+(1+np.where(unfilter_stack.iloc[:-1]['seed_idx'].to_numpy() > unfilter_stack.iloc[1:]['seed_idx'].to_numpy())[0]).tolist()+[len(unfilter_stack)]
+    # Add fields to all csvs
+    for base_idx, sub_csvs in zip(stack_breaks[:-1], csvs[size].values()):
+        sub_csvs.insert(0, 'stacked_seed_collision', [[] for _ in range(len(sub_csvs))])
+        sub_csvs.insert(0, 'cross_technique_collision', [[] for _ in range(len(sub_csvs))])
+        sub_csvs.insert(0, 'cross_technique_idx', [base_idx+_ for _ in range(len(sub_csvs))])
+    for start, stop, sub_csv in zip(stack_breaks[:-1], stack_breaks[1:], csvs[size].values()):
+        # Get indices where the seed_collision list is populated
+        adjust_idxes = np.where(np.asarray([_ for _ in map(len,unfilter_stack.iloc[start:stop]['seed_collision'])]) > 0)[0]
+        for adjust in adjust_idxes:
+            cross_technique_id = sub_csv.iloc[sub_csv.iloc[[adjust]]['seed_collision'].values[0]]['cross_technique_idx'].tolist()
+            # Put global idx in sub_csv
+            sub_csv.at[adjust,'stacked_seed_collision'] = cross_technique_id
+            # Put global idx in unfilter_stack
+            unfilter_stack.at[adjust+start, 'stacked_seed_collision'] = cross_technique_id
+    # Get cross-technique parameter dulicates
+    param_dup_idxes = np.where(unfilter_stack.duplicated(subset=params))[0]
+    known_dup_idxes = np.where(np.asarray([_ for _ in map(len,unfilter_stack['stacked_seed_collision'])]) > 0)[0]
+    cross_technique_dupes = sorted(set(param_dup_idxes).difference(set(known_dup_idxes)))
+    # Reverse-engineer where these duplications occur
+    collide_tuples = [tuple([k for (k,v) in zip(*np.unique(np.where(unfilter_stack[params].values == unfilter_stack.iloc[i][params].values)[0], return_counts=True)) if v == len(params)]) for i in cross_technique_dupes]
+    # Function to grab top-level csvs key and relative idx from the global idx
+    def fetch_key(index):
+        for key, max_idx, base_idx in zip(csvs[size].keys(), stack_breaks[1:], stack_breaks[:-1]):
+            if max_idx >= index:
+                break
+        return key, index-base_idx
+    # These tuples can indicate cross-seed evaluations which we do not want, so filter them out
+    # Separate accept list so we can iterate and adjust
+    collide_accept = []
+    for tup in collide_tuples:
+        candidate = set([_ for _ in tup])
+        # For known seed-collisions, keep the first element and discard the rest
+        for seed_stack in unfilter_stack.iloc[list(tup)]['stacked_seed_collision']:
+            candidate = candidate.difference(set(seed_stack[1:]))
+        collide = sorted(candidate)
+        collide_accept.append(collide)
+        # Apply cross technique collisions to both structures
+        for idx in collide:
+            key, relative_idx = fetch_key(idx)
+            unfilter_stack.at[idx,'cross_technique_collision'] = collide
+            csvs[size][key].at[relative_idx,'cross_technique_collision'] = collide
 
-    same_size_sum = sum([len(_)-1 for _ in same_size_only])
-    if same_size_sum > 0:
-        # Identify by file pairings and accumualte counts
+    cross_technique_hits = sum([len(_)-1 for _ in collide_accept])
+    if cross_technique_hits > 0:
+        # Identify file pairings and accumulate counts
         init_key = f'{size}_technique'
-        #print(f'{init_key} should have entries for {same_size_only} (length = {len(same_size_only)})')
-        coll_dict[init_key] = {} #dict((k,{}) for k in csvs[size].keys())
-        for collide in same_size_only:
-            tuple_key = tuple([_ for _ in amassed.iloc[list(collide)]['SOURCE_FILE'].tolist()])
-            colliding_ids = tuple([f"{_[1]['SOURCE_FILE']}:{_[0]}" for _ in amassed.iloc[list(collide)].iterrows()])
-            objectives = np.asarray([_ for _ in amassed.iloc[list(collide)]['objective'].tolist()])
-            # Subtract mean, then take average of absolute displacement from second index onward (one element is the mean and is cancelled out)
+        coll_dict[init_key] = {}
+        for collide in collide_accept:
+            # Track collision in master dataset
+            data_subset = unfilter_stack.iloc[list(collide)]
+            tuple_key = tuple([_ for _ in data_subset['SOURCE_FILE'].tolist()])
+            colliding_ids = tuple([f"{_[1]['SOURCE_FILE']}:{_[1]['seed_idx']}" for _ in data_subset.iterrows()])
+            objectives = np.asarray([_ for _ in data_subset['objective'].tolist()])
+            # Subtract mean and use average of absolute displacement from second index onward (one element is mean and would be cancelled out)
             objectives = abs(objectives-objectives.mean())[1:].mean()
             elapsed = []
             for collision in collide:
-                # Have to use .name to ensure it's not eval #0 of a different FILE
-                if amassed.iloc[collision].name == 0:
-                    elapsed.append(amassed.iloc[collision]['elapsed_sec'].tolist())
+                if data_subset.iloc[data_subset.index.tolist().index(collision)]['seed_idx'] == 0:
+                    elapsed.append(data_subset.iloc[data_subset.index.tolist().index(collision)]['elapsed_sec'].tolist())
                 else:
-                    pair = amassed.iloc[[collision-1,collision]]['elapsed_sec'].tolist()
+                    pair = unfilter_stack.iloc[[collision-1,collision]]['elapsed_sec'].tolist()
                     elapsed.append(pair[1]-pair[0])
             elapsed = np.asarray(elapsed)
-            # Subtract mean, then take average of absolute displacement from second index onward (one element is the mean and is cancelled out)
             elapsed = abs(elapsed-elapsed.mean())[1:].mean()
             if tuple_key in coll_dict[init_key].keys():
                 coll_dict[init_key][tuple_key]['total'] += 1
@@ -232,28 +286,41 @@ def get_collisions(csvs, size, coll_dict, summ_dict):
                                                   'mean_walltime_skew': elapsed,
                                                  }
         # Finalize values
-        coll_dict[init_key]['total'] = same_size_sum
+        coll_dict[init_key]['total'] = cross_technique_hits
         for tup_key in coll_dict[init_key].keys():
             if type(coll_dict[init_key][tup_key]) is not dict:
                 continue
             coll_dict[init_key][tup_key]['mean_objective_skew'] /= coll_dict[init_key][tup_key]['total']
             coll_dict[init_key][tup_key]['mean_walltime_skew'] /= coll_dict[init_key][tup_key]['total']
         # Summarize
-        mean_walltime = amassed['elapsed_sec'].tolist()
+        pdb.set_trace()
+        mean_walltime = unfilter_stack['elapsed_sec'].tolist()
         # Filter out negative elapsed times -- those are gaps between concatenated files!
         # Assumes different files of the same problem size will never have a first elapsed time > last of another file, regardless of load/concatenating order
         mean_walltime = np.asarray([j-i for (i,j) in zip(mean_walltime[:-1], mean_walltime[1:]) if j-i > 0]).mean()
         summ_dict[init_key] = {'total': coll_dict[init_key]['total'],
                                'mean_objective_skew': np.asarray([tup_value['mean_objective_skew'] for tup_value in coll_dict[init_key].values() if type(tup_value) is dict]).mean(),
                                'mean_walltime_skew': np.asarray([tup_value['mean_walltime_skew'] for tup_value in coll_dict[init_key].values() if type(tup_value) is dict]).mean(),
-                               'mean_objective_value': amassed['objective'].mean(),
+                               'mean_objective_value': unfilter_stack['objective'].mean(),
                                'mean_walltime_value': mean_walltime,
                               }
         summ_dict[init_key]['mean_objective_pct'] = summ_dict[init_key]['mean_objective_skew'] / summ_dict[init_key]['mean_objective_value']
         summ_dict[init_key]['mean_walltime_pct'] = summ_dict[init_key]['mean_walltime_skew'] / summ_dict[init_key]['mean_walltime_value']
     return coll_dict, summ_dict
 
-def validate(dirname_hint, ignore_list, quiet_crawl=False, include_sizes=set()):
+def plot(stacked_csvs, plot_name_hint, collisions):
+    fig, ax = plt.subplots()
+    for size in stacked_csvs.keys():
+        # Get elapsed time per evaluation
+        for csv in stacked_csvs[size].values():
+            elapse = [csv['elapsed_sec'].iloc[0].tolist()]
+            elapse.extend([j-i for (i,j) in zip(csv['elapsed_sec'].iloc[0:-1],csv['elapsed_sec'].iloc[1:])])
+            csv.insert(0,'per_elapse', elapse)
+        all_eval_sources = pd.concat(stacked_csvs[size].values())
+        pdb.set_trace()
+        rank_order = all_eval_sources.sort_values(by='objective').index
+
+def validate(dirname_hint, ignore_list, quiet_crawl=False, include_sizes=set(), generate_plot=False):
     print(dirname_hint)
     all_csv_crawls = crawl(dirname_hint, ignore_list)
     if all_csv_crawls == []:
@@ -271,6 +338,8 @@ def validate(dirname_hint, ignore_list, quiet_crawl=False, include_sizes=set()):
         coll_update, summ_update = get_collisions(csvs, size, collisions, summary)
         collisions.update(coll_update)
         summary.update(summ_update)
+    if generate_plot:
+        plot(csvs, dirname_hint, collisions)
     return collisions, summary
 
 def detailed_exploration(subdict):
@@ -293,9 +362,8 @@ def detailed_exploration(subdict):
                 entry = []
                 for common in common_keys:
                     val = row[common]
-                    if common == 'elapsed_sec':
-                        if row.name > 0:
-                            val -= csvs[csvid].iloc[idx-1][common]
+                    if common == 'elapsed_sec' and row.name > 0:
+                        val -= csvs[csvid].iloc[idx-1][common]
                     entry.append(val)
                 data.append(entry)
             data = np.asarray(data)
@@ -311,7 +379,10 @@ def main(args=None):
         args = parse(build())
     for exp in args.exp:
         try:
-            collisions, summary = validate(exp, args.ignore, quiet_crawl=args.quiet_crawl, include_sizes=set(args.sizes))
+            collisions, summary = validate(exp, args.ignore,
+                                           quiet_crawl=args.quiet_crawl,
+                                           include_sizes=set(args.sizes),
+                                           generate_plot=args.plot)
             if args.summary:
                 pprint(summary)
             else:
