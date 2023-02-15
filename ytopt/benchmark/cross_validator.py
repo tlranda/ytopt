@@ -180,8 +180,8 @@ def get_collisions(csvs, size, coll_dict, summ_dict):
     known_dup_idxes = np.where(np.asarray([_ for _ in map(len,unfilter_stack['stacked_seed_collision'])]) > 0)[0]
     cross_technique_dupes = sorted(set(param_dup_idxes).difference(set(known_dup_idxes)))
     # Reverse-engineer where these duplications occur
-    # BUG: If a cross-technique duplicate is collected here, it COULD appear multiple times!
     collide_tuples = [tuple([k for (k,v) in zip(*np.unique(np.where(unfilter_stack[params].values == unfilter_stack.iloc[i][params].values)[0], return_counts=True)) if v == len(params)]) for i in cross_technique_dupes]
+    collide_tuples = sorted(set(collide_tuples))
     # Function to grab top-level csvs key and relative idx from the global idx
     def fetch_key(index):
         for key, max_idx, base_idx in zip(csvs[size].keys(), stack_breaks[1:], stack_breaks[:-1]):
