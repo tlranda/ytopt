@@ -15,6 +15,8 @@ def build():
     prs.add_argument('--default-ignore', action='store_true', help="Add convenient ignore list for crawling patterns")
     prs.add_argument('--summary', action='store_true', help="Only print summary statistics")
     prs.add_argument('--quiet-crawl', action='store_true', help="Don't list crawled files")
+    prs.add_argument('--quiet-collisions', action='store_true', help="Don't list detailed collision data")
+    prs.add_argument('--quiet-plot', action='store_true', help="Don't print additional information during plotting")
     prs.add_argument('--sizes', choices=['sm','ml','xl'], default=None, nargs='*', help="Only use selected sizes")
     prs.add_argument('--details', choices=['seeds','technique'], default=None, nargs='*', help="Follow-up on collisions with more detailed view")
     prs.add_argument('--plot', action='store_true', help="Generate a plot for each problem-size pairing based on observed data")
@@ -311,18 +313,62 @@ def get_collisions(csvs, size, coll_dict, summ_dict):
 
     return coll_dict, summ_dict
 
-def plot(stacked_csvs, plot_name_hint, collisions):
-    fig, ax = plt.subplots()
+def collide_stack(lookup,maybe_collide,index):
+    if index not in maybe_collide[index]:
+        return -1
+    return np.argsort(lookup[maybe_collide[index]])[maybe_collide[index].index(index)]
+
+def plot(stacked_csvs, plot_name_hint, collisions, quiet_plot = False):
+    figs, axes = [], []
     for size in stacked_csvs.keys():
+        fig, (ax_rank,ax_obj) = plt.subplots(2, sharex=True)
         # Get elapsed time per evaluation
         for csv in stacked_csvs[size].values():
             elapse = [csv['elapsed_sec'].iloc[0].tolist()]
             elapse.extend([j-i for (i,j) in zip(csv['elapsed_sec'].iloc[0:-1],csv['elapsed_sec'].iloc[1:])])
             csv.insert(0,'per_elapse', elapse)
         all_eval_sources = pd.concat(stacked_csvs[size].values())
-        rank_order = all_eval_sources.sort_values(by='objective').index
+        # Sort objectives by position
+        objective = all_eval_sources['objective'].to_numpy()
+        ranking = np.argsort(objective)
+        # Create mapping of all_eval_sources.index --> objective rank
+        obj_sorted = objective[ranking].tolist()
+        lookup_rank = np.asarray([obj_sorted.index(_) for _ in objective])
+        # Determine how many UNIQUE configurations exist using collision indices
+        non_unique_stacked = set([tuple(_[1:]) for _ in all_eval_sources['stacked_seed_collision'] if len(_) > 0])
+        non_unique_cross = set([tuple(_[1:]) for _ in all_eval_sources['cross_technique_collision'] if len(_) > 0])
+        multi_stacked = set([a for b in non_unique_stacked for a in b]).union(set([a for b in non_unique_cross for a in b]))
+        global_x = [_ for _ in range(len(ranking)-len(multi_stacked))]
+        # Get index for each technique
+        techniques = sorted(set([os.path.dirname(_) for _ in all_eval_sources['SOURCE_FILE']]))
+        max_y = 0
+        for tech in techniques:
+            tech_index = np.where(all_eval_sources['SOURCE_FILE'].apply(os.path.dirname) == tech)[0]
+            tech_xs = lookup_rank[tech_index]
+            plot_order = np.argsort(tech_xs)
+            all_eval_seed_collision = all_eval_sources['stacked_seed_collision'].tolist()
+            all_eval_tech_collision = all_eval_sources['cross_technique_collision'].tolist()
+            # ONLY DOING CROSS-TECHNIQUE COLLISIONS RIGHT NOW
+            y_height = np.asarray([max(0, collide_stack(lookup_rank, all_eval_tech_collision, index)) for index in tech_index])
+            max_y = max(max_y, max(y_height))
+            ax_rank.scatter(tech_xs[plot_order], y_height[plot_order], label=tech)
+            ax_obj.scatter(tech_xs[plot_order], all_eval_sources.iloc[tech_index[plot_order]]['objective'],label=tech)
+            if not quiet_plot:
+                for height in range(max(y_height)+1):
+                    print(f"{tech} height {height} : {len(np.where(y_height==height)[0])}x")
+        figs.append(fig)
+        axes.append((ax_rank,ax_obj))
+        ax_rank.set_ylim([0,max_y+0.5])
+        ax_rank.set_yticks([_ for _ in range(max_y+1)])
+        ax_rank.set_ylabel('Rank of repeated Evaluation')
+        ax_obj.set_ylabel('Objective value')
+        #ax_rank.set_xlabel('Rank of known evaluations')
+        ax_obj.set_xlabel('Rank of known evaluations')
+        ax_rank.legend()
+        ax_obj.legend()
+        fig.savefig(f"{size}_crossval.png")
 
-def validate(dirname_hint, ignore_list, quiet_crawl=False, include_sizes=set(), generate_plot=False):
+def validate(dirname_hint, ignore_list, quiet_crawl=False, include_sizes=set(), generate_plot=False, quiet_plot=False):
     print(dirname_hint)
     all_csv_crawls = crawl(dirname_hint, ignore_list)
     if all_csv_crawls == []:
@@ -341,7 +387,7 @@ def validate(dirname_hint, ignore_list, quiet_crawl=False, include_sizes=set(), 
         collisions.update(coll_update)
         summary.update(summ_update)
     if generate_plot:
-        plot(csvs, dirname_hint, collisions)
+        plot(csvs, dirname_hint, collisions, quiet_plot=quiet_plot)
     return collisions, summary, csvs
 
 def detailed_exploration(subdict, csvs):
@@ -388,10 +434,11 @@ def main(args=None):
             collisions, summary, csvs = validate(exp, args.ignore,
                                                  quiet_crawl=args.quiet_crawl,
                                                  include_sizes=set(args.sizes),
-                                                 generate_plot=args.plot)
+                                                 generate_plot=args.plot,
+                                                 quiet_plot=args.quiet_plot)
             if args.summary:
                 pprint(summary)
-            else:
+            elif not args.quiet_collisions:
                 pprint(collisions)
             for det_type in args.details:
                 for key in collisions.keys():
