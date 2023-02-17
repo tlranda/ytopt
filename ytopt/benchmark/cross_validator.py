@@ -20,6 +20,7 @@ def build():
     prs.add_argument('--sizes', choices=['sm','ml','xl'], default=None, nargs='*', help="Only use selected sizes")
     prs.add_argument('--details', choices=['seeds','technique'], default=None, nargs='*', help="Follow-up on collisions with more detailed view")
     prs.add_argument('--plot', action='store_true', help="Generate a plot for each problem-size pairing based on observed data")
+    prs.add_argument('--omit-unique-plot', action='store_true', help="Omit performance of configurations that are not repeated in plots")
     return prs
 
 def parse(prs, args=None):
@@ -318,7 +319,7 @@ def collide_stack(lookup,maybe_collide,index):
         return -1
     return np.argsort(lookup[maybe_collide[index]])[maybe_collide[index].index(index)]
 
-def plot(stacked_csvs, plot_name_hint, collisions, quiet_plot = False):
+def plot(stacked_csvs, plot_name_hint, collisions, quiet_plot=False, omit_unique=False):
     figs, axes = [], []
     for size in stacked_csvs.keys():
         fig, (ax_rank,ax_obj) = plt.subplots(2, sharex=True)
@@ -343,14 +344,19 @@ def plot(stacked_csvs, plot_name_hint, collisions, quiet_plot = False):
         techniques = sorted(set([os.path.dirname(_) for _ in all_eval_sources['SOURCE_FILE']]))
         max_y = 0
         for tech in techniques:
-            tech_index = np.where(all_eval_sources['SOURCE_FILE'].apply(os.path.dirname) == tech)[0]
-            tech_xs = lookup_rank[tech_index]
-            plot_order = np.argsort(tech_xs)
             all_eval_seed_collision = all_eval_sources['stacked_seed_collision'].tolist()
             all_eval_tech_collision = all_eval_sources['cross_technique_collision'].tolist()
+            tech_index = np.where(all_eval_sources['SOURCE_FILE'].apply(os.path.dirname) == tech)[0]
+            tech_xs = lookup_rank[tech_index]
+            # Crash x's on technique together at best-performing one's location
+            tech_xs = np.asarray([min(lookup_rank[all_eval_tech_collision[index]]) if len(all_eval_tech_collision[index]) > 0 else lookup_rank[index] for index in tech_index])
+            plot_order = np.argsort(tech_xs)
             # ONLY DOING CROSS-TECHNIQUE COLLISIONS RIGHT NOW
             y_height = np.asarray([max(0, collide_stack(lookup_rank, all_eval_tech_collision, index)) for index in tech_index])
             max_y = max(max_y, max(y_height))
+            if omit_unique:
+                # Drop non-repeated indices from plot_order
+                plot_order = [_ for _ in plot_order if len(all_eval_sources.iloc[tech_index[_]]['cross_technique_collision']) > 0]
             ax_rank.scatter(tech_xs[plot_order], y_height[plot_order], label=tech)
             ax_obj.scatter(tech_xs[plot_order], all_eval_sources.iloc[tech_index[plot_order]]['objective'],label=tech)
             if not quiet_plot:
@@ -368,7 +374,7 @@ def plot(stacked_csvs, plot_name_hint, collisions, quiet_plot = False):
         ax_obj.legend()
         fig.savefig(f"{size}_crossval.png")
 
-def validate(dirname_hint, ignore_list, quiet_crawl=False, include_sizes=set(), generate_plot=False, quiet_plot=False):
+def validate(dirname_hint, ignore_list, quiet_crawl=False, include_sizes=set(), generate_plot=False, quiet_plot=False, omit_unique=False):
     print(dirname_hint)
     all_csv_crawls = crawl(dirname_hint, ignore_list)
     if all_csv_crawls == []:
@@ -387,7 +393,7 @@ def validate(dirname_hint, ignore_list, quiet_crawl=False, include_sizes=set(), 
         collisions.update(coll_update)
         summary.update(summ_update)
     if generate_plot:
-        plot(csvs, dirname_hint, collisions, quiet_plot=quiet_plot)
+        plot(csvs, dirname_hint, collisions, quiet_plot=quiet_plot, omit_unique=omit_unique)
     return collisions, summary, csvs
 
 def detailed_exploration(subdict, csvs):
@@ -435,7 +441,8 @@ def main(args=None):
                                                  quiet_crawl=args.quiet_crawl,
                                                  include_sizes=set(args.sizes),
                                                  generate_plot=args.plot,
-                                                 quiet_plot=args.quiet_plot)
+                                                 quiet_plot=args.quiet_plot,
+                                                 omit_unique=args.omit_unique_plot)
             if args.summary:
                 pprint(summary)
             elif not args.quiet_collisions:
