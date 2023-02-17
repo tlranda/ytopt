@@ -188,7 +188,7 @@ def get_collisions(csvs, size, coll_dict, summ_dict):
     # Function to grab top-level csvs key and relative idx from the global idx
     def fetch_key(index):
         for key, max_idx, base_idx in zip(csvs[size].keys(), stack_breaks[1:], stack_breaks[:-1]):
-            if max_idx >= index:
+            if max_idx > index:
                 break
         return key, index-base_idx
     # These tuples can indicate cross-seed evaluations which we do not want, so filter them out
@@ -357,8 +357,9 @@ def plot(stacked_csvs, plot_name_hint, collisions, quiet_plot=False, omit_unique
             if omit_unique:
                 # Drop non-repeated indices from plot_order
                 plot_order = [_ for _ in plot_order if len(all_eval_sources.iloc[tech_index[_]]['cross_technique_collision']) > 0]
-            ax_rank.scatter(tech_xs[plot_order], y_height[plot_order], label=tech)
-            ax_obj.scatter(tech_xs[plot_order], all_eval_sources.iloc[tech_index[plot_order]]['objective'],label=tech)
+            tech_label = tech.lstrip('_')
+            ax_rank.scatter(tech_xs[plot_order], y_height[plot_order], label=tech_label)
+            ax_obj.scatter(tech_xs[plot_order], all_eval_sources.iloc[tech_index[plot_order]]['objective'],label=tech_label)
             if not quiet_plot:
                 for height in range(max(y_height)+1):
                     print(f"{tech} height {height} : {len(np.where(y_height==height)[0])}x")
