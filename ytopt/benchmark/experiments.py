@@ -138,6 +138,21 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             calls += info[0]
             bluffs += info[1]
             verifications += 1
+    if key == 'OFFLINE_FEWSHOT':
+        for loopct, problem in enumerate(sect['targets']):
+            if parallel and loopct % args.n_parallel != args.parallel_id:
+                continue
+            for seed in sect['seeds']:
+                out_name = f"results_rf_{problem.lower()}_{experiment}_{seed}.csv"
+                resume = f"results_{problem_sizes[problem]}.csv"
+                invoke = f"python -m ytopt.search.ambs --problem problem.{problem} --evaluator {sect['evaluator']} "+\
+                         f"--max-evals={sect['evals']} --learner {sect['learner']} --set-KAPPA {sect['kappa']} "+\
+                         f"--acq-func {sect['acqfn']} --set-SEED {seed} --resume {resume}; "+\
+                         f"mv {resume} {out_name}"
+                info = verify_output(out_name, runtype, invoke, expect, args, resumable=resume)
+                calls += info[0]
+                bluffs += info[1]
+                verifications += 1
     elif key == 'O3':
         for loopct, target in enumerate(sect['targets']):
             if parallel and loopct % args.n_parallel != args.parallel_id:
