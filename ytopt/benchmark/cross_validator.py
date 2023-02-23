@@ -19,10 +19,12 @@ def build():
     prs.add_argument('--quiet-crawl', action='store_true', help="Don't list crawled files")
     prs.add_argument('--quiet-collisions', action='store_true', help="Don't list detailed collision data")
     prs.add_argument('--quiet-plot', action='store_true', help="Don't print additional information during plotting")
+    prs.add_argument('--quiet-all', action='store_true', help="Enable all quiet behaviors")
     prs.add_argument('--sizes', choices=['sm','ml','xl'], default=None, nargs='*', help="Only use selected sizes")
     prs.add_argument('--details', choices=['seeds','technique'], default=None, nargs='*', help="Follow-up on collisions with more detailed view")
     prs.add_argument('--plot', action='store_true', help="Generate a plot for each problem-size pairing based on observed data")
     prs.add_argument('--omit-unique-plot', action='store_true', help="Omit performance of configurations that are not repeated in plots")
+    prs.add_argument('--export', type=str, help="Export each problem size as a unified record (collisions only represented by BEST)")
     return prs
 
 def parse(prs, args=None):
@@ -57,6 +59,10 @@ def parse(prs, args=None):
         args.skip.extend(['ignore', 'hide'])
     if args.sizes is None:
         args.sizes = ['sm','ml','xl']
+    if args.quiet_all:
+        for argname in args.__dict__.keys():
+            if 'quiet' in argname:
+                setattr(args,argname,True)
     return args
 
 # Search recursively through subdirectories, collecting all CSVs that do not have
@@ -441,6 +447,19 @@ def detailed_exploration(subdict, csvs):
                 else:
                     print(f"\t{common}: {' || '.join(data[:,idx])}")
 
+def export(csv_groups, experiment_name, output_prefix):
+    for size_name, csv in csv_groups.items():
+        name = f"{output_prefix}{'_' if not output_prefix.endswith('/') else ''}{experiment_name}_{size_name}.csv"
+        stacked_csv = pd.concat(csv)
+        params = sorted(set([col for col in stacked_csv.columns if re.match(r'p[0-9]+',col)]))
+        export_columns = ['objective'] + params
+        # Sort objectives by position
+        objective = stacked_csv['objective'].to_numpy()
+        ranking = np.argsort(objective)
+        # Reorder by rank, then drop duplicates based on params after the first
+        reordered = stacked_csv.iloc[ranking].drop_duplicates(subset=params, keep='first')
+        reordered.to_csv(name, columns=export_columns, index=False)
+
 def main(args=None):
     if args is None:
         args = parse(build())
@@ -452,6 +471,8 @@ def main(args=None):
                                                  generate_plot=args.plot,
                                                  quiet_plot=args.quiet_plot,
                                                  omit_unique=args.omit_unique_plot)
+            if args.export is not None:
+                export(csvs, exp, args.export)
             if args.summary:
                 pprint(summary)
             elif not args.quiet_collisions:
