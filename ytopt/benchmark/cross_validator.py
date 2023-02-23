@@ -12,7 +12,9 @@ def build():
     prs = argparse.ArgumentParser()
     prs.add_argument('--exp', type=str, nargs='+', required=True, help="Directories to process as experiments")
     prs.add_argument('--ignore', type=str, nargs='*', help="Patterns to ignore in crawl")
+    prs.add_argument('--skip', type=str, nargs='*', help="Directories to skip in crawl")
     prs.add_argument('--default-ignore', action='store_true', help="Add convenient ignore list for crawling patterns")
+    prs.add_argument('--default-skip', action='store_true', help="Add convenient skip list for crawling patterns")
     prs.add_argument('--summary', action='store_true', help="Only print summary statistics")
     prs.add_argument('--quiet-crawl', action='store_true', help="Don't list crawled files")
     prs.add_argument('--quiet-collisions', action='store_true', help="Don't list detailed collision data")
@@ -34,6 +36,10 @@ def parse(prs, args=None):
         args.ignore = [args.ignore]
     if args.ignore is None:
         args.ignore = []
+    if type(args.skip) is str:
+        args.skip = [args.skip]
+    if args.skip is None:
+        args.skip = []
     if args.details is None:
         args.details = []
     if args.default_ignore:
@@ -47,13 +53,15 @@ def parse(prs, args=None):
                             '_180.', '_200.', '_260.', '_600.', '_830.',
                             '_1000.', '_1400.', '_2000.', '_3000.',
                             '_4000.'])
+    if args.default_skip:
+        args.skip.extend(['ignore', 'hide'])
     if args.sizes is None:
         args.sizes = ['sm','ml','xl']
     return args
 
 # Search recursively through subdirectories, collecting all CSVs that do not have
 # substring matches with anything in the 'ignore_list'
-def crawl(hint, ignore_list, subdirectory=False):
+def crawl(hint, ignore_list, skip_list, subdirectory=False):
     if not subdirectory:
         # Adjust hint
         if not os.path.isdir(hint):
@@ -78,8 +86,8 @@ def crawl(hint, ignore_list, subdirectory=False):
             if not ignore:
                 collected.append(hint+f)
         else:
-            if os.path.isdir(hint+f):
-                collected.extend(crawl(hint+f+"/", ignore_list, subdirectory=True))
+            if os.path.isdir(hint+f) and f not in skip_list:
+                collected.extend(crawl(hint+f+"/", ignore_list, skip_list, subdirectory=True))
     return collected
 
 def stack_by_size_then_dir(fnames, dirnames):
@@ -260,8 +268,8 @@ def get_collisions(csvs, size, coll_dict, summ_dict):
                                'mean_objective_value': unfilter_stack['objective'].mean(),
                                'mean_walltime_value': mean_walltime,
                               }
-        summ_dict[init_key]['mean_objective_pct'] = summ_dict[init_key]['mean_objective_skew'] / summ_dict[init_key]['mean_objective_value']
-        summ_dict[init_key]['mean_walltime_pct'] = summ_dict[init_key]['mean_walltime_skew'] / summ_dict[init_key]['mean_walltime_value']
+        summ_dict[init_key]['mean_objective_ratio'] = summ_dict[init_key]['mean_objective_skew'] / summ_dict[init_key]['mean_objective_value']
+        summ_dict[init_key]['mean_walltime_ratio'] = summ_dict[init_key]['mean_walltime_skew'] / summ_dict[init_key]['mean_walltime_value']
 
     same_technique_sum = sum([len(_) for _ in same_size_technique])
     if same_technique_sum > 0:
@@ -375,9 +383,9 @@ def plot(stacked_csvs, plot_name_hint, collisions, quiet_plot=False, omit_unique
         ax_obj.legend()
         fig.savefig(f"{size}_crossval.png")
 
-def validate(dirname_hint, ignore_list, quiet_crawl=False, include_sizes=set(), generate_plot=False, quiet_plot=False, omit_unique=False):
+def validate(dirname_hint, ignore_list=[], skip_list=[], quiet_crawl=False, include_sizes=set(), generate_plot=False, quiet_plot=False, omit_unique=False):
     print(dirname_hint)
-    all_csv_crawls = crawl(dirname_hint, ignore_list)
+    all_csv_crawls = crawl(dirname_hint, ignore_list, skip_list)
     if all_csv_crawls == []:
         if not quiet_crawl:
             print("\tNo CSVs crawled")
@@ -438,7 +446,7 @@ def main(args=None):
         args = parse(build())
     for exp in args.exp:
         try:
-            collisions, summary, csvs = validate(exp, args.ignore,
+            collisions, summary, csvs = validate(exp, args.ignore, args.skip,
                                                  quiet_crawl=args.quiet_crawl,
                                                  include_sizes=set(args.sizes),
                                                  generate_plot=args.plot,
