@@ -6,6 +6,7 @@ import importlib
 import copy
 from sklearn.cluster import OPTICS
 from sklearn.manifold import TSNE
+from sklearn.feature_selection import SelectKBest, f_regression
 import matplotlib
 import matplotlib.pyplot as plt
 import pdb
@@ -129,12 +130,11 @@ def distance_analysis(data):
     """
 
 def prune_parameter(data, problem_space, weights, param_ratios):
-    # Determine least important parameter
-    selection=[]
-    for param in data.columns:
-        if param == 'objective':
-            continue
-        imps = data[param] * weights
+    # Determine least important non-objective parameter
+    selection = data.drop(columns=['objective']).columns
+    feature_picker = SelectKBest(f_regression, k=len(selection)-1)
+    feature_picker.fit(data[selection], data['objective'])
+    selection = set(selection).difference(set(feature_picker.get_feature_names_out()))
     return data.drop(columns=selection)
 
 def geospatial_analysis(name, record, problem_space):
@@ -148,7 +148,7 @@ def geospatial_analysis(name, record, problem_space):
     param_rounding = dict((param, [_/(len(vals)-1) for _ in range(len(vals))]) for (param, vals) in problem_space.items())
     for prune_iter in range(len(problem_space.keys())):
         # Get distance between configurations based on rank
-        distance_analysis(data)
+        #distance_analysis(data)
         # Prune
         data = prune_parameter(data, problem_space, rank_based_importance, param_rounding)
 
