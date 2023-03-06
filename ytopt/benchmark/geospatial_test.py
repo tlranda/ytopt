@@ -16,11 +16,16 @@ def build():
     prs.add_argument('--problem', required=True, help="Where to load problem from as module format ('.' instead of '/')")
     prs.add_argument('--attr', default='input_space', help="Name to fetch from the problem to describe the space (default: input_space)")
     prs.add_argument('--files', required=True, nargs="+", help="Files to evaluate spatial closeness")
+    prs.add_argument('--outdir', help="Directory to output images to")
     return prs
 
 def parse(prs, args=None):
     if args is None:
         args = prs.parse_args()
+    if args.outdir is None or args.outdir == "":
+        args.outdir = ""
+    elif not args.outdir.endswith('/'):
+        args.outdir += "/"
     return args
 
 def transform_space(param):
@@ -53,8 +58,23 @@ def transform_file_load(args, problem_space):
         records.append(new_record)
     return records
 
-def distance_analysis(data):
+UNK_COUNT = 0
+def size_id(name):
+    look_for = [['_sm_', '_ml_', '_xl_'],
+                ['_sm', '_ml', '_xl'],
+                ['sm_', 'ml_', 'xl_'],
+                ['s', 'm', 'l']]
+    for group in look_for:
+        for candidate in group:
+            if candidate in name:
+                return candidate.lstrip('_').rstrip('_')
+    UNK_COUNT += 1
+    return f'UNK_{UNK_COUNT}'
+
+def distance_analysis(data, name, n_possible_configs, outdir):
     non_objectives = [_ for _ in data.columns if _ != 'objective']
+    size = size_id(name)
+    n_params = len(non_objectives)
     x = data[non_objectives].to_numpy()
     # Plottable coordinates
     tsne = TSNE(n_components=2, random_state=1)
@@ -108,7 +128,8 @@ def distance_analysis(data):
         xys = xy_vals[idxs,:]
         ax.plot(xys[:,0], xys[:,1], color, alpha=0.3, label=str(klass))
     ax.legend()
-    fig.savefig("cluster.png")
+    ax.set_title(f"{name} with {n_params} ({n_possible_configs} Possible Configurations)")
+    fig.savefig(f"{outdir}cluster_{size}_{n_params}.png")
     fig, ax = plt.subplots()
     for klass, color in zip(klasses, colors):
         idxs = np.where(labels == klass)[0]
@@ -116,18 +137,8 @@ def distance_analysis(data):
         reaches = clust.reachability_[reach_order]
         ax.plot(reach_order, reaches, color, alpha=0.3, label=str(klass))
     ax.legend()
-    fig.savefig("reachability.png")
-    pdb.set_trace()
-    """
-    distances = np.zeros(x.shape[0])
-    for idx in range(x.shape[0]):
-        not_idx = [i for i in range(x.shape[0]) if i != idx]
-        # Mean distance of this point to all other points over all dimensions
-        mean_dist = np.sqrt((x[idx,:]-x[not_idx,:])**2).mean(axis=0).mean()
-        distances[idx] = mean_dist
-    #np.asarray([np.sqrt((x[_,:] - x[[i for i in range(_,x.shape[0]) if i != _],:])**2).mean(axis=0) for _ in range(x.shape[0]-1)])
-    data['distance'] = np.linalg.norm(data[non_objectives])
-    """
+    ax.set_title(f"{name} with {n_params} ({n_possible_configs} Possible Configurations)")
+    fig.savefig(f"{outdir}reachability_{size}_{n_params}.png")
 
 def prune_parameter(data, problem_space, weights, param_ratios):
     # Determine least important non-objective parameter
@@ -137,7 +148,7 @@ def prune_parameter(data, problem_space, weights, param_ratios):
     selection = set(selection).difference(set(feature_picker.get_feature_names_out()))
     return data.drop(columns=selection)
 
-def geospatial_analysis(name, record, problem_space):
+def geospatial_analysis(name, record, problem_space, outdir):
     print(f"Analyze {name}")
 
     data = copy.deepcopy(record).astype(float)
@@ -147,8 +158,13 @@ def geospatial_analysis(name, record, problem_space):
     # Target values to round to
     param_rounding = dict((param, [_/(len(vals)-1) for _ in range(len(vals))]) for (param, vals) in problem_space.items())
     for prune_iter in range(len(problem_space.keys())):
+        n_possible_configs = 1
+        for column in data.columns:
+            if column == 'objective':
+                continue
+            n_possible_configs *= len(problem_space[column])
         # Get distance between configurations based on rank
-        #distance_analysis(data)
+        distance_analysis(data, name, n_possible_configs, outdir)
         # Prune
         data = prune_parameter(data, problem_space, rank_based_importance, param_rounding)
 
@@ -157,7 +173,7 @@ def main(args=None):
     problem_space = problem_load(args)
     records = transform_file_load(args, problem_space)
     for name, record in zip(args.files, records):
-        geospatial_analysis(name, record, problem_space)
+        geospatial_analysis(name, record, problem_space, args.outdir)
 
 if __name__ == '__main__':
     main()
