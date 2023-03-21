@@ -39,6 +39,8 @@ def build():
                         help='set seed')
     parser.add_argument('--top', type=float, default=0.1,
                         help='how much to train')
+    parser.add_argument('--fit-bottom', action='store_true',
+                        help='invert the trimming criterion')
     parser.add_argument('--inputs', type=str, nargs='+', required=True,
                         help='problems to use as input')
     parser.add_argument('--targets', type=str, nargs='+', required=True,
@@ -533,6 +535,59 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
                 print(EFFICIENCY['durations'])
         csvfile.close()
 
+def load_input(obj, problemName, speed, args):
+    if obj.use_oracle:
+        fname = obj.plopper.kernel_dir+"/oracle_bo_"
+    else:
+        fname = obj.plopper.kernel_dir+"/results_rf_"
+    fname += obj.dataset_lookup[obj.problem_class][0].lower()+"_"
+    clsname = obj.__class__.__name__
+    fname += clsname[:clsname.rindex('_')].lower()+".csv"
+    if not os.path.exists(fname):
+        # First try backup
+        backup_fname = fname.rsplit('/',1)
+        backup_fname.insert(1, 'data')
+        backup_fname = "/".join(backup_fname)
+        if not os.path.exists(backup_fname):
+            # Next try replacing '-' with '_'
+            dash_fname = "_".join(fname.split('-'))
+            if not os.path.exists(dash_fname):
+                dash_backup_fname = "_".join(backup_fname.split('-'))
+                if not os.path.exists(dash_backup_fname):
+                    # Execute the input problem and move its results files to the above directory
+                    raise ValueError(f"Could not find {fname} for '{problemName}' "
+                                     f"[{obj.name}] and no backup at {backup_fname}"
+                                     "\nYou may need to run this problem or rename its output "
+                                     "as above for the script to locate it")
+                else:
+                    print(f"WARNING! {problemName} [{obj.name}] is using backup data rather "
+                            "than original data (Dash-to-Underscore Replacement ON)")
+                    fname = dash_backup_fname
+            else:
+                print("Dash-to-Underscore Replacement ON")
+                fname = dash_fname
+        else:
+            print(f"WARNING! {problemName} [{obj.name}] is using backup data rather "
+                    "than original data")
+            fname = backup_fname
+    dataframe = pd.read_csv(fname)
+    dataframe['input'] = pd.Series(int(obj.problem_class) for _ in range(len(dataframe.index)))
+    dataframe['runtime'] = dataframe['objective']
+    if args.load_log:
+        dataframe['runtime'] = np.log(dataframe['runtime'])
+        if args.speedup is not None:
+            speed = np.log(speed)
+    if args.fit_bottom:
+        q_10_s = np.quantile(dataframe.runtime.values, 1-args.top)
+        real_df = dataframe.loc[dataframe['runtime'] > q_10_s]
+    else:
+        q_10_s = np.quantile(dataframe.runtime.values, args.top)
+        real_df = dataframe.loc[dataframe['runtime'] <= q_10_s]
+    if args.speedup is not None:
+        real_df['speedup'] = speed / real_df['runtime']
+    real_data = real_df.drop(columns=['elapsed_sec', 'objective'])
+    return real_data
+
 def main(args=None):
     args = parse(build(), args)
     output_prefix = args.output_prefix
@@ -568,51 +623,7 @@ def main(args=None):
             pName += '.py'
         inputs.append(load_from_file(pName, attr))
         # Load the best top x%
-        last_in = inputs[-1]
-        results_file = last_in.plopper.kernel_dir+"/results_rf_"
-        results_file += last_in.dataset_lookup[last_in.problem_class][0].lower()+"_"
-        last_in = last_in.__class__.__name__
-        results_file += last_in[:last_in.rindex('_')].lower()+".csv"
-        if not os.path.exists(results_file):
-            # First try backup
-            backup_results_file = results_file.rsplit('/',1)
-            backup_results_file.insert(1, 'data')
-            backup_results_file = "/".join(backup_results_file)
-            if not os.path.exists(backup_results_file):
-                # Next try replacing '-' with '_'
-                dash_results_file = "_".join(results_file.split('-'))
-                if not os.path.exists(dash_results_file):
-                    dash_backup_results_file = "_".join(backup_results_file.split('-'))
-                    if not os.path.exists(dash_backup_results_file):
-                        # Execute the input problem and move its results files to the above directory
-                        raise ValueError(f"Could not find {results_file} for '{problemName}' "
-                                         f"[{inputs[-1].name}] and no backup at {backup_results_file}"
-                                         "\nYou may need to run this problem or rename its output "
-                                         "as above for the script to locate it")
-                    else:
-                        print(f"WARNING! {problemName} [{inputs[-1].name}] is using backup data rather "
-                                "than original data (Dash-to-Underscore Replacement ON)")
-                        results_file = dash_backup_results_file
-                else:
-                    print("Dash-to-Underscore Replacement ON")
-                    results_file = dash_results_file
-            else:
-                print(f"WARNING! {problemName} [{inputs[-1].name}] is using backup data rather "
-                        "than original data")
-                results_file = backup_results_file
-        dataframe = pd.read_csv(results_file)
-        dataframe['input'] = pd.Series(int(inputs[-1].problem_class) for _ in range(len(dataframe.index)))
-        dataframe['runtime'] = dataframe['objective']
-        if args.load_log:
-            dataframe['runtime'] = np.log(dataframe['runtime'])
-            if args.speedup is not None:
-                speed = np.log(speed)
-        q_10_s = np.quantile(dataframe.runtime.values, args.top)
-        real_df = dataframe.loc[dataframe['runtime'] <= q_10_s]
-        if args.speedup is not None:
-            real_df['speedup'] = speed / real_df['runtime']
-        real_data = real_df.drop(columns=['elapsed_sec', 'objective'])
-        frames.append(real_data)
+        frames.append(load_input(inputs[-1], problemName, speed, args))
     # Have to reset the index in case included frames have same index from their original frames
     # Drop the legacy index column as we will not care to recover it and it bothers the shape when
     # recording new evaluations
