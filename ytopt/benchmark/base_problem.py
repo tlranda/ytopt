@@ -62,7 +62,7 @@ class BaseProblem(setWhenDefined):
                  plopper: object = None, constraints = None, models = None, name = None,
                  constants = None, silent = False, use_capital_params = False,
                  returnmode = 'ytopt', selflog = None, ignore_runtime_failure = False,
-                 oracle = None, **kwargs):
+                 oracle = None, use_oracle = False, **kwargs):
         # Load problem attribute defaults when available and otherwise required (and None)
         self.overrideSelfAttrs()
         if self.name is None:
@@ -104,13 +104,13 @@ class BaseProblem(setWhenDefined):
             self.oracle = pd.read_csv(self.oracle)
         self.oracle = self.oracle.sort_values(by='objective')
 
-    def oracle_search(parameterization):
+    def oracle_search(self, parameterization):
         search = tuple(parameterization)
         n_matching_columns = (self.oracle[self.params].astype(str) == search).sum(1)
         full_match_idx = np.where(n_matching_columns == self.n_params)[0]
         if len(full_match_idx) == 0:
             raise ValueError(f"Failed to find tuple {list(search_equals)} in oracle data")
-        objective = exhaust.iloc[full_match_idx]['objective'].values[0]
+        objective = self.oracle.iloc[full_match_idx]['objective'].values[0]
         #print(f"All file rank: {full_match_idx[0]} / {len(self.oracle)}")
         return objective
 
@@ -150,7 +150,7 @@ class BaseProblem(setWhenDefined):
             x = [] # Prevent KeyErrors when there are no points to parameterize
         if not self.silent:
             print(f"CONFIG: {point}")
-        if self.oracle is not None:
+        if self.use_oracle and self.oracle is not None:
             result = self.oracle_search(x)
         elif self.use_capital_params is not None and self.use_capital_params:
             result = self.plopper.findRuntime(x, self.CAPITAL_PARAMS, *args, **kwargs)
@@ -193,8 +193,11 @@ class BaseProblem(setWhenDefined):
         space.add_hyperparameters(params_list)
         return space
 
-def import_method_builder(clsref, lookup, default):
-    def getattr_fn(name, default=default):
+def import_method_builder(clsref, lookup, default, oracles):
+    def getattr_fn(name, default=default, oracles=oracles):
+        # Prevent some bugs where things that normal python getattr SHOULD be called
+        if name.startswith("__"):
+            return
         if name == "input_space" or name == "space":
             return clsref.input_space
         prefixes = ["_", "class"]
@@ -205,16 +208,23 @@ def import_method_builder(clsref, lookup, default):
         for suf in suffixes:
             if name.endswith(suf):
                 name = name[:-len(suf)]
-        if name in lookup.keys():
+        if name.lower().startswith("oracle"):
+            name = name[6:].lstrip('_')
+            if name not in oracles.keys():
+                raise ValueError(f"Module defining '{clsref.__name__}' has no oracle for '{name}'")
+            oracle = oracles[name]
+            class_size = lookup[name]
+            return clsref(class_size, oracle=oracle, use_oracle=True)
+        elif name in lookup.keys():
             class_size = lookup[name]
             return clsref(class_size)
         elif name == "":
             return clsref(default)
         else:
-            raise AttributeError(f"module defining {clsref.__name__} has no attribute '{name}'")
+            raise ValueError(f"Module defining '{clsref.__name__}' has no attribute '{name}'")
     return getattr_fn
 
-def dummy_problem_builder(lookup, input_space_definition, there, default=None, name="Dummy_Problem", plopper_class=Dummy_Plopper, **original_kwargs):
+def dummy_problem_builder(lookup, input_space_definition, there, default=None, name="Dummy_Problem", plopper_class=Dummy_Plopper, oracles=dict(), **original_kwargs):
     if type(input_space_definition) is not CS.ConfigurationSpace:
         input_space_definition = BaseProblem.configure_space(input_space_definition)
     class Dummy_Problem(BaseProblem):
@@ -246,9 +256,9 @@ def dummy_problem_builder(lookup, input_space_definition, there, default=None, n
     inv_lookup = dict((v[0], k) for (k,v) in lookup.items())
     if default is None:
         default = inv_lookup['S']
-    return import_method_builder(Dummy_Problem, inv_lookup, default)
+    return import_method_builder(Dummy_Problem, inv_lookup, default, oracles)
 
-def ecp_problem_builder(lookup, input_space_definition, there, default=None, name="ECP_Problem", plopper_class=ECP_Plopper, **original_kwargs):
+def ecp_problem_builder(lookup, input_space_definition, there, default=None, name="ECP_Problem", plopper_class=ECP_Plopper, oracles=dict(), **original_kwargs):
     if type(input_space_definition) is not CS.ConfigurationSpace:
         input_space_definition = BaseProblem.configure_space(input_space_definition)
     class ECP_Problem(BaseProblem):
@@ -291,9 +301,9 @@ def ecp_problem_builder(lookup, input_space_definition, there, default=None, nam
     inv_lookup = dict((v[0], k) for (k,v) in lookup.items())
     if default is None:
         default = inv_lookup['S']
-    return import_method_builder(ECP_Problem, inv_lookup, default)
+    return import_method_builder(ECP_Problem, inv_lookup, default, oracles)
 
-def polybench_problem_builder(lookup, input_space_definition, there, default=None, name="Polybench_Problem", plopper_class=Polybench_Plopper, **original_kwargs):
+def polybench_problem_builder(lookup, input_space_definition, there, default=None, name="Polybench_Problem", plopper_class=Polybench_Plopper, oracles=dict(), **original_kwargs):
     if type(input_space_definition) is not CS.ConfigurationSpace:
         input_space_definition = BaseProblem.configure_space(input_space_definition)
     class Polybench_Problem(BaseProblem):
@@ -329,5 +339,5 @@ def polybench_problem_builder(lookup, input_space_definition, there, default=Non
     inv_lookup = dict((v[0], k) for (k,v) in lookup.items())
     if default is None:
         default = inv_lookup['S']
-    return import_method_builder(Polybench_Problem, inv_lookup, default)
+    return import_method_builder(Polybench_Problem, inv_lookup, default, oracles)
 
