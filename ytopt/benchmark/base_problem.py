@@ -61,7 +61,8 @@ class BaseProblem(setWhenDefined):
                  output_space: Space = None, problem_params: dict = None, problem_class: int = None,
                  plopper: object = None, constraints = None, models = None, name = None,
                  constants = None, silent = False, use_capital_params = False,
-                 returnmode = 'ytopt', selflog = None, ignore_runtime_failure = False, **kwargs):
+                 returnmode = 'ytopt', selflog = None, ignore_runtime_failure = False,
+                 oracle = None, **kwargs):
         # Load problem attribute defaults when available and otherwise required (and None)
         self.overrideSelfAttrs()
         if self.name is None:
@@ -94,8 +95,25 @@ class BaseProblem(setWhenDefined):
         self.params = list([k for k in self.problem_params.keys() if k not in added_keys])
         self.CAPITAL_PARAMS = [_.capitalize() for _ in self.params]
         self.n_params = len(self.params)
-        if returnmode == 'GPTune':
-            self.time_start = time.time()
+        if oracle is not None:
+            self.initialize_oracle()
+        self.time_start = time.time()
+
+    def initialize_oracle(self):
+        if type(self.oracle) is str:
+            self.oracle = pd.read_csv(self.oracle)
+        self.oracle = self.oracle.sort_values(by='objective')
+
+    def oracle_search(parameterization):
+        search = tuple(parameterization)
+        n_matching_columns = (self.oracle[self.params].astype(str) == search).sum(1)
+        full_match_idx = np.where(n_matching_columns == self.n_params)[0]
+        if len(full_match_idx) == 0:
+            raise ValueError(f"Failed to find tuple {list(search_equals)} in oracle data")
+        objective = exhaust.iloc[full_match_idx]['objective'].values[0]
+        #print(f"All file rank: {full_match_idx[0]} / {len(self.oracle)}")
+        return objective
+
 
     def seed(self, SEED):
         if self.input_space is not None:
@@ -132,7 +150,9 @@ class BaseProblem(setWhenDefined):
             x = [] # Prevent KeyErrors when there are no points to parameterize
         if not self.silent:
             print(f"CONFIG: {point}")
-        if self.use_capital_params is not None and self.use_capital_params:
+        if self.oracle is not None:
+            result = self.oracle_search(x)
+        elif self.use_capital_params is not None and self.use_capital_params:
             result = self.plopper.findRuntime(x, self.CAPITAL_PARAMS, *args, **kwargs)
         else:
             result = self.plopper.findRuntime(x, self.params, *args, **kwargs)
