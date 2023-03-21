@@ -9,6 +9,7 @@ from sklearn.manifold import TSNE
 from sklearn.feature_selection import SelectKBest, f_regression
 import matplotlib
 import matplotlib.pyplot as plt
+import warnings
 import pdb
 
 def build():
@@ -122,13 +123,15 @@ def distance_analysis(data, name, n_possible_configs, outdir):
     del cluster_objects # Free memory
     labels = clust.labels_
     klasses = sorted(set(labels))
+    # Correlation?
+    # PLOTTING
     fig, ax = plt.subplots()
     for klass, color in zip(klasses, colors):
         idxs = np.where(labels == klass)[0]
         xys = xy_vals[idxs,:]
         ax.plot(xys[:,0], xys[:,1], color, alpha=0.3, label=str(klass))
     ax.legend()
-    ax.set_title(f"{name} with {n_params} ({n_possible_configs} Possible Configurations)")
+    ax.set_title(f"{name} with {n_params} Params ({n_possible_configs} Possible Configurations)")
     fig.savefig(f"{outdir}cluster_{size}_{n_params}.png")
     fig, ax = plt.subplots()
     for klass, color in zip(klasses, colors):
@@ -137,8 +140,15 @@ def distance_analysis(data, name, n_possible_configs, outdir):
         reaches = clust.reachability_[reach_order]
         ax.plot(reach_order, reaches, color, alpha=0.3, label=str(klass))
     ax.legend()
-    ax.set_title(f"{name} with {n_params} ({n_possible_configs} Possible Configurations)")
+    ax.set_title(f"{name} with {n_params} Params ({n_possible_configs} Possible Configurations)")
     fig.savefig(f"{outdir}reachability_{size}_{n_params}.png")
+    fig, ax = plt.subplots()
+    for klass, color in zip(klasses, colors):
+        idxes = np.where(labels == klass)[0]
+        ax.plot(idxes, [klass for _ in idxes], color, alpha=0.3, label=str(klass))
+    ax.legend()
+    ax.set_title(f"{name} with {n_params} Params ({n_possible_configs} Possible Configurations)")
+    fig.savefig(f"{outdir}ranking_{size}_{n_params}.png")
 
 def prune_parameter(data, problem_space, weights, param_ratios):
     # Determine least important non-objective parameter
@@ -164,7 +174,10 @@ def geospatial_analysis(name, record, problem_space, outdir):
                 continue
             n_possible_configs *= len(problem_space[column])
         # Get distance between configurations based on rank
+        print(f"{len(data.columns)} Params: {data.columns.tolist()}")
+        warnings.simplefilter('ignore')
         distance_analysis(data, name, n_possible_configs, outdir)
+        warnings.simplefilter('default')
         # Prune
         data = prune_parameter(data, problem_space, rank_based_importance, param_rounding)
 
