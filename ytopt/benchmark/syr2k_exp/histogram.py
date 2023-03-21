@@ -1,4 +1,6 @@
-import matplotlib.pyplot as plt, pandas as pd, numpy as np, argparse, os
+import matplotlib.pyplot as plt
+import pandas as pd, numpy as np
+import argparse, os
 
 def make_nice_name(name, topK, args):
     # Shorten those pesky long filenames
@@ -132,11 +134,20 @@ def demoPlot(exhaust, sampled, args):
     # MUST APPLY TOP-K FILTERING [[HERE]] AND ONLY [[HERE]]
     # Otherwise, samples won't know from value dict what possible things exist!
     ex_name = make_nice_name(args.exhaust, args.x_k, args)
-    fig, ax = make_histogram(fig, ax, x_breaks, y_breaks, make_dist(value_dict, exhaust.iloc[:args.x_k]), ex_name, args)
-    for name, sample in zip(args.sample, sampled):
-        name = make_nice_name(name, args.p_k, args)
-        fig, ax = make_histogram(fig, ax, x_breaks, y_breaks, make_dist(value_dict, sample), name, args)
-    fig, ax = apply_common(fig, ax, x_breaks, y_breaks, args)
+    if args.plot_type == 'QQ':
+        from scipy import stats
+        fig,ax = plt.subplots()
+        start_idx = 0
+        while exhaust.at[start_idx, 'objective'] == 1.0:
+            start_idx += 1
+        res = stats.probplot(exhaust['objective'].iloc[start_idx:args.x_k], plot=ax)
+        ax.set_title(f"Probability Plot with Top-{args.x_k-start_idx} of {len(exhaust)}")
+    else:
+        fig, ax = make_histogram(fig, ax, x_breaks, y_breaks, make_dist(value_dict, exhaust.iloc[:args.x_k]), ex_name, args)
+        for name, sample in zip(args.sample, sampled):
+            name = make_nice_name(name, args.p_k, args)
+            fig, ax = make_histogram(fig, ax, x_breaks, y_breaks, make_dist(value_dict, sample), name, args)
+        fig, ax = apply_common(fig, ax, x_breaks, y_breaks, args)
     if args.save_name is None:
         plt.show()
     else:
@@ -166,6 +177,7 @@ def build():
     prs.add_argument('--y-size', type=float, default=1, help="Size of a single Y-grouping")
     prs.add_argument('--collapse-y', action='store_true', help="Overlap Y with transparency")
     prs.add_argument('--save-name', type=str, default=None, help="Save to given filename")
+    prs.add_argument('--plot-type', choices=['QQ', 'histogram'], default='histogram', help="Data representation")
     return prs
 
 def parse(prs, args=None):
