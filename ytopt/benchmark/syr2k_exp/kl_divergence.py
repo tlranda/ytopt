@@ -16,6 +16,8 @@ def build():
                             help="Limit samples to top-%% evaluations (per file) as ratio (default: %(default)s)")
 
     plot_args = prs.add_argument_group("Plotting", "Arguments that affect plot labels, sizes, and outputs")
+    plot_args.add_argument('--expand-x', metavar='FACTOR', type=float, default=1,
+                            help="Factor to adjust figsize in x-dimension (default: %(default)s)")
     plot_args.add_argument('--too-long', metavar='N', type=int, default=15,
                             help="Maximum name length (default: %(default)s)")
     plot_args.add_argument('--abbrev', metavar='M', type=int, default=5,
@@ -35,7 +37,7 @@ def parse(prs, args=None):
         if type(readattr) is not list:
             readattr = [readattr]
         # Sort list
-        setattr(args,metavar,sorted(readattr))
+        setattr(args,metavar,sorted(readattr, reverse=True))
     return args
 
 def load_files(args):
@@ -58,10 +60,9 @@ def make_dist(value_dict, data):
         breakdown[key] = [keydata.count(val) / common_denom for val in values]
     return breakdown
 
-def kl_div_per_sample(exhaust, sampled, concentration, args):
+def kl_div_per_sample(fig, ax, exhaust, sampled, concentration, args):
     cols = sorted([_ for _ in exhaust.columns if _.startswith('p') and _ != 'predicted'])
     value_dict = dict((k, sorted(set(exhaust[k]))) for k in cols)
-    fig, ax = plt.subplots()
     # Do KL-Divergence per variable trace
     kl_div = np.zeros((len(cols),len(args.x_k)))
     sampled_dist = make_dist(value_dict, sampled)
@@ -81,13 +82,14 @@ def kl_div_per_sample(exhaust, sampled, concentration, args):
             ax.bar(x, kl_div[x,:], label=col)
     # Common plot transformations
     ax.set_title(f"{concentration} Sample Data")
-    ax.set_ylabel("KL Divergence")
-    ax.set_xlabel("Concentration of Exhaustive Data")
-    ax.legend()
-    if args.save_name is None:
-        plt.show()
-    else:
-        fig.savefig(args.save_name+f'_{concentration}', format='png')
+    ax.set_xlabel("Exhaustive Quantile")
+    if concentration >= 1.0:
+        ax.set_ylabel("KL Divergence")
+        ax.legend()
+    #if args.save_name is None:
+    #    plt.show()
+    #else:
+    #    fig.savefig(args.save_name+f'_{concentration}', format='png')
 
 def main(args=None):
     if args is None:
@@ -95,8 +97,14 @@ def main(args=None):
     exhaust, samples = load_files(args)
     import pdb
     #pdb.set_trace()
-    for sample_concentration, sample_frame in zip(args.p_k, samples):
-        kl_div_per_sample(exhaust, sample_frame, sample_concentration, args)
+    default_figsize = plt.rcParams['figure.figsize']
+    fig, axes = plt.subplots(1, len(args.p_k), sharey=True, figsize=(default_figsize[0]*args.expand_x, default_figsize[1]))
+    for sample_concentration, sample_frame, ax in zip(args.p_k, samples, axes):
+        kl_div_per_sample(fig, ax, exhaust, sample_frame, sample_concentration, args)
+    if args.save_name is None:
+        plt.show()
+    else:
+        fig.savefig(args.save_name, format='png')
 
 if __name__ == '__main__':
     main()
