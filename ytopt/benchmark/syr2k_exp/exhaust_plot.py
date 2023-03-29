@@ -39,7 +39,7 @@ def plotter_experiment(fig, ax, args):
     return fig, ax
 
 def plotter_lookup(fig, ax, args):
-    exhaust = pd.read_csv(args.exhaust).drop(columns=drop_cols, errors='ignore').sort_values(by='objective').reset_index(drop=True)
+    exhaust = pd.read_csv(args.exhaust[0]).drop(columns=drop_cols, errors='ignore').sort_values(by='objective').reset_index(drop=True)
     ax = exhaust['objective'].plot(ax=ax, title='TBD', legend=False)
     for cand in args.candidate:
         candidate = pd.read_csv(cand).drop(columns=drop_cols, errors='ignore').sort_values(by='objective', ascending=False)

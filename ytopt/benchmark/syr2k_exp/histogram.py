@@ -15,24 +15,25 @@ def make_nice_name(name, topK, args):
         name += f"_TOP_{topK}"
     return name
 
+# Make plot boundaries and get vital data about what can be expressed in plot
+def make_x_breaks(exhaust, args, keys=None):
+    # Filter columns
+    if keys is None:
+        keys = sorted([_ for _ in exhaust.columns if _.startswith('p') and _ != 'predict'])
+    # Get # unique values AND what those values can be
+    idx = 0
+    for k in keys:
+        idx += 1
+        values = sorted(set(exhaust[k]))
+        end = idx + len(values)-1
+        yield ((idx, end), values)
+        idx = end + args.x_buffer
+
 def make_breaks(exhaust, sampled, cols, args):
-    # Make plot boundaries and get vital data about what can be expressed in plot
-    def make_x_breaks(exhaust, keys=None):
-        # Filter columns
-        if keys is None:
-            keys = sorted([_ for _ in exhaust.columns if _.startswith('p') and _ != 'predict'])
-        # Get # unique values AND what those values can be
-        idx = 0
-        for k in keys:
-            idx += 1
-            values = sorted(set(exhaust[k]))
-            end = idx + len(values)-1
-            yield ((idx, end), values)
-            idx = end + args.x_buffer
     # Fetch X-axis data (#params, #values/param, actual set of values)
     x_breaks = {}
     value_dict = {}
-    for key, (breakpoints, values) in zip(cols, make_x_breaks(exhaust, cols)):
+    for key, (breakpoints, values) in zip(cols, make_x_breaks(exhaust, args, cols)):
         x_breaks[key] = breakpoints
         value_dict[key] = values
     # Fetch Y-axis data (just appropriate height spacings)
@@ -162,6 +163,9 @@ def load_files(args):
         exhaust = exhaust.sort_values(by='objective').reset_index(drop=True)
     if args.p_k is not None:
         sample = [s.sort_values(by='objective').reset_index(drop=True)[:args.p_k] for s in sample]
+    if args.collate_samples:
+        sample = [pd.concat(sample)]
+        args.p_k = len(sample[0])
     return exhaust, sample
 
 def build():
@@ -169,7 +173,8 @@ def build():
     prs.add_argument('--exhaust', type=str, required=True, help="Exhaustive file for 'truth' distribution")
     prs.add_argument('--x-k', type=int, default=None, help="Limit exhaustive to top-k evaluations")
     prs.add_argument('--sample', type=str, nargs='*', help="Sample file(s) for 'predict' distribution(s)")
-    prs.add_argument('--p-k', type=int, default=None, help="Limit samples to top-k evaluations")
+    prs.add_argument('--p-k', type=int, default=None, help="Limit samples to top-k evaluations (per file)")
+    prs.add_argument('--collate-samples', action='store_true', help="Combine samples as one distribution")
     prs.add_argument('--too-long', type=int, default=15, help="Maximum name length")
     prs.add_argument('--abbrev', type=int, default=5, help="Size of substring on either side for abbreviation")
     prs.add_argument('--x-buffer', type=float, default=1, help="Buffer between X-groupings")
