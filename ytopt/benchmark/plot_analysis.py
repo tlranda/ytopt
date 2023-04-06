@@ -126,7 +126,7 @@ substitute = {'BOOTSTRAP': "Bootstrap",
               'gptune': "GPTune",
               'GPTune': "GPTune",
               'REFIT': "Gaussian Copula with Refit",
-              'results': "Vanilla"}
+              'results': "BO"}
 HAS_NOT_WARNED_MAKE_SEED_INVARIANT_NAME = True
 
 benchmark_names = {'Lu': 'LU',
@@ -696,12 +696,12 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
         mpl_marker = 'o'
         if len(data['obj']) > 1:
             cutoff = data['obj'].to_list().index(max(data['obj']))
-            ax.plot(data['exe'][:min(cutoff+1, len(data))], data['obj'][:min(cutoff+1,len(data))],
+            ax.plot([0]+data['exe'][:min(cutoff+1, len(data))].tolist(), [1]+data['obj'][:min(cutoff+1,len(data))].tolist(),
                     label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
                     marker=mpl_marker, color=color, zorder=1)
             print(f"MEAN Plot {source['name']}")
             if not args.cutoff:
-                ax.plot(data['exe'][cutoff:], data['obj'][cutoff:],
+                ax.plot(data['exe'][cutoff:].tolist(), data['obj'][cutoff:].tolist(),
                         marker=mpl_marker, color=color, zorder=1)
                 print("\tMEAN-CUTOFF Plot")
         else:
