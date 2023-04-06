@@ -144,8 +144,8 @@ def scale_relabel(label):
 def plot(loaded, args):
     fig, ax = plt.subplots(figsize=tuple(args.fig_dims))
     fig.set_tight_layout(True)
-    color_maps = ['Oranges', 'Blues', 'Greens', 'Purples', 'Reds', 'Greys', 'YlOrBr', 'PuRd', 'BuPu', 'YlOrRd', 'GnBu', 'OrRd', 'YlGnBu', 'YlGn',]
-    knncolor = ['moccasin','powderblue','palegreen','plum','lightcoral','gainsboro']
+    color_maps = ['Yellows','Oranges','Reds','Blues','Greens','Purples','Greys', 'YlOrBr', 'PuRd', 'BuPu', 'YlOrRd', 'GnBu', 'OrRd', 'YlGnBu', 'YlGn',]
+    knncolor = ['moccasin','coral','firebrick','lightcoral','powderblue','palegreen','plum','gainsboro']
     leg_handles = []
     marker_sizes = {'o': 20,
                     '*': 40,
@@ -182,14 +182,17 @@ def plot(loaded, args):
         markersize = marker_sizes[marker]
         optimal_marker='x' if marker != 'x' else '*'
         if args.rank_color and len(line) > 1:
-            x_marker = ax.scatter(line['x'].iloc[0], line['y'].iloc[0], color=cmap.rstrip('s').lower(), label='BEST'+line['label'].iloc[0], marker=optimal_marker, s=markersize*4, linewidth=3)
             quant_break = int(len(line['x']) * quant)
             # Indicated Optimal
             ax.scatter(line['x'].iloc[1:quant_break], line['y'].iloc[1:quant_break], color='black', label=line['label'].iloc[0], marker=marker, s=markersize)
             # Indicated Sub-optimal
             ax.scatter(line['x'].iloc[quant_break:], line['y'].iloc[quant_break:], color='white', label=line['label'].iloc[0], marker=marker, s=markersize)
             #ax.scatter(line['x'].iloc[1:], line['y'].iloc[1:], c=line['z'].iloc[len(line['z'])-2::-1], cmap=cmap, label=line['label'].iloc[0], marker=marker, s=markersize)
+            # Line that goes to optimal marker
             x_line = ax.plot([0,line['x'].iloc[0]], [0,line['y'].iloc[0]], color='black', linewidth=0.5)
+            # Optimal marker given a border even though markers don't have borders
+            x_marker = ax.scatter(line['x'].iloc[0], line['y'].iloc[0], color='black', marker=optimal_marker, s=markersize*5, linewidth=5)
+            x_marker = ax.scatter(line['x'].iloc[0], line['y'].iloc[0], color=cmap.rstrip('s').lower(), label='BEST'+line['label'].iloc[0], marker=optimal_marker, s=markersize*4, linewidth=3)
         else:
             x_marker = ax.scatter(line['x'].iloc[0], line['y'].iloc[0], color=cmap.rstrip('s').lower(), label='BEST'+line['label'].iloc[0], marker=optimal_marker, s=markersize*4, linewidth=3)
             ax.scatter(line['x'].iloc[1:], line['y'].iloc[1:], color=cmap.rstrip('s').lower(), label=line['label'].iloc[0], marker=marker, s=markersize)
@@ -205,8 +208,8 @@ def plot(loaded, args):
     ax.axhline(y=0, color='black', linewidth=0.1)
     ax.axvline(x=0, color='black', linewidth=0.1)
     # Labels, legends, save
-    ax.set_xlabel("TSNE dimension 1")
-    ax.set_ylabel("TSNE dimension 2")
+    #ax.set_xlabel("TSNE dimension 1")
+    #ax.set_ylabel("TSNE dimension 2")
     ax.legend(handles=leg_handles, loc="best", title='Scale')
     ax.set_xlim([min([min(line['x']) for line in loaded]), max([max(line['x']) for line in loaded])])
     ax.set_ylim([min([min(line['y']) for line in loaded]), max([max(line['y']) for line in loaded])])

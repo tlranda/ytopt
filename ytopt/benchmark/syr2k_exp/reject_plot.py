@@ -92,7 +92,20 @@ def iter_time(data, args):
     fig, ax = plt.subplots(figsize=tuple(args.fig_dims))
     fig.set_tight_layout(True)
     ys, names = [],[]
-    for name, sequence in data.items():
+    arbitrary_order = ['random', 'GaussianCopula', 'CTGAN', 'CopulaGAN']
+    data_order = []
+    for name in data.keys():
+        set_idx = -1
+        for idx, key in enumerate(arbitrary_order):
+            if key in name:
+                data_order.append(idx)
+                set_idx = idx
+                break
+        if set_idx < 0:
+            data_order.append(len(arbitrary_order))
+    key_order = np.asarray(list(data.keys()))[np.argsort(data_order)]
+    for name in key_order:
+        sequence = data[name]
         nicename = name_cleaner(name)
         try:
             ys.append(max(sequence['sample.1']))
@@ -149,7 +162,20 @@ def reject(data, args):
     hatches = [None, 'OO', 'XX']
     #barkeys = ['close','sample', 'batch', 'prior']
     #hatches = [None, 'XX', '--', 'OO']
-    for idx, (name, sequence) in enumerate(data.items()):
+    arbitrary_order = ['random', 'GaussianCopula', 'CTGAN', 'CopulaGAN']
+    data_order = []
+    for name in data.keys():
+        set_idx = -1
+        for idx, key in enumerate(arbitrary_order):
+            if key in name:
+                data_order.append(idx)
+                set_idx = idx
+                break
+        if set_idx < 0:
+            data_order.append(len(arbitrary_order))
+    key_order = np.asarray(list(data.keys()))[np.argsort(data_order)]
+    for idx, name in enumerate(key_order):
+        sequence = data[name]
         nicename = name_cleaner(name)
         nicename, SIZE = nicename.split('_')
         bottom = [0 for _ in sequence.trial]
