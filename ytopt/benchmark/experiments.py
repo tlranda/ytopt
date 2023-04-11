@@ -451,6 +451,35 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
         info = verify_output(None, runtype, invoke, None, args)
         calls += info[0]
         bluffs += info[1]
+    elif key == "TABLES":
+        experiment_dir = args.backup if sect['use_backup'] and args.backup is not None else './'
+        if type(experiment_dir) is list:
+            if len(experiment_dir) == 1:
+                experiment_dir = experiment_dir[0]
+            else:
+                raise ValueError(f"{key} section parsing does not support multiple backups")
+        for target in sect['targets']:
+            invoke = f"python -m ytopt.benchmark.tables --round {sect['round']} --inputs "+\
+                         f"{experiment_dir}/*_{target.upper()}_*.csv "+\
+                         f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
+                         f"results_gptune_*{target.lower()}* data/gptune_experiments/results_*{target.upper()}* "+\
+                         f"data/thomas_experiments/*_{target.upper()}_*.csv "+\
+                         "--ignore data/jaehoon_experiments/*200eval* data/*/*_trace.csv data/thomas_experiments/*BOOTSTRAP* "+\
+                         "data/thomas_experiments/*REFIT_3*.csv data/thomas_experiments/*REFIT_5*.csv "+\
+                         "data/*/*1337*.csv data/*/*5555*.csv "
+            if sect['as_speedup']:
+                invoke += f"--as-speedup-vs data/DEFAULT_{target.upper()}.csv --max-objective "
+            budget = None
+            try:
+                budget = sect['budgets'][experiment]
+            except KeyError:
+                print(f"!! WARNING !! No experiment budget for {experiment}")
+            if budget is None:
+                budget = sect['max_budget']
+            invoke += f"--budget {budget} "
+            info = verify_output(None, runtype, invoke, None, args)
+            calls += info[0]
+            bluffs += info[1]
     else:
         raise ValueError(f"Unknown section {key}")
     print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made & {bluffs} calls bluffed. {verifications} attempted verifies >>")
