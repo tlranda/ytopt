@@ -1,32 +1,59 @@
 import argparse, os
 import pandas as pd, numpy as np
+from contextlib import nullcontext
 
 def build():
     prs = argparse.ArgumentParser()
-    prs.add_argument('--inputs', type=str, nargs='+', required=True, help="Data files to read")
-    prs.add_argument('--ignore', type=str, nargs='*', help="Data files to ignore if globbed by inputs")
-    prs.add_argument('--as-speedup-vs', type=str, default=None, help="Convert metrics to speedup based on this float or value derived from a CSV file with this name")
-    prs.add_argument('--budget', type=int, default=None, help="Report budget at this number of evaluations")
-    prs.add_argument("--synchronous", action="store_true", help="Synchronize mean time across seeds for wall-time plots")
-    prs.add_argument("--drop-overhead", action="store_true", help="Attempt to remove initialization overhead time in seconds")
-    prs.add_argument("--max-objective", action="store_true", help="Objective is MAXIMIZE not MINIMIZE (default MINIMIZE)")
-    prs.add_argument("--round", type=int, default=None, help="Round values to this many decimal places (default no rounding)")
+    subparsers = prs.add_subparsers(dest='subparser_name')
+    # RUN THESE FIRST
+    task_parser = subparsers.add_parser('task', help='Determine table data for a given benchmark task')
+    task_inputs = task_parser.add_argument_group('Inputs')
+    task_inputs.add_argument('--inputs', type=str, nargs='+', required=True, help="Data files to read")
+    task_inputs.add_argument('--ignore', type=str, nargs='*', help="Data files to ignore if globbed by inputs")
+    task_inputs.add_argument('--as-speedup-vs', type=str, default=None, help="Convert metrics to speedup based on this float or value derived from a CSV file with this name")
+    task_inputs.add_argument('--budget', type=int, default=None, help="Report budget at this number of evaluations")
+    task_options = task_parser.add_argument_group('Options')
+    task_options.add_argument("--drop-overhead", action="store_true", help="Attempt to remove initialization overhead time in seconds if this argument is specified")
+    task_options.add_argument("--max-objective", action="store_true", help="Objective is MAXIMIZE not MINIMIZE (default MINIMIZE)")
+    task_options.add_argument("--round", type=int, default=None, help="Round values to this many decimal places (default no rounding)")
+    task_options.add_argument("--quiet", action="store_true", help="Silence normal output (does not prevent writing to output files) when specified")
+    task_options.add_argument("--show-seed", action='store_true', help="Indicate seed of file source if this argument is specified")
+    task_options.add_argument("--average-seeds", action='store_true', help="Average performance across seeds if this argument is specified")
+    task_outputs = task_parser.add_argument_group('Outputs')
+    task_outputs.add_argument("--output-name", default=None, help="Supply a path to save results to (none saved if not specified)")
+    task_outputs.add_argument("--overwrite", action='store_true', help="Override clobber protection for output file path")
+
+    # COMBINE DISTINCT RESULTS FROM SEPARATE 'task' RUNS
+    collate_parser = subparsers.add_parser('collate', help='Present table data for a collection of benchmark tasks')
+    collate_parser.add_argument('--inputs', type=str, nargs='+', required=True, help="Task outputs from earlier runs of <task> command of this script")
     return prs
 
 def parse(prs, args=None):
     if args is None:
         args = prs.parse_args()
-    if args.ignore is not None:
-        allowed = []
+    if args.subparser_name == 'task':
+        if args.ignore is not None:
+            allowed = []
+            for fname in args.inputs:
+                if fname not in args.ignore:
+                    allowed.append(fname)
+            args.inputs = allowed
+        # Special ordering helps with table output like paper
+        ordered = []
+        for selection in ['GaussianCopula', 'rf', 'gptune']:
+            for fname in args.inputs:
+                if selection in fname and fname not in ordered:
+                    ordered.append(fname)
+        # Pick up everything that wasn't caught in special ordering
         for fname in args.inputs:
-            if fname not in args.ignore:
-                allowed.append(fname)
-        args.inputs = allowed
-    if args.as_speedup_vs is not None:
-        try:
-            args.as_speedup_vs = float(args.as_speedup_vs)
-        except ValueError:
-            args.as_speedup_vs = pd.read_csv(args.as_speedup_vs).iloc[0]['objective']
+            if fname not in ordered:
+                ordered.append(fname)
+        args.inputs = ordered
+        if args.as_speedup_vs is not None:
+            try:
+                args.as_speedup_vs = float(args.as_speedup_vs)
+            except ValueError:
+                args.as_speedup_vs = pd.read_csv(args.as_speedup_vs).iloc[0]['objective']
     return args
 
 def make_seed_invariant_name(name, args):
@@ -64,78 +91,25 @@ def combine_seeds(data, args):
         except IndexError:
             print(entry['data'])
             raise ValueError(f"No known objective in {entry['name']} with columns {entry['data'][0].columns}")
-        last_step = np.full(len(entry['data']), np.inf)
-        seconds = pd.concat([_['elapsed_sec'] for _ in entry['data']])
-        if args.synchronous:
-            steps = seconds.groupby(seconds.index).mean()
-            lookup_steps = [dict((agg,personal) for agg, personal in \
-                                zip(steps, seconds.groupby(seconds.index).nth(idx))) \
-                                    for idx in range(len(entry['data']))]
+        n_points = max(map(len, entry['data']))
+        n_seeds = len(entry['data'])
+        objs = np.stack([entry['data'][_][objective_col].to_numpy() for _ in range(n_seeds)])
+        # PERHAPS AVERAGED?
+        objs = np.mean(objs, axis=0)
+        if args.max_objective:
+            seed_attribution = np.argmax(objs,axis=0)
         else:
-            steps = sorted(seconds.unique())
-            # Set "last" objective value for things that start later to their first value
-            for idx, frame in enumerate(entry['data']):
-                if frame['elapsed_sec'][0] != steps[0]:
-                    last_step[idx] = frame[objective_col][0]
-        n_points = len(steps)
-        new_columns = {'min': np.zeros(n_points),
-                       'max': np.zeros(n_points),
-                       'std_low': np.zeros(n_points),
-                       'std_high': np.zeros(n_points),
-                       'obj': np.zeros(n_points),
-                       'exe': np.zeros(n_points),
-                       'current': np.zeros(n_points),
-                      }
-        prev_mean = None
-        # COMBINATION NEEDS TO BE UPDATED
-        for idx, step in enumerate(steps):
-            # Get the step data based on x-axis needs
-            if args.synchronous:
-                step_data = []
-                for idx2, df in enumerate(entry['data']):
-                    try:
-                        local_step = df[df['elapsed_sec'] == lookup_steps[idx2][step]].index[0]
-                        last_step[idx2] = df.iloc[local_step][objective_col]
-                    except (KeyError, IndexError):
-                        pass
-                    step_data.append(last_step[idx2])
-            else:
-                step_data = []
-                for idx2, df in enumerate(entry['data']):
-                    # Get objective value in the row where the step's elapsed time exists
-                    lookup_index = df[objective_col][df[df['elapsed_sec'] == step].index]
-                    if not lookup_index.empty:
-                        last_step[idx2] = lookup_index.tolist()[0]
-                    # Always add last known value (may have just been updated)
-                    step_data.append(last_step[idx2])
-            # Make data entries for new_columns, ignoring NaN/Inf values
-            finite = [_ for _ in step_data if np.isfinite(_)]
-            mean = np.mean(finite)
-            if 'old_objective' in entry['data'][0].columns:
-                new_columns['current'][idx] = np.mean([_['old_objective'].iloc[idx] for _ in entry['data']])
-            else:
-                new_columns['current'][idx] = mean
-            if prev_mean is None or mean != prev_mean:
-                new_columns['obj'][idx] = mean
-                prev_mean = mean
-                new_columns['exe'][idx] = step
-                new_columns['min'][idx] = min(finite)
-                new_columns['max'][idx] = max(finite)
-                if new_data['type'] == 'best':
-                    new_columns['std_low'][idx] = new_columns['obj'][idx]-min(finite)
-                    new_columns['std_high'][idx] = max(finite)-new_columns['obj'][idx]
-                else:
-                    stddev = np.std(finite)
-                    new_columns['std_low'][idx] = stddev
-                    new_columns['std_high'][idx] = stddev
+            seed_attribution = np.argmin(objs,axis=0)
+        #objs = objs[seed_attribution, np.arange(n_points)]
+        new_columns = {'obj': objs,
+                       'src_file': ['average' for _ in np.arange(n_points)],}
+                       #'src_file': np.asarray(entry['fname'])[seed_attribution],}
         # Make new dataframe
-        new_data['data'] = pd.DataFrame(new_columns).sort_values('exe')
-        new_data['data'] = new_data['data'][new_data['data']['obj'] > 0]
+        new_data['data'] = pd.DataFrame(new_columns)
         combined_data.append(new_data)
     return combined_data
 
-def load_all(args):
-    legend_title = None
+def load_task_inputs(args):
     data = []
     inv_names = []
     shortlist = []
@@ -146,7 +120,8 @@ def load_all(args):
             try:
                 fd = pd.read_csv(fname)
             except IOError:
-                print(f"WARNING: Could not open {fname}, removing from 'inputs' list")
+                if not args.quiet:
+                    print(f"WARNING: Could not open {fname}, removing from 'inputs' list")
                 continue
             # Drop unnecessary parameters
             d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
@@ -160,9 +135,10 @@ def load_all(args):
                 idx = inv_names.index(fullname)
                 # Just put them side-by-side for now
                 data[idx]['data'].append(d)
+                data[idx]['fname'].append(fname)
             else:
                 data.append({'name': fullname, 'data': [d], 'type': 'input',
-                             'fname': fname, 'dir': directory})
+                             'fname': [fname], 'dir': directory})
                 inv_names.append(fullname)
                 shortlist.append(name)
     # Drop directory from names IF only represented once
@@ -175,46 +151,84 @@ def load_all(args):
 
 def table_analyze(data, args):
     # COLUMNS: GC First, GC Budget, GC Best, BO Best, GPTune Best
-    for entry in data:
-        if 'GaussianCopula' in entry['name']:
-            # First result
-            first_result = entry['data'].iloc[0]['obj']
-            # Budget result
-            if args.budget is None:
-                if args.max_objective:
-                    budget_result = entry['data']['obj'].max()
+    with (open(args.output_name, 'w') if args.output_name is not None else nullcontext()) as FILE:
+        if args.output_name is not None:
+            FILE.write('GC_First,GC_Budget,GC_Budget_At,GC_Best,GC_Best_At,BO_Best,BO_Best_At,GPTune_Best,GPTune_Best_At\n')
+        for eidx, entry in enumerate(data):
+            if 'GaussianCopula' in entry['name']:
+                # First result
+                first_result = entry['data'].iloc[0]['obj']
+                # Budget result
+                if args.budget is None:
+                    budget_result = None
                 else:
-                    budget_result = entry['data']['obj'].min()
+                    if args.max_objective:
+                        budget_idx = np.argmax(entry['data'].iloc[:args.budget]['obj'])
+                    else:
+                        budget_idx = np.argmin(entry['data'].iloc[:args.budget]['obj'])
+                    budget_result = entry['data'].iloc[budget_idx]['obj']
             else:
-                if args.max_objective:
-                    budget_result = entry['data'].iloc[:args.budget]['obj'].max()
-                else:
-                    budget_result = entry['data'].iloc[:args.budget]['obj'].min()
+                first_result = None
+                budget_result = None
+            if args.max_objective:
+                best_idx = np.argmax(entry['data']['obj'])
+            else:
+                best_idx = np.argmin(entry['data']['obj'])
+            best_result = entry['data'].iloc[best_idx]['obj']
+            # Rounding
+            if args.round is not None:
+                if first_result is not None:
+                    first_result = round(first_result, args.round)
+                if budget_result is not None:
+                    budget_result = round(budget_result, args.round)
+                best_result = round(best_result, args.round)
+            # IDXs + 1 to be the nth evaluation (1-indexed, rather than 0-indexed row identiifer)
+            if args.output_name is not None:
+                if first_result is not None:
+                    FILE.write(f"{first_result},")
+                if budget_result is not None:
+                    FILE.write(f"{budget_result},{budget_idx+1},")
+                FILE.write(f"{best_result},{best_idx+1}")
+                if eidx != len(data)-1:
+                    FILE.write(",")
+            if not args.quiet:
+                print(f"> {entry['name']} | {first_result if first_result is not None else ''} | "+\
+                      f"{budget_result if budget_result is not None else ''} {'('+str(budget_idx+1)+')' if budget_result is not None else ''} | "+\
+                      f"{best_result} ({best_idx+1})")
+                print("\t\t"+f"Results based on: {entry['fname']}")
+                print("\t\t"+f"Best result from: {entry['data'].iloc[best_idx]['src_file']}")
+                if first_result is not None:
+                    print("\t\t"+f"First result from: {entry['data'].iloc[0]['src_file']}")
+                if budget_result is not None:
+                    print("\t\t"+f"Budget result from: {entry['data'].iloc[budget_idx]['src_file']}")
+        if args.output_name is not None:
+            FILE.write('\n')
+
+def load_collate_inputs(args):
+    data = None
+    for fname in args.inputs:
+        load = pd.read_csv(fname)
+        load.insert(0, 'task', [fname.lstrip('_').split('_',1)[0]+' '+fname.rsplit('_',1)[1].split('.',1)[0]])
+        if data is None:
+            data = load
         else:
-            first_result = None
-            budget_result = None
-        if args.max_objective:
-            best_result = entry['data']['obj'].max()
-        else:
-            best_result = entry['data']['obj'].min()
-        # Rounding
-        if args.round is not None:
-            if first_result is not None:
-                first_result = round(first_result, args.round)
-            if budget_result is not None:
-                budget_result = round(budget_result, args.round)
-            best_result = round(best_result, args.round)
-        print(f"{entry['name']} | {best_result} | {first_result if first_result is not None else ''} | {budget_result if budget_result is not None else ''}")
+            data = pd.concat((data,load))
+    return data
 
 def main(args=None, prs=None):
     if prs is None:
         prs = build()
     args = parse(prs, args)
-    import pdb
-    pdb.set_trace()
-    data = load_all(args)
-    print("NAME | Best | First | Budget")
-    table_analyze(data, args)
+    if args.subparser_name == 'task':
+        data = load_task_inputs(args)
+        if args.output_name is not None and os.path.exists(args.output_name) and not args.overwrite:
+            print(f"WARNING! {args.output_name} already exists and would be overwritten!")
+            print("Rerun this script with --overwrite if it is ok to replace this file, or move it to a different path")
+            exit()
+        table_analyze(data, args)
+    elif args.subparser_name == 'collate':
+        data = load_collate_inputs(args)
+        print(data.to_string(index=False))
 
 if __name__ == '__main__':
     main()

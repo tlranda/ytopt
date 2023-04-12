@@ -451,7 +451,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
         info = verify_output(None, runtype, invoke, None, args)
         calls += info[0]
         bluffs += info[1]
-    elif key == "TABLES":
+    elif key == "TABLE_TASKS":
         experiment_dir = args.backup if sect['use_backup'] and args.backup is not None else './'
         if type(experiment_dir) is list:
             if len(experiment_dir) == 1:
@@ -459,8 +459,8 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             else:
                 raise ValueError(f"{key} section parsing does not support multiple backups")
         for target in sect['targets']:
-            invoke = f"python -m ytopt.benchmark.tables --round {sect['round']} --inputs "+\
-                         f"{experiment_dir}/*_{target.upper()}_*.csv "+\
+            invoke = f"python -m ytopt.benchmark.tables task --round {sect['round']} --quiet --average --output-name TABLES_{experiment}_{target}.csv --overwrite "+\
+                         f"--inputs {experiment_dir}/*_{target.upper()}_*.csv "+\
                          f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
                          f"results_gptune_*{target.lower()}* data/gptune_experiments/results_*{target.upper()}* "+\
                          f"data/thomas_experiments/*_{target.upper()}_*.csv "+\
@@ -477,6 +477,21 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             if budget is None:
                 budget = sect['max_budget']
             invoke += f"--budget {budget} "
+            info = verify_output(f"TABLES_{experiment}_{target}.csv", runtype, invoke, 2, args)
+            calls += info[0]
+            bluffs += info[1]
+    elif key == "TABLE_COLLATE":
+        # This task should only be called on the final experiment
+        if sect['final_singleton'] > 0:
+            sect['final_singleton'] -= 1
+            print(f"{key} is a FINAL_SINGLETON task; skipping execution until final experiment")
+            return problem_sizes
+        else:
+            # Exit experiment directory; we need access to all experiments
+            os.chdir(f"{HERE}")
+            # Reach back up for args to grab all experiments
+            files = ' '.join([exp + f'_exp/TABLES_{exp}_{target}.csv' for exp in args.experiments for target in sect['targets']])
+            invoke = f"python -m ytopt.benchmark.tables collate --inputs {files}"
             info = verify_output(None, runtype, invoke, None, args)
             calls += info[0]
             bluffs += info[1]
@@ -501,7 +516,7 @@ def build():
     prs.add_argument('--never-remove', action='store_true', help="Never delete partial results")
     return prs
 
-def config_bind(cfg):
+def config_bind(cfg, args):
     # Basically evaluate the config file into nested dictionaries
     cp = configparser.ConfigParser()
     cp.read(cfg)
@@ -512,7 +527,10 @@ def config_bind(cfg):
         cfg_dict[s] = dict()
         for p in cp[s]:
             try:
-                cfg_dict[s][p] = eval(cp[s][p])
+                if p == 'final_singleton':
+                    cfg_dict[s][p] = len(args.experiments)-1
+                else:
+                    cfg_dict[s][p] = eval(cp[s][p])
             except SyntaxError:
                 if len(cp[s][p]) > 0:
                     print(f"Warning! {cfg} [{s}][{p}] may have incorrect python syntax")
@@ -561,7 +579,7 @@ def parse(prs, args=None):
         raise ValueError("BOTH --parallel-id and --n-parallel must be supplied to enable parallelization")
     del xor
     # Load data from config and bind to args
-    args.cfg = config_bind(args.config_file)
+    args.cfg = config_bind(args.config_file, args)
     # Fix endings of backup directories
     backup = []
     if args.backup is not None:
