@@ -491,7 +491,7 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             os.chdir(f"{HERE}")
             # Reach back up for args to grab all experiments
             files = ' '.join([exp + f'_exp/TABLES_{exp}_{target}.csv' for exp in args.experiments for target in sect['targets']])
-            invoke = f"python -m ytopt.benchmark.tables collate --inputs {files}"
+            invoke = f"python -m ytopt.benchmark.tables collate --inputs {files} --round 2 --max-objective"
             info = verify_output(None, runtype, invoke, None, args)
             calls += info[0]
             bluffs += info[1]
@@ -601,6 +601,10 @@ if __name__ == '__main__':
     problem_sizes = None
     #sort_dict = dict((k,v['priority']) for (k,v) in args.cfg.items())
     # For each experiment, run all run-type things as a test suite
+    nonskip = set(args.cfg.keys()).difference(set(args.skip))
+    if len(args.only) > 0 and len(nonskip.intersection(set(args.only))) == 0:
+        print("! Warning ! No tasks matched your specification for --only")
+        print(f"Non-skipped tasks: {nonskip}")
     for experiment, runtype in zip(args.experiments, args.runstatus):
         for section in args.cfg.keys():
         #for section in sorted(args.cfg.keys(), key=lambda key: sort_dict[key]):
