@@ -1,4 +1,4 @@
-import argparse, os
+import argparse, os, itertools
 import pandas as pd, numpy as np
 from contextlib import nullcontext
 
@@ -26,6 +26,9 @@ def build():
     # COMBINE DISTINCT RESULTS FROM SEPARATE 'task' RUNS
     collate_parser = subparsers.add_parser('collate', help='Present table data for a collection of benchmark tasks')
     collate_parser.add_argument('--inputs', type=str, nargs='+', required=True, help="Task outputs from earlier runs of <task> command of this script")
+    collate_parser.add_argument("--round", type=int, default=None, help="Round values to this many decimal places (default no rounding)")
+    collate_parser.add_argument("--max-objective", action="store_true", help="Objective is MAXIMIZE not MINIMIZE (default MINIMIZE)")
+    collate_parser.add_argument("--latex", action="store_true", help="Output as latex instead of Pandas Dataframe string when specified")
     return prs
 
 def parse(prs, args=None):
@@ -175,13 +178,6 @@ def table_analyze(data, args):
             else:
                 best_idx = np.argmin(entry['data']['obj'])
             best_result = entry['data'].iloc[best_idx]['obj']
-            # Rounding
-            if args.round is not None:
-                if first_result is not None:
-                    first_result = round(first_result, args.round)
-                if budget_result is not None:
-                    budget_result = round(budget_result, args.round)
-                best_result = round(best_result, args.round)
             # IDXs + 1 to be the nth evaluation (1-indexed, rather than 0-indexed row identiifer)
             if args.output_name is not None:
                 if first_result is not None:
@@ -192,6 +188,13 @@ def table_analyze(data, args):
                 if eidx != len(data)-1:
                     FILE.write(",")
             if not args.quiet:
+                # Rounding on display only
+                if args.round is not None:
+                    if first_result is not None:
+                        first_result = round(first_result, args.round)
+                    if budget_result is not None:
+                        budget_result = round(budget_result, args.round)
+                    best_result = round(best_result, args.round)
                 print(f"> {entry['name']} | {first_result if first_result is not None else ''} | "+\
                       f"{budget_result if budget_result is not None else ''} {'('+str(budget_idx+1)+')' if budget_result is not None else ''} | "+\
                       f"{best_result} ({best_idx+1})")
@@ -204,10 +207,82 @@ def table_analyze(data, args):
         if args.output_name is not None:
             FILE.write('\n')
 
+def get_best_of_row(row, col_subset, maximize_objective):
+    # Return the column name in the subset that max/minimizes the objective best in this row
+
+    # Due to argmin/argmax tiebreakers going to the lower index,
+    # we take special care to reorder the row data so that the comparisons
+    # make the most sense.
+
+    # For instance, if GC_Budget > BO_Best && GC_Budget > GPTune_Best,
+    # and our goal is to maximize the objective, we'd rather report
+    # GC_Budget as the best even if GC_Best > GC_Budget.
+
+    # The ordering and selection logic outlined here will always pick the
+    # FIRST specified data for a technique (column prefix until reaching
+    # an underscore character) that outperforms ALL other data for ALL
+    # other techniques
+
+    # In the unlikely event that the best objective values are identical,
+    # the tiebreaker order DISADVANTAGES our technique by placing
+    # BO and GPTune prior in the order, therefore minimizing their indices
+
+    # Find the BEST result per row using argmin/argmax
+    best_selector = np.argmax if maximize_objective else np.argmin
+    # Split records based on their technique prefix
+    starter_subs = sorted(set([_.split("_",1)[0] for _ in col_subset]))
+    # Know we know how to sort each technique based on its prefix and get all options
+    # Stack them in the order they appear left->right in CSV, so leftmost option is MOST
+    # preferable
+    grouped_columns = dict((k,[v for v in col_subset if v.startswith(k)]) for k in starter_subs)
+    # Determine most number of options to check against
+    depth = max(map(len,grouped_columns.values()))
+    # Stack all options (if any list is SHORTER, repeat its LAST (best shot) option to pad length)
+    valueStack = np.zeros((depth,len(starter_subs)))
+    nameStack = np.empty((depth,len(starter_subs)),dtype=object)
+    for idx in range(depth):
+        nameStack[idx] = [_[min(idx, max(0,len(_)-1))] for _ in grouped_columns.values()]
+        valueStack[idx] = row[nameStack[idx]]
+    best_per_option = best_selector(valueStack,axis=1)
+    # Pick the best, with MOST AGGRESSIVE tiebreaker when this technique
+    # remains best at higher priority, even if that's not global best
+    best_option = best_selector(valueStack[np.arange(depth),best_per_option])
+    # There are cool numpy ways to do this, but given that the list isn't long and it takes
+    # several API calls, plain Python is probably faster
+    while best_option > 0 and best_per_option[best_option-1] == best_per_option[best_option]:
+        best_option -= 1
+    # Re-select what that option was
+    best_idx = best_selector(valueStack[best_option])
+    # Finalize for return
+    return nameStack[best_option, best_idx]
+
+def latexify(data,args):
+    not_at_columns = [_ for idx,_ in enumerate(data.columns) if idx > 1 and not _.endswith('_At')]
+    at_columns = [_ for _ in data.columns if _.endswith('_At')]
+    import pdb
+    #pdb.set_trace()
+    for (idx, row) in data.iterrows():
+        print(f"{row['task']} & ", end='')
+        metrics = []
+        for metric in not_at_columns:
+            if row['best'] == metric:
+                metrics.append("\\textbf{"+f"{row[metric]:.2f}"+"}")
+            else:
+                metrics.append(f"{row[metric]:.2f}")
+            if metric+"_At" in at_columns:
+                metrics[-1] += f" ({row[metric+'_At']})"
+        print(" & ".join(metrics) + " \\\\\\hline")
+
 def load_collate_inputs(args):
     data = None
     for fname in args.inputs:
         load = pd.read_csv(fname)
+        not_at_columns = [_ for _ in load.columns if not _.endswith('_At')]
+        # Determine best
+        load.insert(0, 'best', [get_best_of_row(load.iloc[_], not_at_columns, args.max_objective) for _ in range(len(load))])
+        # Rounding
+        if args.round is not None:
+            load[not_at_columns] = load[not_at_columns].round(args.round)
         load.insert(0, 'task', [fname.lstrip('_').split('_',1)[0]+' '+fname.rsplit('_',1)[1].split('.',1)[0]])
         if data is None:
             data = load
@@ -228,7 +303,10 @@ def main(args=None, prs=None):
         table_analyze(data, args)
     elif args.subparser_name == 'collate':
         data = load_collate_inputs(args)
-        print(data.to_string(index=False))
+        if args.latex:
+            latexify(data,args)
+        else:
+            print(data.to_string(index=False))
 
 if __name__ == '__main__':
     main()
