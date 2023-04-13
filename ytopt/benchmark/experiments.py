@@ -495,6 +495,18 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             info = verify_output(None, runtype, invoke, None, args)
             calls += info[0]
             bluffs += info[1]
+    elif key == "KL_DIVERGENCE":
+        for size in sect['suffixes']:
+            invoke = "python3 -m ytopt.benchmark.syr2k_exp.kl_divergence "+\
+                     f"--exhaust {sect['exhaust']}{size}.csv "+\
+                     f"--sample {' '.join(sect['sample'])} "+\
+                     f"--save-name {sect['save_name']}{size}.png "+\
+                     f"--x-ratio {' '.join([str(_) for _ in sect['x_ratio']])} "+\
+                     f"--s-ratio {' '.join([str(_) for _ in sect['s_ratio']])} "+\
+                     f"--expand-x {sect['expand_x']}"
+            info = verify_output(f"{sect['save_name']}{size}.png", runtype, invoke, 1, args)
+            calls += info[0]
+            bluffs += info[1]
     else:
         raise ValueError(f"Unknown section {key}")
     print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made & {bluffs} calls bluffed. {verifications} attempted verifies >>")

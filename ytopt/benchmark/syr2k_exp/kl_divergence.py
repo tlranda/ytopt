@@ -81,7 +81,7 @@ def kl_div_per_sample(fig, ax, exhaust, sampled, concentration, args):
         else:
             ax.bar(x, kl_div[x,:], label=col)
     # Common plot transformations
-    ax.set_title(f"{concentration} Sample Data")
+    ax.set_title(f"Top {concentration} Sample Data")
     ax.set_xlabel("Exhaustive Quantile")
     if concentration >= 1.0:
         ax.set_ylabel("KL Divergence")
