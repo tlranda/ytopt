@@ -660,7 +660,6 @@ def plot_source(fig, ax, breaks, idx, source, args, ntypes, top_val=None):
     else:
         ax_list = ax
     if breaks is not None:
-        print(f"Figure SHOULD be replaced!")
         fig, (ax1,ax2) = plt.subplots(2,1,sharex=True)
         rfig = fig
         fig.subplots_adjust(hspace=0.1)
@@ -838,7 +837,7 @@ def main(args):
             # Break needed
             if len(outliers) > 0:
                 floor_break = min(np.floor(y_flat[y_sort[outliers]]).astype(int))
-                ceil_break = max(np.ceil(y_flat[y_sort[outliers+1]]).astype(int))
+                ceil_break = max(np.ceil(y_flat[y_sort[outliers]+1]).astype(int))
                 breaks.append((ceil_break, floor_break))
                 for idx in range(y_data.shape[1]-1):
                     breaks.append(None)
@@ -851,7 +850,6 @@ def main(args):
             newfig, fig, ax = plot_source(figures[-1], axes[-1], breaks[idx], idx, source, args, ntypes, top_val)
             # Check if figure replaced by the call
             if fig is not None and ax is not None:
-                print(f"Figure replaced!")
                 figures[-1] = fig
                 axes[-1] = ax
             # XFER may generate additional figures
@@ -895,12 +893,36 @@ def main(args):
                         yname = f"# Configs with top {round(100*args.top,1)}% result per technique"
             if not isinstance(ax, matplotlib.axes.Axes):
                 # Handle limiting and splitting here
-                ax[0].set_ylim(breaks[0][1], min(np.max(y_data)+0.5, np.ceil(np.max(y_data))))
-                ax[1].set_ylim(max(0,np.min(y_data)),breaks[0][0])
+                ax[1].set_ylim(max(0,min_mul * np.min(y_data)),breaks[0][0])
+                above_break = y_flat[np.where(y_flat > breaks[0][1])[0]]
+                other_span = breaks[0][0] - max(0, min_mul * np.min(y_data))
+                if len(above_break) == 1:
+                    ax[0].set_ylim(above_break - (other_span / 2), above_break + (other_span / 2))
+                elif np.max(above_break)-np.min(above_break) < other_span:
+                    ax[0].set_ylim(np.min(above_break) - (other_span / 2), np.max(above_break) + (other_span / 2))
+                else:
+                    ax[0].set_ylim(min(np.min(above_break), max_mul * breaks[0][1]), max(np.max(above_break), min_mul * np.ceil(np.max(y_data))))
+                # SAFETY CHECK FOR POINTS SWALLOWED BY THE BREAK
+                invisible = y_flat[np.logical_and(np.where(y_flat < ax[0].get_ylim()[0], True, False), np.where(y_flat > ax[1].get_ylim()[1], True, False))]
+                if len(invisible) > 0:
+                    print(f" !! WARNING: Vertical break hides {len(invisible)} points from display !! Find and fix the issue !!")
                 # Hide spines
-                pass
+                # ax[1] == ax2
+                # ax[0] == ax1
+                ax[0].spines.bottom.set_visible(False)
+                ax[1].spines.top.set_visible(False)
+                ax[0].xaxis.tick_top()
+                ax[0].tick_params(labeltop=False)
+                d = 0.5
+                kwargs = dict(marker=[(-1,-d),(1,d)], markersize=12, linestyle="none", color='k', mec='k', mew=1, clip_on=False)
+                ax[0].plot([0,1],[0,0], transform=ax[0].transAxes, **kwargs)
+                ax[1].plot([0,1],[1,1], transform=ax[1].transAxes, **kwargs)
+                # Normal axes treatment
                 ax[1].set_xlabel(xname)
-                ax[1].set_ylabel(yname)
+                # Have to shift the y-axis label
+                ylabel = ax[1].set_ylabel(yname, labelpad=10)
+                ylabel.set_position((ylabel.get_position()[0],1))
+                ylabel.set_verticalalignment('center')
                 if args.log_x:
                     ax[0].set_xscale("symlog")
                 if args.log_y:
@@ -922,7 +944,15 @@ def main(args):
                                                 ) for c,l in zip(colors,ax.collections)]
                         ax.legend(handles=leg_handles, loc=" ".join(args.legend), title=legend_title)
                     """
-                    ax[0].legend(loc="upper right", title=legend_title)
+                    # This is a hack but I don't know a better way to do it for now
+                    loc = "upper right"
+                    kwargs = {}
+                    ax_idx = 0
+                    if 'xl' in args.output:
+                        loc = "lower left"
+                        kwargs = {'bbox_to_anchor': (0,0.48), 'borderaxespad': 0}
+                        ax_idx = 1
+                    ax[ax_idx].legend(loc=loc, title=legend_title, **kwargs)
             else:
                 ax.set_xlabel(xname)
                 ax.set_ylabel(yname)
@@ -948,6 +978,7 @@ def main(args):
                     """
                     ax.legend(loc=" ".join(args.legend), title=legend_title)
             if not args.show:
+                fig.tight_layout()
                 fig.savefig("_".join([args.output,name])+f'.{args.format}', format=args.format, bbox_inches='tight')
     if args.show:
         plt.show()
