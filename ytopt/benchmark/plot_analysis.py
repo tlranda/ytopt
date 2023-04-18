@@ -448,6 +448,10 @@ def load_all(args):
                 continue
             # Drop unnecessary parameters
             d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
+            # Sometimes the objective is reported as exactly 1.0, which indicates inability to run that point.
+            # Discard such rows when loading
+            failure_rows = np.where(d['objective'].to_numpy()-1==0)[0]
+            d.loc[failure_rows,'objective'] = np.nan
             if args.drop_overhead:
                 d['elapsed_sec'] -= d['elapsed_sec'].iloc[0]-d['objective'].iloc[0]
             if args.as_speedup_vs is not None:
@@ -920,9 +924,16 @@ def main(args):
                 # Normal axes treatment
                 ax[1].set_xlabel(xname)
                 # Have to shift the y-axis label
-                ylabel = ax[1].set_ylabel(yname, labelpad=10)
-                ylabel.set_position((ylabel.get_position()[0],1))
-                ylabel.set_verticalalignment('center')
+                if 'xl' in args.output:
+                    ax[0].set_box_aspect(1/8)
+                    ylabel = ax[1].set_ylabel(yname, labelpad=10)
+                    ylabel.set_horizontalalignment('left')
+                    ylabel.set_position((0,0.15))
+                else:
+                    ax[0].set_box_aspect(1/5)
+                    ylabel = ax[1].set_ylabel(yname, labelpad=10)
+                    ylabel.set_horizontalalignment('left')
+                    ylabel.set_position((0,0.15))
                 if args.log_x:
                     ax[0].set_xscale("symlog")
                 if args.log_y:
@@ -946,11 +957,11 @@ def main(args):
                     """
                     # This is a hack but I don't know a better way to do it for now
                     loc = "upper right"
-                    kwargs = {}
+                    kwargs = {'borderaxespad': 0}
                     ax_idx = 0
                     if 'xl' in args.output:
                         loc = "lower left"
-                        kwargs = {'bbox_to_anchor': (0,0.48), 'borderaxespad': 0}
+                        kwargs.update({'bbox_to_anchor': (0,0.48)})
                         ax_idx = 1
                     ax[ax_idx].legend(loc=loc, title=legend_title, **kwargs)
             else:
