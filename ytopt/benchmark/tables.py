@@ -128,8 +128,8 @@ def load_task_inputs(args):
                 continue
             # Sometimes the objective is reported as exactly 1.0, which indicates inability to run that point.
             # Discard such rows when loading
-            failure_rows = np.where(d['objective'].to_numpy()-1==0)[0]
-            d.loc[failure_rows,'objective'] = np.nan
+            failure_rows = np.where(fd['objective'].to_numpy()-1==0)[0]
+            fd.loc[failure_rows,'objective'] = np.nan
             # Drop unnecessary parameters
             d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
             if args.drop_overhead:
@@ -279,10 +279,6 @@ def load_collate_inputs(args):
     data = None
     for fname in args.inputs:
         load = pd.read_csv(fname)
-        # Sometimes the objective is reported as exactly 1.0, which indicates inability to run that point.
-        # Discard such rows when loading
-        failure_rows = np.where(load['objective'].to_numpy()-1==0)[0]
-        load.loc[failure_rows,'objective'] = np.nan
         not_at_columns = [_ for _ in load.columns if not _.endswith('_At')]
         # Determine best
         load.insert(0, 'best', [get_best_of_row(load.iloc[_], not_at_columns, args.max_objective) for _ in range(len(load))])
