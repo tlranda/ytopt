@@ -24,6 +24,8 @@ def build():
                             help="When shortening names, keep M prefix and M postfix characters in abbreviation (default: %(default)s)")
     plot_args.add_argument('--save-name', metavar='NAME', type=str, default=None,
                             help="Save generated figure to NAME (if not given, display immediately)")
+    plot_args.add_argument('--format', type=str, choices=['svg','png','pdf'], default='svg',
+                            help="Format type for Matplotlib to save the figure as (default: %(default)s)")
     return prs
 
 def parse(prs, args=None):
@@ -95,16 +97,15 @@ def main(args=None):
     if args is None:
         args = parse(build())
     exhaust, samples = load_files(args)
-    import pdb
-    #pdb.set_trace()
     default_figsize = plt.rcParams['figure.figsize']
     fig, axes = plt.subplots(1, len(args.p_k), sharey=True, figsize=(default_figsize[0]*args.expand_x, default_figsize[1]))
     for sample_concentration, sample_frame, ax in zip(args.p_k, samples, axes):
         kl_div_per_sample(fig, ax, exhaust, sample_frame, sample_concentration, args)
+    fig.tight_layout()
     if args.save_name is None:
         plt.show()
     else:
-        fig.savefig(args.save_name, format='png')
+        fig.savefig(args.save_name, format=args.format)
 
 if __name__ == '__main__':
     main()

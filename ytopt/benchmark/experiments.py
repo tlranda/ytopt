@@ -500,11 +500,12 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             invoke = "python3 -m ytopt.benchmark.syr2k_exp.kl_divergence "+\
                      f"--exhaust {sect['exhaust']}{size}.csv "+\
                      f"--sample {' '.join(sect['sample'])} "+\
-                     f"--save-name {sect['save_name']}{size}.png "+\
+                     f"--save-name {sect['save_name']}{size}.{sect['format']} "+\
                      f"--x-ratio {' '.join([str(_) for _ in sect['x_ratio']])} "+\
                      f"--s-ratio {' '.join([str(_) for _ in sect['s_ratio']])} "+\
-                     f"--expand-x {sect['expand_x']}"
-            info = verify_output(f"{sect['save_name']}{size}.png", runtype, invoke, 1, args)
+                     f"--expand-x {sect['expand_x']} "+\
+                     f"--format {sect['format']}"
+            info = verify_output(f"{sect['save_name']}{size}.{sect['format']}", runtype, invoke, 1, args)
             calls += info[0]
             bluffs += info[1]
     else:
