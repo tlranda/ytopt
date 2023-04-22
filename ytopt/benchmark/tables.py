@@ -263,13 +263,17 @@ def get_best_of_row(row, col_subset, maximize_objective):
 def latex_prelude():
     print("\\begin{table}[h]")
     print("\\centering")
-    print("\\caption{}")
+    print("\\caption{\\shepherdAlter{Polybench autotuning results after a maximum of 30 evaluations; "+
+          "results are averaged across three repeated tuning attempts with unique seeds}{Autotuning "+
+          "results after a maximum of 30 evaluations; results are averaged across three repeated "+
+          "tuning attempts with unique seeds.}}")
+    #print("\\caption{}")
     print("{\\scriptsize")
-    print("\\begin{tabular}{|c|c|c|c|c|c|}")
+    print("\\begin{tabular}{|c|c|c|c|c|c|c|c|}")
     print("\\hline")
-    print("\\multirow{3}{*}{} & \\multirow{3}{*}{Application} & \\multirow{3}{*}{Scale} & \\multicolumn{3}{c|}{Peak Speedup (# Evaluation Discovered)} \\\\\\cline{4-6}")
-    print(" & & & GC & \\multirow{2}{*}{BO Best} & \\multirow{2}{*}{GPTune Best} \\\\")
-    print(" & & & 1$^{st}$, Budget, Best & & \\\\\\hline")
+    print("\\multirow{3}{*}{} & \\multirow{3}{*}{Application} & \\multirow{3}{*}{Scale} & \\multicolumn{5}{c|}{Peak Speedup (\\# Evaluation Discovered)} \\\\\\cline{4-8}")
+    print(" & & & \multicolumn{3}{c|}{GC} & \\multirow{2}{0.05\\linewidth}{BO Best} & \\multirow{2}{0.08\\linewidth}{GPTune Best} \\\\")
+    print(" & & & 1$^{st}$ & Budget & Best & & \\\\")
 
 def reorder_data(data, polybench_tasks, ecp_tasks):
     data = data.reset_index(drop=True)
@@ -302,6 +306,7 @@ def reorder_data(data, polybench_tasks, ecp_tasks):
     return data, polybench_start, n_polybench, ecp_start, n_ecp, tasks
 
 def latex_postlude():
+    print("\\hline")
     print("\\end{tabular}")
     print("}")
     print("\\label{tbl:general_results}")
@@ -309,7 +314,7 @@ def latex_postlude():
 
 def form_metric(row, metric, at_columns, arr):
     if row['best'] == metric:
-        arr.append("\\textbf{"+f"{row[metric]:.2f}"+"}")
+        arr.append("\\cellcolor{blue!25} "+f"{row[metric]:.2f}")
     else:
         arr.append(f"{row[metric]:.2f}")
     if metric+"_At" in at_columns:
@@ -322,14 +327,18 @@ def latexify(data,args):
     latex_prelude()
     polybench_tasks = ['3mm','covariance','floyd_warshall','heat3d','lu','syr2k']
     ecp_tasks = ['amg','rsbench','sw4lite','xsbench']
+    stylize = {'3mm': '3mm', 'covariance': "Cov.", 'floyd_warshall': "Floyd-W.", 'heat3d': "Heat3d", 'lu': "LU",
+               'syr2k': "Syr2k", 'amg': "AMG", 'rsbench': "RSBench", 'xsbench': "XSBench", 'sw4lite': "SW4Lite"}
     data, polybench_start, n_polybench, ecp_start, n_ecp, tasks = reorder_data(data, polybench_tasks, ecp_tasks)
     seen_tasks = []
     for (idx, row) in data.iterrows():
         # Benchmark set indicator
         if polybench_start is not None and idx == polybench_start:
+            print("\\hline")
             print("% Polybench")
             print("\\multirow{"+str(n_polybench)+"}{*}{\\rotatebox[origin=c]{90}{Polybench Kernels}} & ", end='')
         elif ecp_start is not None and idx == ecp_start:
+            print("\\hline")
             print("% ECP")
             print("\\multirow{"+str(n_ecp)+"}{*}{\\rotatebox[origin=c]{90}{Exascale Computing Proxies}} & ", end='')
         else:
@@ -337,7 +346,7 @@ def latexify(data,args):
         # Application indicator
         task_indicator = row['task'].split(' ',1)[0]
         if task_indicator not in seen_tasks:
-            print("\\multirow{"+str(len(tasks[task_indicator]))+"}{*}{"+task_indicator+"} & ", end='')
+            print("\\multirow{"+str(len(tasks[task_indicator]))+"}{*}{"+stylize[task_indicator]+"} & ", end='')
             seen_tasks.append(task_indicator)
         else:
             print(" & ", end='')
@@ -353,12 +362,17 @@ def latexify(data,args):
             if metric.startswith("GC_"):
                 gc_collate = form_metric(row, metric, at_columns, gc_collate)
                 if gc_count == 2:
-                    metrics.append(", ".join(gc_collate))
+                    metrics.append(" & ".join(gc_collate))
                 else:
                     gc_count += 1
             else:
                 metrics = form_metric(row, metric, at_columns, metrics)
-        print(" & ".join(metrics) + " \\\\\\cline{3-6}")
+        print(" & ".join(metrics), end='')
+        # Just row line between applications
+        if scale_indicator == "XL":
+            print(" \\\\\\cline{2-8}")
+        else:
+            print(" \\\\")
     latex_postlude()
 
 def load_collate_inputs(args):
