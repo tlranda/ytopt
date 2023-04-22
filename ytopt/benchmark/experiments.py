@@ -526,6 +526,14 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
                 bluffs += info[1]
         else:
             raise ValueError(f"Unknown version {sect['version']}")
+    elif key == "BRUTE_FORCE":
+        # PLACEHOLDER -- SHOULD BE PARAMETERIZED LATER
+        invoke = "python3 brute_force.py --exhaust data/gc_explain/all_XL.csv --traces data/thomas_experiments/syr2k_NO_REFIT_GaussianCopula_XL_1234_ALL.csv "+\
+                 "data/thomas_experiments/syr2k_NO_REFIT_GaussianCopula_XL_2022_ALL.csv data/thomas_experiments/syr2k_NO_REFIT_GaussianCopula_XL_9999_ALL.csv "+\
+                 "data/jaehoon_experiments/results_rf_xl_syr2k.csv data/gptune_experiments/results_gptune_xl_syr2k_* --plot"
+        info = verify_output(f"BruteForce.svg", runtype, invoke, 1, args)
+        calls += info[0]
+        bluffs += info[1]
     else:
         raise ValueError(f"Unknown section {key}")
     print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made & {bluffs} calls bluffed. {verifications} attempted verifies >>")
