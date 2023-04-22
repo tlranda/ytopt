@@ -16,6 +16,8 @@ def build():
                             help="Limit samples to top-%% evaluations (per file) as ratio (default: %(default)s)")
 
     plot_args = prs.add_argument_group("Plotting", "Arguments that affect plot labels, sizes, and outputs")
+    plot_args.add_argument('--version', choices=['1','2'], default='2',
+                            help='Iteration of plot design to use (default %(default)s)')
     plot_args.add_argument('--expand-x', metavar='FACTOR', type=float, default=1,
                             help="Factor to adjust figsize in x-dimension (default: %(default)s)")
     plot_args.add_argument('--too-long', metavar='N', type=int, default=15,
@@ -31,6 +33,7 @@ def build():
 def parse(prs, args=None):
     if args is None:
         args = prs.parse_args()
+    args.version = int(args.version)
     if args.sample is None:
         args.sample = []
     for metavar in [arg for arg in dir(args) if arg.endswith('_k')]:
@@ -39,7 +42,12 @@ def parse(prs, args=None):
         if type(readattr) is not list:
             readattr = [readattr]
         # Sort list
-        setattr(args,metavar,sorted(readattr, reverse=True))
+        if args.version == 1:
+            setattr(args,metavar,sorted(readattr, reverse=True))
+        elif args.version == 2:
+            setattr(args,metavar,sorted(readattr))
+        else:
+            setattr(args,metavar,readattr)
     return args
 
 def load_files(args):
@@ -93,14 +101,40 @@ def kl_div_per_sample(fig, ax, exhaust, sampled, concentration, args):
     #else:
     #    fig.savefig(args.save_name+f'_{concentration}', format='png')
 
+singleton_titles = ["Random", "Highest-Performing"]
+def kl_div_per_concentration(fig, ax, exhaust, samples, concentration, args):
+    cols = sorted([_ for _ in exhaust.columns if _.startswith('p') and _ != 'predicted'])
+    value_dict = dict((k, sorted(set(exhaust[k]))) for k in cols)
+    kl_div = np.zeros((len(args.p_k), len(cols)))
+    exhaust_dist = make_dist(value_dict, exhaust.iloc[:int(concentration*len(exhaust))])
+    for x, sampled_dist in enumerate([make_dist(value_dict, sampled) for sampled in samples]):
+        for y, col in enumerate(cols):
+            kl_div[x,y] = entropy(exhaust_dist[col], sampled_dist[col])
+            if not np.isfinite(kl_div[x,y]):
+                # Usually due to 0 probability too much in a distribution
+                kl_div[x,y] = entropy(sampled_dist[col], exhaust_dist[col])
+    # Plot as ONE LINE
+    ax.plot(args.p_k, np.mean(kl_div, axis=1), marker='.')
+    # Common plot transformations
+    ax.grid()
+    ax.set_title(singleton_titles.pop())
+    ax.set_xlabel("Fit Quantile")
+    if concentration == args.x_k[0]:
+        ax.set_ylabel("KL Divergence")
+
 def main(args=None):
     if args is None:
         args = parse(build())
     exhaust, samples = load_files(args)
     default_figsize = plt.rcParams['figure.figsize']
-    fig, axes = plt.subplots(1, len(args.p_k), sharey=True, figsize=(default_figsize[0]*args.expand_x, default_figsize[1]))
-    for sample_concentration, sample_frame, ax in zip(args.p_k, samples, axes):
-        kl_div_per_sample(fig, ax, exhaust, sample_frame, sample_concentration, args)
+    if args.version == 1:
+        fig, axes = plt.subplots(1, len(args.p_k), sharey=True, figsize=(default_figsize[0]*args.expand_x, default_figsize[1]))
+        for sample_concentration, sample_frame, ax in zip(args.p_k, samples, axes):
+            kl_div_per_sample(fig, ax, exhaust, sample_frame, sample_concentration, args)
+    elif args.version == 2:
+        fig, axes = plt.subplots(1,2, sharey=True, figsize=(default_figsize[0]*args.expand_x, default_figsize[1]))
+        for exhaust_concentration, ax in zip(args.x_k, axes):
+            kl_div_per_concentration(fig, ax, exhaust, samples, exhaust_concentration, args)
     fig.tight_layout()
     if args.save_name is None:
         plt.show()

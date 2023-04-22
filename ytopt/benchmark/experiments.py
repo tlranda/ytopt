@@ -496,18 +496,36 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
             calls += info[0]
             bluffs += info[1]
     elif key == "KL_DIVERGENCE":
-        for size in sect['suffixes']:
-            invoke = "python3 -m ytopt.benchmark.syr2k_exp.kl_divergence "+\
-                     f"--exhaust {sect['exhaust']}{size}.csv "+\
-                     f"--sample {' '.join(sect['sample'])} "+\
-                     f"--save-name {sect['save_name']}{size}.{sect['format']} "+\
-                     f"--x-ratio {' '.join([str(_) for _ in sect['x_ratio']])} "+\
-                     f"--s-ratio {' '.join([str(_) for _ in sect['s_ratio']])} "+\
-                     f"--expand-x {sect['expand_x']} "+\
-                     f"--format {sect['format']}"
-            info = verify_output(f"{sect['save_name']}{size}.{sect['format']}", runtype, invoke, 1, args)
-            calls += info[0]
-            bluffs += info[1]
+        if sect['version'] == 1:
+            for size in sect['suffixes']:
+                invoke = "python3 -m ytopt.benchmark.syr2k_exp.kl_divergence "+\
+                         f"--exhaust {sect['exhaust']}{size}.csv "+\
+                         f"--sample {' '.join(sect['sample'])} "+\
+                         f"--save-name {sect['save_name']}{size}.{sect['format']} "+\
+                         f"--x-ratio {' '.join([str(_) for _ in sect['x_ratio']])} "+\
+                         f"--s-ratio {' '.join([str(_) for _ in sect['s_ratio']])} "+\
+                         f"--expand-x {sect['expand_x']} "+\
+                         f"--format {sect['format']} "+\
+                         f"--version 1"
+                info = verify_output(f"{sect['save_name']}{size}.{sect['format']}", runtype, invoke, 1, args)
+                calls += info[0]
+                bluffs += info[1]
+        elif sect['version'] == 2:
+            for size in sect['suffixes']:
+                invoke = "python3 -m ytopt.benchmark.syr2k_exp.kl_divergence "+\
+                         f"--exhaust {sect['exhaust']}{size}.csv "+\
+                         f"--sample {' '.join(sect['sample'])} "+\
+                         f"--save-name {sect['save_name']}{size}.{sect['format']} "+\
+                         f"--x-ratio {' '.join([str(_) for _ in sect['x_ratio']])} "+\
+                         f"--s-ratio {' '.join([str(_) for _ in sect['s_ratio']])} "+\
+                         f"--expand-x {sect['expand_x']} "+\
+                         f"--format {sect['format']} "+\
+                         f"--version 2"
+                info = verify_output(f"{sect['save_name']}{size}.{sect['format']}", runtype, invoke, 1, args)
+                calls += info[0]
+                bluffs += info[1]
+        else:
+            raise ValueError(f"Unknown version {sect['version']}")
     else:
         raise ValueError(f"Unknown section {key}")
     print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made & {bluffs} calls bluffed. {verifications} attempted verifies >>")
