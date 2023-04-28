@@ -176,6 +176,8 @@ def reject(data, args):
     key_order = np.asarray(list(data.keys()))[np.argsort(data_order)]
     for idx, name in enumerate(key_order):
         sequence = data[name]
+        print(name)
+        print(sequence)
         nicename = name_cleaner(name)
         nicename, SIZE = nicename.split('_')
         bottom = [0 for _ in sequence.trial]

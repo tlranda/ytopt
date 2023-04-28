@@ -129,8 +129,8 @@ def plot(data, exhaust, args):
         else:
             ax.scatter(best, exhaust['objective'].iloc[best], marker='v', color=color, label=plot_name+" Best", s=markersize, alpha=alpha)
         # Worst
-        worst = arr.ravel()[np.argmax(arr)]
-        ax.scatter(worst, exhaust['objective'].iloc[worst], marker='X', color=color, label=plot_name+" Worst", s=markersize, alpha=alpha)
+        #worst = arr.ravel()[np.argmax(arr)]
+        #ax.scatter(worst, exhaust['objective'].iloc[worst], marker='X', color=color, label=plot_name+" Worst", s=markersize, alpha=alpha)
         # Average
         avg = int(np.mean(arr))
         ax.scatter(avg, exhaust['objective'].iloc[avg], marker='o', color=color, label=plot_name+" Average", s=markersize, alpha=alpha)
@@ -145,8 +145,8 @@ def plot(data, exhaust, args):
             best = arr.ravel()[np.argmin(arr)]
             zoomed_in.scatter(best, exhaust['objective'].iloc[best], marker='v', color=color, label=plot_name+" Best", s=markersize, alpha=alpha)
             # Worst
-            worst = arr.ravel()[np.argmax(arr)]
-            zoomed_in.scatter(worst, exhaust['objective'].iloc[worst], marker='X', color=color, label=plot_name+" Worst", s=markersize, alpha=alpha)
+            #worst = arr.ravel()[np.argmax(arr)]
+            #zoomed_in.scatter(worst, exhaust['objective'].iloc[worst], marker='X', color=color, label=plot_name+" Worst", s=markersize, alpha=alpha)
             # Average
             avg = int(np.mean(arr))
             zoomed_in.scatter(avg, exhaust['objective'].iloc[avg], marker='o', color=color, label=plot_name+" Average", s=markersize, alpha=alpha)
@@ -156,12 +156,32 @@ def plot(data, exhaust, args):
         mark_inset(ax, zoomed_in, loc1=2, loc2=4, fc='none', ec='0.5')
     # Generic plot stuff
     ax.set_ylabel("Objective Time (seconds)")
-    ax.set_xlabel("Performance Rank (Lower is Better)")
-    ax.set_title("Brute Force Syr2k")
-    # Custom legend
-    legend_elems = [matplotlib.patches.Patch(facecolor=color, label=key) for color, key in zip(colors, to_plot.keys())]
-    legend_elems += [matplotlib.lines.Line2D([0],[0], marker=m, markerfacecolor='k', label=kind, markersize=15) for m,kind in zip(['v','X','o'],['Best','Worst','Average'])]
-    ax.legend(handles=legend_elems, loc='upper left')
+    #ax.set_yscale('log')
+    ax.set_ylim(0,20)
+    #ax.set_xscale('log')
+    ax.set_xlabel("Configuration")
+    #ax.set_title("Brute Force Syr2k")
+    # Custom legends
+    locs = ['upper left',
+            'upper center',
+            'center left']
+    markers = ['v',
+               #'X',
+               'o']
+    names = ['Best',
+             #'Worst',
+             'Average']
+    for key, loc, color in zip(to_plot.keys(), locs, colors):
+        legend_elems = [matplotlib.lines.Line2D([0],[0], marker=m, markeredgecolor=color, markerfacecolor=color, label=key+' '+kind, markersize=10) for m,kind in zip(markers,names)]
+        if loc.startswith('upper'):
+            kwargs = {}
+        else:
+            kwargs = {'bbox_to_anchor': (0,0.7)}
+        new_leg = ax.legend(handles=legend_elems, loc=loc, **kwargs)
+        ax.add_artist(new_leg)
+    #legend_elems = [matplotlib.patches.Patch(facecolor=color, label=key) for color, key in zip(colors, to_plot.keys())]
+    #legend_elems += [matplotlib.lines.Line2D([0],[0], marker=m, markerfacecolor='k', label=kind, markersize=15) for m,kind in zip(['v','X','o'],['Best','Worst','Average'])]
+    #ax.legend(handles=legend_elems, loc='upper left')
     fig.tight_layout()
     plt.savefig(args.save_name+'.'+args.format, format=args.format)
 

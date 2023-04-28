@@ -107,7 +107,9 @@ def kl_div_per_concentration(fig, ax, exhaust, samples, concentration, args):
     value_dict = dict((k, sorted(set(exhaust[k]))) for k in cols)
     kl_div = np.zeros((len(args.p_k), len(cols)))
     exhaust_dist = make_dist(value_dict, exhaust.iloc[:int(concentration*len(exhaust))])
+    space_sizes = []
     for x, sampled_dist in enumerate([make_dist(value_dict, sampled) for sampled in samples]):
+        space_sizes.append(np.prod([(np.asarray(sampled_dist[f'p{i}'])>0).sum() for i in range(6)]))
         for y, col in enumerate(cols):
             kl_div[x,y] = entropy(exhaust_dist[col], sampled_dist[col])
             if not np.isfinite(kl_div[x,y]):
@@ -115,9 +117,14 @@ def kl_div_per_concentration(fig, ax, exhaust, samples, concentration, args):
                 kl_div[x,y] = entropy(sampled_dist[col], exhaust_dist[col])
     # Plot as ONE LINE
     ax.plot(args.p_k, np.mean(kl_div, axis=1), marker='.')
+    title = singleton_titles.pop()
+    print(title)
+    print(args.p_k)
+    print(np.mean(kl_div,axis=1))
+    print(space_sizes)
     # Common plot transformations
     ax.grid()
-    ax.set_title(singleton_titles.pop())
+    ax.set_title(title)
     ax.set_xlabel("Fit Quantile")
     if concentration == args.x_k[0]:
         ax.set_ylabel("KL Divergence")
