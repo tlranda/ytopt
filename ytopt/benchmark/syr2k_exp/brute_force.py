@@ -100,7 +100,18 @@ def nicename(name):
 
 def plot(data, exhaust, args):
     import matplotlib
+    # Adjustments
+    font = {'size': 14, 'family': 'serif'}
+    lines = {'linewidth': 3, 'markersize': 6}
+    matplotlib.rc('font', **font)
+    matplotlib.rc('lines', **lines)
     import matplotlib.pyplot as plt
+    rcparams = {'axes.labelsize': 14,
+                'legend.fontsize': 12,
+                'xtick.labelsize': 12,
+                'ytick.labelsize': 12,
+                }
+    plt.rcParams.update(rcparams)
     fig, ax = plt.subplots()
     # Have to reconvert back to float
     exhaust['objective'] = exhaust['objective'].astype(float)
@@ -116,7 +127,7 @@ def plot(data, exhaust, args):
             to_plot[dirname] = [d]
     # Add data points gradually
     colors = ['tab:red','tab:orange','tab:olive']
-    markersize=100
+    markersize=125
     alpha=1
     for color, (plot_name, plot_data) in zip(colors, to_plot.items()):
         arr = np.atleast_2d(plot_data)
