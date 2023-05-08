@@ -1,35 +1,44 @@
 # Conditional Sampling for Gaussian Copulas
 
-## What is Conditional Sampling?
+_NOTE:_ This guide is provided for greater discussion of conditional sampling and to ease reproducibility of our work.
+We frequently refer to [SDV](https://github.com/sdv-dev/SDV) as our implementation for various mechanics and components in this discussion.
+Please be aware that SDV is a _rapidly_ evolving library, and many references have already been deprecated between the time of research and publication.
+This guide _will not_ endeavor to maintain consistency with modern SDV, so note that all notation, references, and names are based on the library as of release version `0.14.1`, the same version used in our reported results.
+Links to SDV's documentation may become broken or have their content updated over time, so they are used minimally and only provided as a convenience.
 
-Conditional sampling is a means of distribution sampling that _guarantees_ specified conditions will be simultaneously held for all generated data, if possible.
-This is performed through two mechanisms: _constraints_ and _conditions_.
+## High-Level: What is Conditional Sampling?
 
-_Constraints_ are defined limitations that all data must adhere to at all times.
-In theory, any constraint relevant to the sampled distribution can be specified, but we refer to the [Synthetic Data Vault's constraints](https://docs.sdv.dev/sdv/reference/constraint-logic/predefined-constraint-classes) as concrete implementations of a broad variety of useful constraints.
-These constraints include requiring values to be either positive or negative, fixing upper and/or lower bounds to generated ranges, one-hot encoding over multiple columns, etc.
+Conditional sampling is a means of sampling from a distribution that _guarantees_ specified conditions will be simultaneously held for all generated data, if possible.
+This is defined and enforced through two mechanisms: _constraints_ and _conditions_.
 
-For our work, we focus on constraining a range of values, such as the range of task sizes, _t_ that can be generated (at the time of development, these were called "Between" constraints; at the time of writing this guide, they are now referred to as "ScalarRange" constraints).
-SDV also provides the capability to [define your own constraints](https://docs.sdv.dev/sdv/reference/constraint-logic/custom-logic) if existing APIs do not suit your needs.
+_Constraints_ are limitations that all data must adhere to at all times.
 Constraints ensure that proper bounds are known for model fitting so that training data does not over-specify model behavior -- especially when transferring to out-of-distribution (extrapolated) trends.
 
-_Conditions_ are more specific constrained requirements imposed during sampling; they only apply to a particular instance of synthetic data generation.
-In SDV, this is accomplished by [defining a Condition object and a number of instances that must adhere to the specified condition](https://docs.sdv.dev/sdv/single-table-data/sampling#simulate-scenarios).
+> In theory, any constraint relevant to the sampled distribution can be specified, but we refer to the [Synthetic Data Vault's constraints](https://docs.sdv.dev/sdv/reference/constraint-logic/predefined-constraint-classes) as concrete implementations of a broad variety of useful constraints.
+These constraints include requiring values to be either positive or negative, fixing upper and/or lower bounds to value ranges, one-hot encoding over multiple columns, etc.
 
+> For our work, we focus on constraining a range of values, such as the range of task sizes, _t_, that can be generated.
+
+_Conditions_ are more specific constrained requirements imposed during sampling; they only apply to a particular instance of synthetic data generation.
 In our work, conditions are used to specify an _exact_ task to be sampled during model inference.
 
+>SDV permits condition implementation by [defining a Condition object and a number of samples to represent the specified condition](https://docs.sdv.dev/sdv/single-table-data/sampling#simulate-scenarios).
+We will detail how to utilize these conditions later.
+
 ## Implementation Specifics: Constraints
+
+The mathematical and mechanical details of constraint specification are provided here, separate from SDV to ensure their persistence.
 
 ### Defining Constraints for a Benchmark
 
 Using SDV, we can specify a constraint on the task column that limits the range of generated data between an upper and lower bound.
-This requires us to have some notion of a "greatest" and "least" task, which in our work typically corresponds to the scale of input provided during autotuning.
+This requires us to have some notion of a "greatest" and "least" task, which corresponds to the scale of the input provided during autotuning.
 The specific values of this range are manually defined to encapsulate all tasks we intend to use as either transfer-learning sources or transfer-learning targets.
 
 As a concrete example, refer to [the 3mm benchmark's .h file](benchmark/_3mm_exp/3mm.h).
-Each "dataset" defines the _I,J,K,L,_ and _M_ sizes for array dimensions in this kernel, ranging from "Mini" (16,18,20,22,24) to "Huge" (3200,3600,4000,4400,4800).
+Each "dataset" defines the _NI,NJ,NK,NL,_ and _NM_ sizes for array dimensions in this kernel, ranging from "Mini" (16,18,20,22,24) to "Huge" (3200,3600,4000,4400,4800).
 The input sizes do not have linear scaling and the work done by the kernel has cubic scaling with input size, so we do not use categorical encoding for the task sizes.
-Rather, we arbitrarily pick the size _I_ as an integer indication of the work to be done, such that our constraint specifies that tasks have values inclusively between 16 and 3200.
+We arbitrarily utilize the _NI_ size as an integer indication of the work to be done, such that our constraint specifies that tasks have values inclusively between 16 and 3200.
 The sizes for each dataset are represented in [the problem specification for each benchmark](https://github.com/tlranda/ytopt/blob/08c81ba62b5c2209ef6f30b6a772d1053f234463/ytopt/benchmark/_3mm_exp/problem.py#L59).
 In our code, this dictionary maps the integer size to a tuple of string names that can be used to identify the size.
 Therefore the SDV constraints for a problem are defined by the minimum and maximum for task sizes, as we've done for our [Polybench problem factory](https://github.com/tlranda/ytopt/blob/08c81ba62b5c2209ef6f30b6a772d1053f234463/ytopt/benchmark/base_problem.py#L315).
@@ -44,17 +53,20 @@ Since our factories are capable of representing the task size in their assembled
 After acquiring the source tuning data, we add the `problem_class` attribute [to each loaded record](https://github.com/tlranda/ytopt/blob/08c81ba62b5c2209ef6f30b6a772d1053f234463/ytopt/benchmark/base_online_tl.py#L574), so each source task is properly annotated based on the same definitions used to collect the data.
 
 Since a constraint is applied to the task size, the Gaussian Copula will not directly learn the exact input values we represent.
-SDV will automatically transform each task size based on the constraint according to a reversible logit transform:
+SDV utilizes reversible data transformations with constraints to automatically transform task sizes:
 
 $data = 0.95 \times \frac{data-low}{high-low} + 0.025$
 
 $data = ln \lparen\frac{data}{1 - data}\rparen$
 
-This nonlinear representation selects the following points for 3mm task sizes:
+Since the data transformation is reversible, the inverse is applied after sampling to report values in the original domain.
+The transformed data is better-suited for Gaussian Copula learning, and the resulting nonlinear representation selects the following points for 3mm task sizes:
 
 ![3mm constraints](Assets/constrained_values.png)
 
-Without constraints, the task size could be treated as a categorical variable, however SDV's implementation permits category reordering by frequency, which means that training data that does not contain the same number of records for each task could result in unfortunate reordering.
+## Gaussian Copula Sampling (Without Conditions)
+
+The Gaussian Copula samples 
 
 ## Implementation Specifics: Conditions
 
