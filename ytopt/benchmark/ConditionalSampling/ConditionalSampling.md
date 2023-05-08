@@ -43,11 +43,18 @@ We add the integer size for _t_ to each collected sample indicating the source t
 Since our factories are capable of representing the task size in their assembled objects, we load an appropriate object and [reference its data to locate previous autotuning records from disk](https://github.com/tlranda/ytopt/blob/08c81ba62b5c2209ef6f30b6a772d1053f234463/ytopt/benchmark/base_online_tl.py#L538).
 After acquiring the source tuning data, we add the `problem_class` attribute [to each loaded record](https://github.com/tlranda/ytopt/blob/08c81ba62b5c2209ef6f30b6a772d1053f234463/ytopt/benchmark/base_online_tl.py#L574), so each source task is properly annotated based on the same definitions used to collect the data.
 
-Since a constraint is applied to the task size, the Gaussian Copula will not learn directly from these input records.
-SDV will automatically transform all data based on the constraint according to a reversible logit transform:
+Since a constraint is applied to the task size, the Gaussian Copula will not directly learn the exact input values we represent.
+SDV will automatically transform each task size based on the constraint according to a reversible logit transform:
 
 $data = 0.95 \times \frac{data-low}{high-low} + 0.025$
 
 $data = ln \lparen\frac{data}{1 - data}\rparen$
 
 This nonlinear representation selects the following points for 3mm task sizes:
+
+![3mm constraints](Assets/constrained_values.png)
+
+Without constraints, the task size could be treated as a categorical variable, however SDV's implementation permits category reordering by frequency, which means that training data that does not contain the same number of records for each task could result in unfortunate reordering.
+
+## Implementation Specifics: Conditions
+
