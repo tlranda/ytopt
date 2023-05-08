@@ -1,12 +1,20 @@
-# Conditional Sampling for Gaussian Copulas
+# High-Level: What is Conditional Sampling for Gaussian Copulas?
+
+When the Gaussian Copula samples, it forms a multivariate normal distribution based on its covariance matrix and then uses marginal distributions to select individual variable values.
+While actual models are more complex, consider a one-dimensional case with two marginal variables and a joint representation:
+
+Without conditional sampling, a particular covariance is randomly selected and used to indicate results from the marginal representations:
+
+With conditional sampling, a particular _marginal value_ is specified, which informs what covariance should be selected.
+This is then used to alter the sampling from other marginal distributions, as if the sample had occurred naturally:
+
+# Low-Level: How does Conditional Sampling Actually Work for Gaussian Copulas?
 
 _NOTE:_ This guide is provided for greater discussion of conditional sampling and to ease reproducibility of our work.
 We frequently refer to [SDV](https://github.com/sdv-dev/SDV) as our implementation for various mechanics and components in this discussion.
 Please be aware that SDV is a _rapidly_ evolving library, and many references have already been deprecated between the time of research and publication.
 This guide _will not_ endeavor to maintain consistency with modern SDV, so note that all notation, references, and names are based on the library as of release version `0.14.1`, the same version used in our reported results.
 Links to SDV's documentation may become broken or have their content updated over time, so they are used minimally and only provided as a convenience.
-
-## High-Level: What is Conditional Sampling?
 
 Conditional sampling is a means of sampling from a distribution that _guarantees_ specified conditions will be simultaneously held for all generated data, if possible.
 This is defined and enforced through two mechanisms: _constraints_ and _conditions_.
@@ -66,9 +74,28 @@ The nonlinear transformation applied on 3mm tasks is pictured below, with actual
 
 ![3mm constraints](Assets/constrained_values.png)
 
-## Gaussian Copula Sampling (Without Conditions)
+## Mathematics Behind Gaussian Copula Sampling
 
-The Gaussian Copula samples 
+The Gaussian Copula fits marginal distributions to each input variable, then forms a covariance matrix to express variable codependencies.
 
-## Implementation Specifics: Conditions
+_Without conditions_, sampling assumes a multivariate normal distribution with zero-means and the same covariance that was learned during model training.
+Each variable is then assigned an output value based on the Gaussian Copula's marginal distribution by identifying the CDF of the sample and percentage point from the marginal distribution:
 
+```python3
+one_sample = np.random.multivariate_normal(np.zeros(len(marginals)), COVARIANCE_MATRIX, size=1)[0]
+outputs = np.empty(len(marginals), dtype=object)
+for sample_value, marginal, idx in zip(one_sample, marginals, itertools.count()):
+  cdf = scipy.stats.norm.cdf(sample_value)
+  outputs[idx] = marginal.percent_point(cdf)
+```
+
+One or more conditions can be specified, however.
+A condition is _inflexible_: each condition specifies one or more column values and the _exact_ value that column will have, as well as how many samples must adhere to the condition.
+To simulate a variety of conditions, SDV requires a unique condition must be generated for each _unique combination_ of constrained values.
+Fortunately, a single condition sufficies for our purposes: `Condition(num_rows=X, column_values={'input': SIZE})`.
+We [define a single condition for each task size to generate simultaneously](https://github.com/tlranda/ytopt/blob/08c81ba62b5c2209ef6f30b6a772d1053f234463/ytopt/benchmark/base_online_tl.py#L366), though in practice we only tune one size at a time.
+
+The Gaussian Copula will apply the constraint RDT to ensure the task size is properly represented, then [compute the components of the corresponding conditional distribution](https://en.wikipedia.org/wiki/Multivariate_normal_distribution#Conditional_distributions).
+Functionally, this alters the means and covariance of the multivariate distribution based on the provided conditions and defined covariance.
+The resulting multivariate distribution describes remaining variance after ensuring a particular outcome from the conditioned variable responses.
+SDV finalizes the construction of the output the same as before, but conditioned variables _explicitly_ take on the condition value.
