@@ -3,10 +3,14 @@
 When the Gaussian Copula samples, it forms a multivariate normal distribution based on its covariance matrix and then uses marginal distributions to select individual variable values.
 While actual models are more complex, consider a one-dimensional case with two marginal variables and a joint representation:
 
-Without conditional sampling, a particular covariance is randomly selected and used to indicate results from the marginal representations:
+![Toy Example](Assets/UnconditionalSampling.png)
+
+Without conditional sampling, the model's identified covariance is used with zero-means (no marginal biases) to randomly sample from the multivariate normal distribution.
+This is similar to picking a random value along the joint model's trend, then mapping it to each marginal component to construct a set of samples:
 
 With conditional sampling, a particular _marginal value_ is specified, which informs what covariance should be selected.
-This is then used to alter the sampling from other marginal distributions, as if the sample had occurred naturally:
+The condition is used to alter sampling by adjusting both the covariance AND sampling means for the multivariate normal distribution.
+This is similar to picking a value for a marginal variable, tracing it back and constraining covariance to the range that could produce it, then sampling other values based on that constrained range:
 
 # Low-Level: How does Conditional Sampling Actually Work for Gaussian Copulas?
 
