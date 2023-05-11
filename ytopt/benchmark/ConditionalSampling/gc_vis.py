@@ -73,15 +73,16 @@ ticks_tl = np.random.rand(n_ticks)*tick_range
 f_tl, tl_coeffs, tl_biases, *_ = create_correlated_relationship(dcpy(rel_coeffs), dcpy(rel_biases), ticks_tl, coeff_nudge, bias_nudge)
 
 # Plot initial relationships
-fig,ax = plt.subplots()
-ax.plot(ticks_x1, f_x1, label=f"f(src_1)")# ~ {' * '.join(['('+str(c)+'x + '+str(b)+')' for c,b in zip(coeffs, biases)])}")
-ax.plot(ticks_x2, f_x2, label=f"f(src_2)")# ~ {' * '.join(['('+str(c)+'x + '+str(b)+')' for c,b in zip(rel_coeffs, rel_biases)])}")
-ax.plot(ticks_tl, f_tl, linestyle='--', label=f"f(tgt_1)")# ~ {' * '.join(['('+str(c)+'x + '+str(b)+')' for c,b in zip(tl_coeffs, tl_biases)])}")
-ax.legend()
-ax.axhline(y=0, color='k', zorder=-1)
-ax.axvline(x=0, color='k', zorder=-1)
-fig.savefig("Assets/GC_funcs.png", format="png")
-fig.clear()
+if __name__ == '__main__':
+    fig,ax = plt.subplots()
+    ax.plot(ticks_x1, f_x1, label=f"f(src_1)")# ~ {' * '.join(['('+str(c)+'x + '+str(b)+')' for c,b in zip(coeffs, biases)])}")
+    ax.plot(ticks_x2, f_x2, label=f"f(src_2)")# ~ {' * '.join(['('+str(c)+'x + '+str(b)+')' for c,b in zip(rel_coeffs, rel_biases)])}")
+    ax.plot(ticks_tl, f_tl, linestyle='--', label=f"f(tgt_1)")# ~ {' * '.join(['('+str(c)+'x + '+str(b)+')' for c,b in zip(tl_coeffs, tl_biases)])}")
+    ax.legend()
+    ax.axhline(y=0, color='k', zorder=-1)
+    ax.axvline(x=0, color='k', zorder=-1)
+    fig.savefig("Assets/GC_funcs.png", format="png")
+    fig.clear()
 
 ##########################################
 #                                        #
@@ -159,11 +160,12 @@ def unconditional_GC_sampling(n_samples, means, covariance):
 base_random_cdf = unconditional_GC_sampling(n_samples, np.zeros(model_covariance.shape[0]), model_covariance)
 
 # Show what sampling comes from
-grid = sns.pairplot(source_data.reset_index(drop=True), corner='True')
-grid.map_diag(sns.histplot)
-grid.map_offdiag(sns.scatterplot)
-grid.fig.tight_layout()
-grid.fig.savefig("Assets/UnconditionalSampling.png", format='png')
+if __name__ == '__main__':
+    grid = sns.pairplot(source_data.reset_index(drop=True), corner='True')
+    grid.map_diag(sns.histplot)
+    grid.map_offdiag(sns.scatterplot)
+    grid.fig.tight_layout()
+    grid.fig.savefig("Assets/UnconditionalSampling.png", format='png')
 
 # Use the percent point for each univariate to utilize GC distribution
 def make_sampled_frame(columns, univariates, cdfs, condition_cols):
@@ -317,8 +319,8 @@ mimic = make_sampled_frame(columns, model_univariates, conditional_random_cdf, c
 ******************************************************'''
 
 output = reverse_transform(mimic, n_categories, category_means, (constraint_low, constraint_high))
-print("MANUAL CONDITIONAL SAMPLING:")
-print(output)
-print("SDV CONDITIONAL SAMPLING:")
-print(model.sample_conditions(conditions))
-
+if __name__ == '__main__':
+    print("MANUAL CONDITIONAL SAMPLING:")
+    print(output)
+    print("SDV CONDITIONAL SAMPLING:")
+    print(model.sample_conditions(conditions))
