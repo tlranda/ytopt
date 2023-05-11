@@ -285,11 +285,6 @@ def get_conditional_distribution(normal_conditions, covariance):
     cond_covariance = sigma11 - sigma12sigma22inv @ sigma21
     return cond_means, cond_covariance, cond_cols
 
-# Identify the CDF for all sampled data
-def conditional_GC_sampling(n_samples, n_columns, covariance, transformed_condition):
-    random_samples = np.random.multivariate_normal(np.zeros(n_columns), covariance, size=n_samples)
-    return stats.norm.cdf(random_samples)
-
 # 2a
 normal_condition = pd.Series([condition_value], index=['size#1#3.value'])
 conditioned_means, conditioned_covariance, conditioned_cols = get_conditional_distribution(normal_condition, model_covariance)
