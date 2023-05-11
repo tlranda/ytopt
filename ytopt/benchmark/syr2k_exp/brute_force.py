@@ -105,6 +105,8 @@ def plot(data, exhaust, args):
     lines = {'linewidth': 3, 'markersize': 6}
     matplotlib.rc('font', **font)
     matplotlib.rc('lines', **lines)
+    matplotlib.rcParams['pdf.fonttype'] = 42
+    matplotlib.rcParams['ps.fonttype'] = 42
     import matplotlib.pyplot as plt
     rcparams = {'axes.labelsize': 14,
                 'legend.fontsize': 12,

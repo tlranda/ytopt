@@ -9,6 +9,8 @@ lines = {'linewidth': 3,
         }
 matplotlib.rc('font', **font)
 matplotlib.rc('lines', **lines)
+matplotlib.rcParams['pdf.fonttype'] = 42
+matplotlib.rcParams['ps.fonttype'] = 42
 import matplotlib.pyplot as plt
 rcparams = {'axes.labelsize': 14,
             'legend.fontsize': 12,
@@ -833,7 +835,7 @@ def main(args):
         # Determine if a vertical break is needed and where
         y_data = np.vstack([d['data'].obj.to_numpy() for d in data])
         # Never need vertical breaks if max speedup is less than 3
-        if np.max(y_data) > 3:
+        if np.max(y_data) > 6:
             y_flat = y_data.ravel()
             y_sort = np.argsort(-y_flat) # Speedups are positive, so mult -1 to get descending order
             z_score = (y_flat[y_sort]-y_flat.mean())/np.std(y_flat)
