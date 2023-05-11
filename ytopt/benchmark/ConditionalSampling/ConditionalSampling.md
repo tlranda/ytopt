@@ -8,9 +8,16 @@ While actual models are more complex, consider a one-dimensional case with two m
 Without conditional sampling, the model's identified covariance is used with zero-means (no marginal biases) to randomly sample from the multivariate normal distribution.
 This is similar to picking a random value along the joint model's trend, then mapping it to each marginal component to construct a set of samples:
 
-With conditional sampling, a particular _marginal value_ is specified, which informs what covariance should be selected.
+![Unconditional Sampling Example](Assets/UnconditionalExample.png)
+
+In this figure, the orange dot in covariance influences the selections for marginal parameters, as in unconditional sampling.
+This is an oversimplification -- greater detail of the mathematics are included in the lower-level explanation that follows.
+
+When conditional sampling is utilized, a particular _marginal value_ is specified, which informs what covariance and means should inform the sampling distribution.
 The condition is used to alter sampling by adjusting both the covariance AND sampling means for the multivariate normal distribution.
 This is similar to picking a value for a marginal variable, tracing it back and constraining covariance to the range that could produce it, then sampling other values based on that constrained range:
+
+![Conditional Sampling Example](Assets/ConditionalExample.png)
 
 # Low-Level: How does Conditional Sampling Actually Work for Gaussian Copulas?
 
@@ -87,6 +94,7 @@ Each variable is then assigned an output value based on the Gaussian Copula's ma
 
 ```python3
 one_sample = np.random.multivariate_normal(np.zeros(len(marginals)), COVARIANCE_MATRIX, size=1)[0]
+# Transform sampled values into marginal domains based on the source data
 outputs = np.empty(len(marginals), dtype=object)
 for sample_value, marginal, idx in zip(one_sample, marginals, itertools.count()):
   cdf = scipy.stats.norm.cdf(sample_value)
@@ -100,6 +108,30 @@ Fortunately, a single condition sufficies for our purposes: `Condition(num_rows=
 We [define a single condition for each task size to generate simultaneously](https://github.com/tlranda/ytopt/blob/08c81ba62b5c2209ef6f30b6a772d1053f234463/ytopt/benchmark/base_online_tl.py#L366), though in practice we only tune one size at a time.
 
 The Gaussian Copula will apply the constraint RDT to ensure the task size is properly represented, then [compute the components of the corresponding conditional distribution](https://en.wikipedia.org/wiki/Multivariate_normal_distribution#Conditional_distributions).
-Functionally, this alters the means and covariance of the multivariate distribution based on the provided conditions and defined covariance.
-The resulting multivariate distribution describes remaining variance after ensuring a particular outcome from the conditioned variable responses.
+This alters the means and covariance of the multivariate distribution based on the provided conditions and original covariance.
+The new multivariate distribution describes remaining variance after ensuring a particular outcome from the conditioned variable responses.
 SDV finalizes the construction of the output the same as before, but conditioned variables _explicitly_ take on the condition value.
+
+```python3
+def get_conditional_distribution(normal_conditions, covariance):
+    cond_cols = normal_conditions.index
+    unconditioned_cols = covariance.columns.difference(cond_cols)
+    # Form the vectors and arrays for conditional sampling
+    sigma11 = covariance.loc[unconditioned_cols, unconditioned_cols].to_numpy()
+    sigma12 = covariance.loc[unconditioned_cols, cond_cols].to_numpy()
+    sigma21 = covariance.loc[cond_cols, unconditioned_cols].to_numpy()
+    sigma22 = covariance.loc[cond_cols, cond_cols].to_numpy()
+    mu1 = np.zeros(len(unconditioned_cols))
+    mu2 = np.zeros(len(cond_cols))
+    # Form the conditional distribution
+    sigma12sigma22inv = sigma12 @ np.linalg.inv(sigma22)
+    cond_means = mu1 + sigma12sigma22inv @ (normal_conditions - mu2)
+    cond_covariance = sigma11 - sigma12sigma22inv @ sigma21
+    return cond_means, cond_covariance, cond_cols
+
+CONDITIONED_MEANS, CONDITIONED_COVARIANCE_MATRIX, conditioned_cols = get_conditional_distribution(pd.Series([condition_value], index=[condition_col]), model_covariance)
+one_sample = np.random.multivariate_normal(CONDITIONED_MEANS, CONDITIONED_COVARIANCE_MATRIX, size=1)[0]
+# Reconstruct from marginals as in unconditional sampling...
+```
+
+A complete walkthrough of the mathematics for both conditional and unconditional sampling with the Gaussian Copula is provided in [gc_vis.py](gc_vis.py)
