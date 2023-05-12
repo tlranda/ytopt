@@ -3,12 +3,12 @@
 When the Gaussian Copula samples, it forms a multivariate normal distribution based on its covariance matrix and then uses marginal distributions to select individual variable values.
 While actual models are more complex, consider a one-dimensional case with two marginal variables and a joint representation:
 
-![Toy Example](Assets/UnconditionalSampling.png)
+<img src="Assets/UnconditionalSampling.png" width="512" alt="Toy Example">
 
 Without conditional sampling, the model's identified covariance is used with zero-means (no marginal biases) to randomly sample from the multivariate normal distribution.
 This is similar to picking a random value along the joint model's trend, then mapping it to each marginal component to construct a set of samples:
 
-![Unconditional Sampling Example](Assets/UnconditionalExample.png)
+<img src="Assets/UnconditionalExample.png" width="512" alt="Example of Unconditional Sampling">
 
 In this figure, the orange dot in covariance influences the selections for marginal parameters, as in unconditional sampling.
 This is an oversimplification -- greater detail of the mathematics are included in the lower-level explanation that follows.
@@ -17,9 +17,9 @@ When conditional sampling is utilized, a particular _marginal value_ is specifie
 The condition is used to alter sampling by adjusting both the covariance AND sampling means for the multivariate normal distribution.
 This is similar to picking a value for a marginal variable, tracing it back and constraining covariance to the range that could produce it, then sampling other values based on that constrained range:
 
-![Conditional Sampling Example](Assets/ConditionalExample.png)
+<img src="Assets/ConditionalExample.png" width="512" alt="Example of Conditional Sampling">
 
-In this example, we condition the size to be a particular value, which influences covariance.
+In this example, we condition the size (the orange dot) to be exactly 2.0, which then is used to influence covariance.
 Note that even though this is the same covariance we "randomly" observed in the unconditional example, the targets end up being different!
 We are sampling from a distribution, so selecting the same covariance does not guarantee the same marginal values -- it just affects what is _most likely_ to occur!
 
