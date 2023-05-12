@@ -19,6 +19,10 @@ This is similar to picking a value for a marginal variable, tracing it back and 
 
 ![Conditional Sampling Example](Assets/ConditionalExample.png)
 
+In this example, we condition the size to be a particular value, which influences covariance.
+Note that even though this is the same covariance we "randomly" observed in the unconditional example, the targets end up being different!
+We are sampling from a distribution, so selecting the same covariance does not guarantee the same marginal values -- it just affects what is _most likely_ to occur!
+
 # Low-Level: How does Conditional Sampling Actually Work for Gaussian Copulas?
 
 _NOTE:_ This guide is provided for greater discussion of conditional sampling and to ease reproducibility of our work.
