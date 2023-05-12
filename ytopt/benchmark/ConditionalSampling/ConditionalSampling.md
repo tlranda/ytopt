@@ -5,23 +5,33 @@ While actual models are more complex, consider a one-dimensional case with two m
 
 <img src="Assets/UnconditionalSampling.png" width="512" alt="Toy Example">
 
-Without conditional sampling, the model's identified covariance is used with zero-means (no marginal biases) to randomly sample from the multivariate normal distribution.
-This is similar to picking a random value along the joint model's trend, then mapping it to each marginal component to construct a set of samples:
+## Unconditional Sampling with Gaussian Copula
+
+We visually represent the highest-level concepts of sampling using the assortment of plots below.
+Each variable's plot represents a histogram of sample-able values, while the covariance plot in the bottom right is an arbitrary 2D representation of their positive correlation.
+While the _real_ correlation for this relationship is three-dimensional, we simplify to two dimensions for demonstration purposes.
 
 <img src="Assets/UnconditionalExample.png" width="512" alt="Example of Unconditional Sampling">
 
-In this figure, the orange dot in covariance influences the selections for marginal parameters, as in unconditional sampling.
-This is an oversimplification -- greater detail of the mathematics are included in the lower-level explanation that follows.
+Without conditional sampling, the model's identified covariance (orange region of the covariance plot) is used with zero-means (no marginal biases; represented by the central dot) to randomly sample from the multivariate normal distribution.
 
-When conditional sampling is utilized, a particular _marginal value_ is specified, which informs what covariance and means should inform the sampling distribution.
-The condition is used to alter sampling by adjusting both the covariance AND sampling means for the multivariate normal distribution.
-This is similar to picking a value for a marginal variable, tracing it back and constraining covariance to the range that could produce it, then sampling other values based on that constrained range:
+The outgoing arrows are marginally sampled from this mean and covariance operating as descriptors of a multivariate distribution, with the actual sampled values for a single sample highlighted in a lighter shade of blue.
+We provide greater detail of sampling mathematics in the lower-level explanation that follows this section.
+
+## Conditional Sampling with Gaussian Copula
+
+When conditional sampling is utilized, one or more particular _marginal values_ are specified as a set of conditions that modify the covariance and means for the multivariate sampling distribution.
+This is similar to picking a value for a marginal variable, tracing it back and constraining covariance and means to the range that could produce it, then sampling other values based on that information:
 
 <img src="Assets/ConditionalExample.png" width="512" alt="Example of Conditional Sampling">
 
-In this example, we condition the size (the orange dot) to be exactly 2.0, which then is used to influence covariance.
-Note that even though this is the same covariance we "randomly" observed in the unconditional example, the targets end up being different!
-We are sampling from a distribution, so selecting the same covariance does not guarantee the same marginal values -- it just affects what is _most likely_ to occur!
+In this example, we condition the size (the orange bar) to be exactly 2.0 -- the 1.0 size is darkened as it cannot be sampled when this condition is applied.
+The arrow from the size to covariance represents the condition applied by this assumption.
+The mean and sample-able covariance shift due to the selection, with unsample-able correlations in dark blue on this plot.
+The altered mean and covariance are then used to sample as before, with light blue highlighting a single sample's values.
+However, due to the changes, some values in the remaining marginal variables X0 and Y are _very unlikely_ to be sampled (shown in darker blue).
+
+Conditional sampling uses correlation and means to ensure that even if some marginal values are manually specified, the remaining values are generated in a manner that conforms to the subset of statistical relationships that can satisfy the condition.
 
 # Low-Level: How does Conditional Sampling Actually Work for Gaussian Copulas?
 
