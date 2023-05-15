@@ -1,4 +1,6 @@
-# High-Level: What is Conditional Sampling for Gaussian Copulas?
+# Conditional Sampling for Gaussian Copulas
+
+# High-Level Explanation
 
 When the Gaussian Copula samples, it forms a multivariate normal distribution based on its covariance matrix and then uses marginal distributions to select individual variable values.
 While actual models are more complex, consider a one-dimensional case with two marginal variables and a joint representation:
