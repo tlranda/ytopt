@@ -107,6 +107,7 @@ class SubprocessEvaluator(Evaluator):
     def _eval_exec(self, x):
         assert isinstance(x, dict)
         cmd = self._args(x)
+        print(cmd)
         future = PopenFuture(cmd, self._parse)
         return future
 

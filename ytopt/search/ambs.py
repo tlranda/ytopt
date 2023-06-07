@@ -30,6 +30,11 @@ from ytopt.search.optimizer import Optimizer
 from ytopt.search import Search
 from ytopt.search import util
 
+# MODIFICATIONS TO PERMIT RESUMING
+import json, os, time
+from ytopt.evaluator.evaluate import Evaluator
+
+
 logger = util.conf_logger('ytopt.search.hps.ambs')
 
 SERVICE_PERIOD = 2          # Delay (seconds) between main loop iterations
@@ -41,7 +46,8 @@ def on_exit(signum, stack):
     EXIT_FLAG = True
 
 class AMBS(Search):
-    def __init__(self, learner='RF', liar_strategy='cl_max', acq_func='gp_hedge', set_KAPPA=1.96, set_SEED=12345, set_NI=10, **kwargs):
+    def __init__(self, learner='RF', liar_strategy='cl_max', acq_func='gp_hedge',
+                 set_KAPPA=1.96, set_SEED=12345, set_NI=10, **kwargs):
         super().__init__(**kwargs)
 
         logger.info("Initializing AMBS")
@@ -55,6 +61,10 @@ class AMBS(Search):
             set_SEED=set_SEED,
             set_NI=set_NI,
         )
+
+        # Permit resuming
+        if 'resume' in kwargs.keys():
+            self.evaluator.load_evals(kwargs['resume'])
 
     @staticmethod
     def _extend_parser(parser):
@@ -95,6 +105,9 @@ class AMBS(Search):
         chkpoint_counter = 0
         num_evals = 0
 
+        # Permit self-timing
+        self.evaluator._start_sec = time.time()
+
         logger.info(f"Generating {self.num_workers} initial points...")
         XX = self.optimizer.ask_initial(n_points=self.num_workers)
         self.evaluator.add_eval_batch(XX)
@@ -126,3 +139,4 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, on_exit)
     signal.signal(signal.SIGTERM, on_exit)
     search.main()
+

@@ -1,5 +1,6 @@
 import logging
 import subprocess
+import os
 import time
 from collections import defaultdict, namedtuple
 import sys
@@ -91,6 +92,7 @@ class RayEvaluator(Evaluator):
             infos = None
             while infos is None: # Raylets can take some time to register
                 try:
+                    os.environ['RAY_LOG_TO_STDERR'] = '1'
                     infos = ray.init(redis_address=redis_address)
                     logger.info(infos)
                 except ConnectionError:
@@ -100,6 +102,7 @@ class RayEvaluator(Evaluator):
                     logger.info('Failed to init driver... sleeping for 1sec...', exc_info=True)
                     time.sleep(sleep_time)
         else:
+            os.environ['RAY_LOG_TO_STDERR'] = '1'
             infos = ray.init()
 
         self.num_workers = len(ray.nodes())
