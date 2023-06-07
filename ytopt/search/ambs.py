@@ -110,6 +110,8 @@ class AMBS(Search):
 
         logger.info(f"Generating {self.num_workers} initial points...")
         XX = self.optimizer.ask_initial(n_points=self.num_workers)
+        import pdb
+        #pdb.set_trace()
         self.evaluator.add_eval_batch(XX)
 
         # MAIN LOOP

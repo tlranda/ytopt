@@ -63,6 +63,8 @@ class Evaluator:
         self.num_workers = 0
 
         # Permit customization of from problem
+        # REQUIRED BY EVALUATOR
+        evaluator_requests = ['request_machine_identifier','request_output_prefix']
         if hasattr(problem, 'request_machine_identifier'):
             self.machine_identifier = problem.request_machine_identifier
         else:
@@ -71,16 +73,24 @@ class Evaluator:
             self.output_prefix = problem.request_output_prefix
         else:
             self.output_prefix = "results"
-        if hasattr(problem, "request_autocache"):
-            self.autocache = problem.request_autocache
-        else:
-            self.autocache = None
+        # ALL OTHER REQUESTS
+        other_requests = [_ for _ in dir(problem) if _.startswith('request_') and _ not in evaluator_requests]
+        self.passthrough_identifiers = []
+        for request in other_requests:
+            # Replace the 'request_' prefix with 'prob_'
+            attrname = 'prob_'+request[8:]
+            # Passthrough identifiers
+            splitname = attrname.split('_')
+            if splitname[1] == 'passthrough':
+                attrname = '_'.join([splitname[0]]+splitname[2:])
+                self.passthrough_identifiers.append(attrname)
+            setattr(self, attrname, getattr(problem, request))
         # Auto-caching
         self.gid = 0
         self.key_to_gid = {}
-        if self.autocache is not None and os.path.exists(self.autocache):
-            cached_evals = pd.read_csv(self.autocache)
-            print(f"Evaluator loads history from {self.autocache}")
+        if hasattr(self, 'prob_autocache') and os.path.exists(self.prob_autocache):
+            cached_evals = pd.read_csv(self.prob_autocache)
+            print(f"Evaluator loads history from {self.prob_autocache}")
             # Remove/Add machine identifier to guarantee it is present even if not previously in dataset
             key_columns = sorted(set(cached_evals.columns).difference({'objective','elapsed_sec','global_sec','machine_identifier','gid'}))+['machine_identifier']
             self.cached_evals = OrderedDict()
@@ -123,12 +133,16 @@ class Evaluator:
         return Eval
 
 
-    def encode(self, x, add_identifier=False):
+    def encode(self, x, add_identifier=False, add_passthrough=True):
         if not isinstance(x, dict):
             raise ValueError(f'Expected dict, but got {type(x)}')
         # Add machine identifier to record if it isn't provided
-        if add_identifier and 'machine_identifier' not in x.keys():
-            x['machine_identifier'] = self.machine_identifier
+        if add_identifier:
+            if 'machine_identifier' not in x.keys():
+                x['machine_identifier'] = self.machine_identifier
+        if add_passthrough:
+            for passthrough in self.passthrough_identifiers:
+                x[passthrough[5:]] = getattr(self, passthrough)
         return json.dumps(x, cls=Encoder)
 
     def _elapsed_sec(self):
@@ -248,6 +262,9 @@ class Evaluator:
             logger.info(f"Requested eval x: {x} y: {y}")
             # Remove machine identifier before yielding
             x.pop('machine_identifier')
+            # Remove any/all passthrough identifiers before yielding
+            for passthrough in self.passthrough_identifiers:
+                x.pop(passthrough,None)
             try:
                 self.requested_evals.remove(key)
             except ValueError:
@@ -280,6 +297,12 @@ class Evaluator:
                 logger.info(f"Requested eval x: {x} y: {y}")
                 # Remove machine identifier before yielding
                 x.pop('machine_identifier')
+                # Remove any/all passthrough identifiers before yielding
+                for passthrough in self.passthrough_identifiers:
+                    # Key was renamed when passed through
+                    print('REMOVING PASSTHROUGH: ', passthrough[5:])
+                    x.pop(passthrough[5:],None)
+                print('RETURNING KEY:', x)
                 yield (x, y)
 
     @property
