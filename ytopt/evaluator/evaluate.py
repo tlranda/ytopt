@@ -105,11 +105,13 @@ class Evaluator:
                 self.elapsed_times[key] = row_contents['elapsed_sec']
                 self.global_times[key] = accumulated
                 self.key_to_gid[key] = row_contents['gid']
+                """
                 print(f"Evaluator identifies previous evaluation:")
                 print('\t'+f"{row_contents['gid']}: {key}")
                 print('\t\t'+f"Objective: {self.cached_evals[key]}")
                 print('\t\t'+f"Elapsed time: {self.elapsed_times[key]}")
                 print('\t\t'+f"Global time: {self.global_times[key]}")
+                """
             # Update gid
             self.gid = max(cached_evals['gid'])+1
 
@@ -164,7 +166,7 @@ class Evaluator:
             logger.info(f"UID: {uid} already evaluated; skipping execution")
         elif hasattr(self, 'cached_evals') and key in self.cached_evals.keys():
             logger.info(f"UID: {uid} cached; skipping execution but permitting fetch")
-            print(f'Cached version of {uid} used')
+            #print(f'Cached version of {uid} used')
             self.finished_evals[uid] = self.cached_evals[key]
             self._start_sec -= self.elapsed_times[key]
         else:
@@ -173,7 +175,7 @@ class Evaluator:
             popped = [_ for _ in map(x.pop, eject_keys, [None]*len(eject_keys))]
             self.key_to_gid[key] = self.gid
             self.gid += 1
-            print(f"Submit new eval of {x}")
+            #print(f"Submit new eval of {x}")
             start_time = self._elapsed_sec()
             future = self._eval_exec(x)
             # Restore all parts of keys for logging
@@ -300,9 +302,9 @@ class Evaluator:
                 # Remove any/all passthrough identifiers before yielding
                 for passthrough in self.passthrough_identifiers:
                     # Key was renamed when passed through
-                    print('REMOVING PASSTHROUGH: ', passthrough[5:])
+                    #print('REMOVING PASSTHROUGH: ', passthrough[5:])
                     x.pop(passthrough[5:],None)
-                print('RETURNING KEY:', x)
+                #print('RETURNING KEY:', x)
                 yield (x, y)
 
     @property
