@@ -68,7 +68,10 @@ class Evaluator:
         if hasattr(problem, 'request_machine_identifier'):
             self.machine_identifier = problem.request_machine_identifier
         else:
-            self.machine_identifier = os.environ['HOSTNAME']
+            try:
+                self.machine_identifier = os.environ['HOSTNAME']
+            except:
+                self.machine_identifier = 'UNKNOWN'
         if hasattr(problem, "request_output_prefix"):
             self.output_prefix = problem.request_output_prefix
         else:
