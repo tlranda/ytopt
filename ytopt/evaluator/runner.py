@@ -22,13 +22,13 @@ def load_module(name, path):
     return mod
 
 if __name__ == "__main__":
-    #import sys, select
-    #timeout=2
-    #print(f"Debugging pass-through enabled. If no response in {timeout} seconds, will disable. (Text auto-forwards to PDB):")
-    #i,o,e = select.select([sys.stdin],[],[],timeout)
-    #if (i):
-    #    import pdb
-    #    pdb.set_trace()
+    import sys, select
+    timeout=0
+    print(f"Debugging pass-through enabled. If no response in {timeout} seconds, will disable. (Text auto-forwards to PDB):")
+    i,o,e = select.select([sys.stdin],[],[],timeout)
+    if (i):
+        import pdb
+        pdb.set_trace()
     argv_cp = sys.argv[:]
     sys.argv = sys.argv[:1]
     modulePath = argv_cp[1]
@@ -37,7 +37,10 @@ if __name__ == "__main__":
 
     funcName = argv_cp[3]
     args = argv_cp[4]
-    d = json.loads(args)
+    try:
+        d = json.loads(args)
+    except:
+        d = json.loads(args.replace("'",'"'))
     func = getattr(module, funcName)
 
     retval = func(d)
