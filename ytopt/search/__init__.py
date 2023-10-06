@@ -4,5 +4,5 @@ The ``Search`` class is abstract and has different subclasses such as: ``ytopt.s
 """
 
 from ytopt.search.search import Search
-
-__all__ = ['Search']
+from ytopt.search.optimizer import optimizer
+__all__ = ['Search', 'optimizer']
