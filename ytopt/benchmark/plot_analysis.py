@@ -9,6 +9,8 @@ lines = {'linewidth': 3,
         }
 matplotlib.rc('font', **font)
 matplotlib.rc('lines', **lines)
+matplotlib.rcParams['pdf.fonttype'] = 42
+matplotlib.rcParams['ps.fonttype'] = 42
 import matplotlib.pyplot as plt
 rcparams = {'axes.labelsize': 14,
             'legend.fontsize': 12,
@@ -448,6 +450,10 @@ def load_all(args):
                 continue
             # Drop unnecessary parameters
             d = fd.drop(columns=[_ for _ in fd.columns if _ not in ['objective', 'exe_time', 'elapsed_sec']])
+            # Sometimes the objective is reported as exactly 1.0, which indicates inability to run that point.
+            # Discard such rows when loading
+            failure_rows = np.where(d['objective'].to_numpy()-1==0)[0]
+            d.loc[failure_rows,'objective'] = np.nan
             if args.drop_overhead:
                 d['elapsed_sec'] -= d['elapsed_sec'].iloc[0]-d['objective'].iloc[0]
             if args.as_speedup_vs is not None:
@@ -650,9 +656,21 @@ def prepare_fig(args):
 def alter_color(color_tup, ratio=0.5, brighten=True):
     return tuple(np.clip([ratio*(_+((-1)**(1+int(brighten)))) for _ in color_tup],0,1))
 
-def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
+def plot_source(fig, ax, breaks, idx, source, args, ntypes, top_val=None):
     makeNew = False
+    rfig = None
+    rax = None
     data = source['data']
+    if type(ax) is not list:
+        ax_list = [ax]
+    else:
+        ax_list = ax
+    if breaks is not None:
+        fig, (ax1,ax2) = plt.subplots(2,1,sharex=True)
+        rfig = fig
+        fig.subplots_adjust(hspace=0.1)
+        ax_list = [ax1,ax2]
+        rax = ax_list
     # Color help
     colors = [mcolors.to_rgb(_['color']) for _ in list(plt.rcParams['axes.prop_cycle'])]
     color = colors[idx % len(colors)]
@@ -673,55 +691,56 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
             print(f"XFER Plot {target_line}")
         makeNew = True
     elif top_val is None:
-        # Shaded area = stddev
-        # Prevent <0 unless arg says otherwise
-        if args.stddev:
-            lower_bound = pd.DataFrame(data['obj']-data['std_low'])
-            if not args.below_zero:
-                lower_bound = lower_bound.applymap(lambda x: max(x,0))
-            lower_bound = lower_bound[0]
-            ax.fill_between(data['exe'], lower_bound, data['obj']+data['std_high'],
-                            label=f"Stddev {source['name']}",
-                            alpha=0.4,
-                            color=alter_color(color), zorder=-1)
-            print(f"STDDEV Fill-Between {source['name']}")
-        # Shaded area = current progress
-        if args.current:
-            ax.fill_between(data['exe'], data['current'], data['obj'],
-                            label=f"Current {source['name']}",
-                            alpha=0.4,
-                            color=alter_color(color), zorder=-1)
-            print(f"CURRENT Fill-Between {source['name']}")
-        # Main line = mean
-        mpl_marker = 'o'
-        if len(data['obj']) > 1:
-            cutoff = data['obj'].to_list().index(max(data['obj']))
-            ax.plot([0]+data['exe'][:min(cutoff+1, len(data))].tolist(), [1]+data['obj'][:min(cutoff+1,len(data))].tolist(),
-                    label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
-                    marker=mpl_marker, color=color, zorder=1)
-            print(f"MEAN Plot {source['name']}")
-            if not args.cutoff:
-                ax.plot(data['exe'][cutoff:].tolist(), data['obj'][cutoff:].tolist(),
+        for axes in ax_list:
+            # Shaded area = stddev
+            # Prevent <0 unless arg says otherwise
+            if args.stddev:
+                lower_bound = pd.DataFrame(data['obj']-data['std_low'])
+                if not args.below_zero:
+                    lower_bound = lower_bound.applymap(lambda x: max(x,0))
+                lower_bound = lower_bound[0]
+                axes.fill_between(data['exe'], lower_bound, data['obj']+data['std_high'],
+                                label=f"Stddev {source['name']}",
+                                alpha=0.4,
+                                color=alter_color(color), zorder=-1)
+                print(f"STDDEV Fill-Between {source['name']}")
+            # Shaded area = current progress
+            if args.current:
+                axes.fill_between(data['exe'], data['current'], data['obj'],
+                                label=f"Current {source['name']}",
+                                alpha=0.4,
+                                color=alter_color(color), zorder=-1)
+                print(f"CURRENT Fill-Between {source['name']}")
+            # Main line = mean
+            mpl_marker = 'o'
+            if len(data['obj']) > 1:
+                cutoff = data['obj'].to_list().index(max(data['obj']))
+                axes.plot([0]+data['exe'][:min(cutoff+1, len(data))].tolist(), [1]+data['obj'][:min(cutoff+1,len(data))].tolist(),
+                        label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
                         marker=mpl_marker, color=color, zorder=1)
-                print("\tMEAN-CUTOFF Plot")
-        else:
-            x_lims = [int(v) for v in ax.get_xlim()]
-            x_lims[0] = max(0, x_lims[0])
-            if x_lims[1]-x_lims[0] == 0:
-                x_lims[1] = x_lims[0]+1
-            ax.plot(x_lims, [data['obj'], data['obj']],
-                    label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
-                    marker=mpl_marker, color=color, zorder=1)
-            print(f"MEAN Plot {source['name']}")
-        # Flank lines = min/max
-        if args.minmax:
-            ax.plot(data['exe'], data['min'], linestyle='--',
-                    label=f"Min/Max {source['name']}",
-                    color=alter_color(color, brighten=False), zorder=0)
-            print(f"MIN Plot {source['name']}")
-            ax.plot(data['exe'], data['max'], linestyle='--',
-                    color=alter_color(color, brighten=False), zorder=0)
-            print(f"MAX Plot {source['name']}")
+                print(f"MEAN Plot {source['name']}")
+                if not args.cutoff:
+                    axes.plot(data['exe'][cutoff:].tolist(), data['obj'][cutoff:].tolist(),
+                            marker=mpl_marker, color=color, zorder=1)
+                    print("\tMEAN-CUTOFF Plot")
+            else:
+                x_lims = [int(v) for v in axes.get_xlim()]
+                x_lims[0] = max(0, x_lims[0])
+                if x_lims[1]-x_lims[0] == 0:
+                    x_lims[1] = x_lims[0]+1
+                axes.plot(x_lims, [data['obj'], data['obj']],
+                        label=f"Mean {source['name']}" if ntypes > 1 else source['name'],
+                        marker=mpl_marker, color=color, zorder=1)
+                print(f"MEAN Plot {source['name']}")
+            # Flank lines = min/max
+            if args.minmax:
+                axes.plot(data['exe'], data['min'], linestyle='--',
+                        label=f"Min/Max {source['name']}",
+                        color=alter_color(color, brighten=False), zorder=0)
+                print(f"MIN Plot {source['name']}")
+                axes.plot(data['exe'], data['max'], linestyle='--',
+                        color=alter_color(color, brighten=False), zorder=0)
+                print(f"MAX Plot {source['name']}")
     else:
         # Make new Y that increases by 1 each time you beat the top val (based on min or max objective)
         if args.global_top:
@@ -746,9 +765,10 @@ def plot_source(fig, ax, idx, source, args, ntypes, top_val=None):
             y_height = min(source['data'].iloc[:args.budget].obj)
         x_width = data['exe'][args.budget-1]
         # Have to collect current x/y bounds or the plot gets rescaled!
-        budget_line = ax.plot([0,x_width],[y_height, y_height],color=color, linestyle='dotted')
-        budget_vline = ax.vlines(x_width, 0,y_height, color=color, linestyle='dotted')
-    return makeNew
+        for ax in ax_list:
+            budget_line = ax.plot([0,x_width],[y_height, y_height],color=color, linestyle='dotted')
+            budget_vline = ax.vlines(x_width, 0,y_height, color=color, linestyle='dotted')
+    return makeNew, rfig, rax
 
 def text_analysis(all_data, args):
     best_results = {}
@@ -806,14 +826,39 @@ def main(args):
     fig, ax, name = prepare_fig(args)
     figures = [fig]
     axes = [ax]
+    breaks = []
     names = [name]
     ntypes = len(set([_['type'] for _ in data]))
     if not args.no_text:
         text_analysis(data, args)
     if not args.no_plots:
+        # Determine if a vertical break is needed and where
+        y_data = np.vstack([d['data'].obj.to_numpy() for d in data])
+        # Never need vertical breaks if max speedup is less than 3
+        if np.max(y_data) > 6:
+            y_flat = y_data.ravel()
+            y_sort = np.argsort(-y_flat) # Speedups are positive, so mult -1 to get descending order
+            z_score = (y_flat[y_sort]-y_flat.mean())/np.std(y_flat)
+            outliers = np.where(z_score>1)[0]
+            # Break needed
+            if len(outliers) > 0:
+                floor_break = min(np.floor(y_flat[y_sort[outliers]]).astype(int))
+                ceil_break = max(np.ceil(y_flat[y_sort[outliers]+1]).astype(int))
+                breaks.append((ceil_break, floor_break))
+                for idx in range(y_data.shape[1]-1):
+                    breaks.append(None)
+            else:
+                breaks.extend([None for _ in range(y_data.shape[1])])
+        else:
+            breaks.extend([None for _ in range(y_data.shape[1])])
         for idx, source in enumerate(data):
             print(f"plot {source['name']} based upon {source['fname']}")
-            newfig = plot_source(figures[-1], axes[-1], idx, source, args, ntypes, top_val)
+            newfig, fig, ax = plot_source(figures[-1], axes[-1], breaks[idx], idx, source, args, ntypes, top_val)
+            # Check if figure replaced by the call
+            if fig is not None and ax is not None:
+                figures[-1] = fig
+                axes[-1] = ax
+            # XFER may generate additional figures
             if newfig:
                 if names[-1] == 'plot':
                     names[-1] = source['name']
@@ -852,30 +897,101 @@ def main(args):
                         yname = f"# Configs with top {round(100*args.top,1)}% result = {round(top_val,4)}"
                     else:
                         yname = f"# Configs with top {round(100*args.top,1)}% result per technique"
-            ax.set_xlabel(xname)
-            ax.set_ylabel(yname)
-            if args.log_x:
-                ax.set_xscale("symlog")
-            if args.log_y:
-                ax.set_yscale("symlog")
-            ax.set_xlim(xlims)
-            ax.set_ylim(ylims)
-            ax.grid()
-            if args.legend is not None:
-                """
-                if len(ax.collections) > 0:
-                    colors = [_.cmap.name.lower().rstrip('s') for _ in ax.collections]
-                    leg_handles = [matplotlib.lines.Line2D([0],[0],
-                                            marker='o',
-                                            color='w',
-                                            label=l.get_label(),
-                                            markerfacecolor=c,
-                                            markersize=8,
-                                            ) for c,l in zip(colors,ax.collections)]
-                    ax.legend(handles=leg_handles, loc=" ".join(args.legend), title=legend_title)
-                """
-                ax.legend(loc=" ".join(args.legend), title=legend_title)
+            if not isinstance(ax, matplotlib.axes.Axes):
+                # Handle limiting and splitting here
+                ax[1].set_ylim(max(0,min_mul * np.min(y_data)),breaks[0][0])
+                above_break = y_flat[np.where(y_flat > breaks[0][1])[0]]
+                other_span = breaks[0][0] - max(0, min_mul * np.min(y_data))
+                if len(above_break) == 1:
+                    ax[0].set_ylim(above_break - (other_span / 2), above_break + (other_span / 2))
+                elif np.max(above_break)-np.min(above_break) < other_span:
+                    ax[0].set_ylim(np.min(above_break) - (other_span / 2), np.max(above_break) + (other_span / 2))
+                else:
+                    ax[0].set_ylim(min(np.min(above_break), max_mul * breaks[0][1]), max(np.max(above_break), min_mul * np.ceil(np.max(y_data))))
+                # SAFETY CHECK FOR POINTS SWALLOWED BY THE BREAK
+                invisible = y_flat[np.logical_and(np.where(y_flat < ax[0].get_ylim()[0], True, False), np.where(y_flat > ax[1].get_ylim()[1], True, False))]
+                if len(invisible) > 0:
+                    print(f" !! WARNING: Vertical break hides {len(invisible)} points from display !! Find and fix the issue !!")
+                # Hide spines
+                # ax[1] == ax2
+                # ax[0] == ax1
+                ax[0].spines.bottom.set_visible(False)
+                ax[1].spines.top.set_visible(False)
+                ax[0].xaxis.tick_top()
+                ax[0].tick_params(labeltop=False)
+                d = 0.5
+                kwargs = dict(marker=[(-1,-d),(1,d)], markersize=12, linestyle="none", color='k', mec='k', mew=1, clip_on=False)
+                ax[0].plot([0,1],[0,0], transform=ax[0].transAxes, **kwargs)
+                ax[1].plot([0,1],[1,1], transform=ax[1].transAxes, **kwargs)
+                # Normal axes treatment
+                ax[1].set_xlabel(xname)
+                # Have to shift the y-axis label
+                if 'xl' in args.output:
+                    ax[0].set_box_aspect(1/8)
+                    ylabel = ax[1].set_ylabel(yname, labelpad=10)
+                    ylabel.set_horizontalalignment('left')
+                    ylabel.set_position((0,0.15))
+                else:
+                    ax[0].set_box_aspect(1/5)
+                    ylabel = ax[1].set_ylabel(yname, labelpad=10)
+                    ylabel.set_horizontalalignment('left')
+                    ylabel.set_position((0,0.15))
+                if args.log_x:
+                    ax[0].set_xscale("symlog")
+                if args.log_y:
+                    ax[0].set_yscale("symlog")
+                    ax[1].set_yscale("symlog")
+                ax[1].set_xlim(xlims)
+                ax[0].grid()
+                ax[1].grid()
+                if args.legend is not None:
+                    """
+                    if len(ax.collections) > 0:
+                        colors = [_.cmap.name.lower().rstrip('s') for _ in ax.collections]
+                        leg_handles = [matplotlib.lines.Line2D([0],[0],
+                                                marker='o',
+                                                color='w',
+                                                label=l.get_label(),
+                                                markerfacecolor=c,
+                                                markersize=8,
+                                                ) for c,l in zip(colors,ax.collections)]
+                        ax.legend(handles=leg_handles, loc=" ".join(args.legend), title=legend_title)
+                    """
+                    # This is a hack but I don't know a better way to do it for now
+                    loc = "upper right"
+                    kwargs = {'borderaxespad': 0}
+                    ax_idx = 0
+                    if 'xl' in args.output:
+                        loc = "lower left"
+                        kwargs.update({'bbox_to_anchor': (0,0.48)})
+                        ax_idx = 1
+                    ax[ax_idx].legend(loc=loc, title=legend_title, **kwargs)
+            else:
+                ax.set_xlabel(xname)
+                ax.set_ylabel(yname)
+                if args.log_x:
+                    ax.set_xscale("symlog")
+                if args.log_y:
+                    ax.set_yscale("symlog")
+                ax.set_xlim(xlims)
+                ax.set_ylim(ylims)
+                ax.grid()
+                if args.legend is not None:
+                    """
+                    if len(ax.collections) > 0:
+                        colors = [_.cmap.name.lower().rstrip('s') for _ in ax.collections]
+                        leg_handles = [matplotlib.lines.Line2D([0],[0],
+                                                marker='o',
+                                                color='w',
+                                                label=l.get_label(),
+                                                markerfacecolor=c,
+                                                markersize=8,
+                                                ) for c,l in zip(colors,ax.collections)]
+                        ax.legend(handles=leg_handles, loc=" ".join(args.legend), title=legend_title)
+                    """
+                    ax.legend(loc=" ".join(args.legend), title=legend_title)
             if not args.show:
+                fig.tight_layout()
                 fig.savefig("_".join([args.output,name])+f'.{args.format}', format=args.format, bbox_inches='tight')
     if args.show:
         plt.show()

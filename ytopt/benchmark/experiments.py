@@ -451,6 +451,89 @@ def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
         info = verify_output(None, runtype, invoke, None, args)
         calls += info[0]
         bluffs += info[1]
+    elif key == "TABLE_TASKS":
+        experiment_dir = args.backup if sect['use_backup'] and args.backup is not None else './'
+        if type(experiment_dir) is list:
+            if len(experiment_dir) == 1:
+                experiment_dir = experiment_dir[0]
+            else:
+                raise ValueError(f"{key} section parsing does not support multiple backups")
+        for target in sect['targets']:
+            invoke = f"python -m ytopt.benchmark.tables task --round {sect['round']} --quiet --average --output-name TABLES_{experiment}_{target}.csv --overwrite "+\
+                         f"--inputs {experiment_dir}/*_{target.upper()}_*.csv "+\
+                         f"data/jaehoon_experiments/results_rf_{target.lower()}_*.csv data/gptune_experiments/"+\
+                         f"results_gptune_*{target.lower()}* data/gptune_experiments/results_*{target.upper()}* "+\
+                         f"data/thomas_experiments/*_{target.upper()}_*.csv "+\
+                         "--ignore data/jaehoon_experiments/*200eval* data/*/*_trace.csv data/thomas_experiments/*BOOTSTRAP* "+\
+                         "data/thomas_experiments/*REFIT_3*.csv data/thomas_experiments/*REFIT_5*.csv "+\
+                         "data/*/*1337*.csv data/*/*5555*.csv "
+            if sect['as_speedup']:
+                invoke += f"--as-speedup-vs data/DEFAULT_{target.upper()}.csv --max-objective "
+            budget = None
+            try:
+                budget = sect['budgets'][experiment]
+            except KeyError:
+                print(f"!! WARNING !! No experiment budget for {experiment}")
+            if budget is None:
+                budget = sect['max_budget']
+            invoke += f"--budget {budget} "
+            info = verify_output(f"TABLES_{experiment}_{target}.csv", runtype, invoke, 2, args)
+            calls += info[0]
+            bluffs += info[1]
+    elif key == "TABLE_COLLATE":
+        # This task should only be called on the final experiment
+        if sect['final_singleton'] > 0:
+            sect['final_singleton'] -= 1
+            print(f"{key} is a FINAL_SINGLETON task; skipping execution until final experiment")
+            return problem_sizes
+        else:
+            # Exit experiment directory; we need access to all experiments
+            os.chdir(f"{HERE}")
+            # Reach back up for args to grab all experiments
+            files = ' '.join([exp + f'_exp/TABLES_{exp}_{target}.csv' for exp in args.experiments for target in sect['targets']])
+            invoke = f"python -m ytopt.benchmark.tables collate --inputs {files} --round 2 --max-objective"
+            info = verify_output(None, runtype, invoke, None, args)
+            calls += info[0]
+            bluffs += info[1]
+    elif key == "KL_DIVERGENCE":
+        if sect['version'] == 1:
+            for size in sect['suffixes']:
+                invoke = "python3 -m ytopt.benchmark.syr2k_exp.kl_divergence "+\
+                         f"--exhaust {sect['exhaust']}{size}.csv "+\
+                         f"--sample {' '.join(sect['sample'])} "+\
+                         f"--save-name {sect['save_name']}{size}.{sect['format']} "+\
+                         f"--x-ratio {' '.join([str(_) for _ in sect['x_ratio']])} "+\
+                         f"--s-ratio {' '.join([str(_) for _ in sect['s_ratio']])} "+\
+                         f"--expand-x {sect['expand_x']} "+\
+                         f"--format {sect['format']} "+\
+                         f"--version 1"
+                info = verify_output(f"{sect['save_name']}{size}.{sect['format']}", runtype, invoke, 1, args)
+                calls += info[0]
+                bluffs += info[1]
+        elif sect['version'] == 2:
+            for size in sect['suffixes']:
+                invoke = "python3 -m ytopt.benchmark.syr2k_exp.kl_divergence "+\
+                         f"--exhaust {sect['exhaust']}{size}.csv "+\
+                         f"--sample {' '.join(sect['sample'])} "+\
+                         f"--save-name {sect['save_name']}{size}.{sect['format']} "+\
+                         f"--x-ratio {' '.join([str(_) for _ in sect['x_ratio']])} "+\
+                         f"--s-ratio {' '.join([str(_) for _ in sect['s_ratio']])} "+\
+                         f"--expand-x {sect['expand_x']} "+\
+                         f"--format {sect['format']} "+\
+                         f"--version 2"
+                info = verify_output(f"{sect['save_name']}{size}.{sect['format']}", runtype, invoke, 1, args)
+                calls += info[0]
+                bluffs += info[1]
+        else:
+            raise ValueError(f"Unknown version {sect['version']}")
+    elif key == "BRUTE_FORCE":
+        # PLACEHOLDER -- SHOULD BE PARAMETERIZED LATER
+        invoke = "python3 brute_force.py --exhaust data/gc_explain/all_XL.csv --traces data/thomas_experiments/syr2k_NO_REFIT_GaussianCopula_XL_1234_ALL.csv "+\
+                 "data/thomas_experiments/syr2k_NO_REFIT_GaussianCopula_XL_2022_ALL.csv data/thomas_experiments/syr2k_NO_REFIT_GaussianCopula_XL_9999_ALL.csv "+\
+                 "data/jaehoon_experiments/results_rf_xl_syr2k.csv data/gptune_experiments/results_gptune_xl_syr2k_* --plot --format svg"
+        info = verify_output(f"BruteForce.svg", runtype, invoke, 1, args)
+        calls += info[0]
+        bluffs += info[1]
     else:
         raise ValueError(f"Unknown section {key}")
     print(f"<< CONCLUDE {key} for {experiment}. {calls} calls made & {bluffs} calls bluffed. {verifications} attempted verifies >>")
@@ -472,7 +555,7 @@ def build():
     prs.add_argument('--never-remove', action='store_true', help="Never delete partial results")
     return prs
 
-def config_bind(cfg):
+def config_bind(cfg, args):
     # Basically evaluate the config file into nested dictionaries
     cp = configparser.ConfigParser()
     cp.read(cfg)
@@ -483,7 +566,10 @@ def config_bind(cfg):
         cfg_dict[s] = dict()
         for p in cp[s]:
             try:
-                cfg_dict[s][p] = eval(cp[s][p])
+                if p == 'final_singleton':
+                    cfg_dict[s][p] = len(args.experiments)-1
+                else:
+                    cfg_dict[s][p] = eval(cp[s][p])
             except SyntaxError:
                 if len(cp[s][p]) > 0:
                     print(f"Warning! {cfg} [{s}][{p}] may have incorrect python syntax")
@@ -532,7 +618,7 @@ def parse(prs, args=None):
         raise ValueError("BOTH --parallel-id and --n-parallel must be supplied to enable parallelization")
     del xor
     # Load data from config and bind to args
-    args.cfg = config_bind(args.config_file)
+    args.cfg = config_bind(args.config_file, args)
     # Fix endings of backup directories
     backup = []
     if args.backup is not None:
@@ -554,6 +640,10 @@ if __name__ == '__main__':
     problem_sizes = None
     #sort_dict = dict((k,v['priority']) for (k,v) in args.cfg.items())
     # For each experiment, run all run-type things as a test suite
+    nonskip = set(args.cfg.keys()).difference(set(args.skip))
+    if len(args.only) > 0 and len(nonskip.intersection(set(args.only))) == 0:
+        print("! Warning ! No tasks matched your specification for --only")
+        print(f"Non-skipped tasks: {nonskip}")
     for experiment, runtype in zip(args.experiments, args.runstatus):
         for section in args.cfg.keys():
         #for section in sorted(args.cfg.keys(), key=lambda key: sort_dict[key]):
