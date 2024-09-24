@@ -53,15 +53,19 @@ def main(args=None):
     args = parse(args=args)
     if args.IR:
         if args.mode == 'SW4Lite':
-            cmd_template = ["nvcc -O3 -x cu -I{kernel_dir}/src -c -dc -arch=sm_60 -DSM4_CROUTINES "+\
+            cmd_template = "nvcc -O3 -x cu -I{kernel_dir}/src -c -dc -arch=sm_80 -DSM4_CROUTINES "+\
             "-DSW4_CUDA -DSW4_NONBLOCKING -ccbin mpicxx -Xptxas -v -Xcompiler -fopenmp "+\
-            "-DSW4_OPENMP -I{kernel_dir}/src/double -c {template} -o {template_o}",
+            "-DSW4_OPENMP -I{kernel_dir}/src/double -Xcompiler -std=c++11 -c {template} "+\
+            "-Xcompiler -S -Xcompiler -emit-llvm"
 
-            "nvcc -Xcompler -fopenmp -Xlinker -ccbin mpicxx -o {output} main.o {template_o} "+\
-            "Source.o SuperGrid.o GridPointSource.o time_functions_cu.o ew-cfromfort.o EW_cuda.o "+\
-            "Sarray.o device-routines.o EWCuda.o CheckPoint.o Parallel_IO.o EW-dg.o "+\
-            "MaterialData.o MaterialBlock.o Polynomial.o SecondOrderSection.o TimeSeries.o "+\
-            "sacsubc.o curvilinear-c.o -lcuda -lnvpumath -lnvc -lcudart -llapack -lm -lblas -lgfortran"]
+            # For full compilation, we needed to link everything together, but I don't think that
+            # will be strictly necessary for our use case?
+            #
+            #"nvcc -Xcompiler -fopenmp -Xlinker -ccbin mpicxx -o {output} main.o {template_o} "+\
+            #"Source.o SuperGrid.o GridPointSource.o time_functions_cu.o ew-cfromfort.o EW_cuda.o "+\
+            #"Sarray.o device-routines.o EWCuda.o CheckPoint.o Parallel_IO.o EW-dg.o "+\
+            #"MaterialData.o MaterialBlock.o Polynomial.o SecondOrderSection.o TimeSeries.o "+\
+            #"sacsubc.o curvilinear-c.o -lcuda -lnvpumath -lnvc -lcudart -llapack -lm -lblas -lgfortran"
         elif args.mode in ['XSBench','RSBench']:
             cmd_template = "{clang} {template} {kernel_dir}/material.c {kernel_dir}/utils.c "+\
             "-I{kernel_dir} -fopenmp -DOPENMP -fno-unroll-loops -O3 -mllvm -polly "+\
@@ -71,17 +75,16 @@ def main(args=None):
         elif args.mode == "AMG":
             cmd_template = "mpicc -fopenmp -std=c99 -fno-unroll-loops -O3 -mllvm -polly -mllvm "+\
                       "-polly-process-unprofitable -mllvm -polly-use-llvm-names -ffast-math "+\
-                      "-march=native -o {output} {template} -I{kernel_dir}/ "+\
-                      "-I{kernel_dir}/struct_mv -I{kernel_dir}/sstruct_mv -I{kernel_dir}/IJ_mv "+\
-                      "-I{kernel_dir}/seq_mv -I{kernel_dir}/parcsr_mv -I{kernel_dir}/utilities "+\
-                      "-I{kernel_dir}/parcsr_ls -I{kernel_dir}/krylov -DTIMER_USE_MPI "+\
-                      "-DHYPRE_USING_OPENMP -DHYPRE_LONG_LONG -DHYPRE_NO_GLOBAL_PARTITION "+\
-                      "-DHYPRE_USING_PERSISTENT_COMM -DHYPRE_HOPSCOTCH -DHYPRE_BIGINT "+\
-                      "-DHYPRE_TIMING -L{kernel_dir}/parcsr_ls -L{kernel_dir}/parcsr_mv "+\
-                      "-L{kernel_dir}/IJ_mv -L{kernel_dir}/seq_mv -L{kernel_dir}/sstruct_mv "+\
-                      "-L{kernel_dir}/struct_mv -L{kernel_dir}/krylov -L{kernel_dir}/utilities "+\
-                      "-lparcsr_ls -lparcsr_mv -lseq_mv -lsstruct_mv -lIJ_mv -lHYPRE_struct_mv "+\
-                      "-lkrylov -lHYPRE_utilities -lm"
+                      "-march=native {template} -I{kernel_dir}/ -I{kernel_dir}/struct_mv "+\
+                      "-I{kernel_dir}/sstruct_mv -I{kernel_dir}/IJ_mv -I{kernel_dir}/seq_mv "+\
+                      "-I{kernel_dir}/parcsr_mv -I{kernel_dir}/utilities -I{kernel_dir}/parcsr_ls "+\
+                      "-I{kernel_dir}/krylov -DTIMER_USE_MPI -DHYPRE_USING_OPENMP "+\
+                      "-DHYPRE_LONG_LONG -DHYPRE_NO_GLOBAL_PARTITION -DHYPRE_USING_PERSISTENT_COMM "+\
+                      "-DHYPRE_HOPSCOTCH -DHYPRE_BIGINT -DHYPRE_TIMING -L{kernel_dir}/parcsr_ls "+\
+                      "-L{kernel_dir}/parcsr_mv -L{kernel_dir}/IJ_mv -L{kernel_dir}/seq_mv "+\
+                      "-L{kernel_dir}/sstruct_mv -L{kernel_dir}/struct_mv -L{kernel_dir}/krylov "+\
+                      "-L{kernel_dir}/utilities -lparcsr_ls -lparcsr_mv -lseq_mv -lsstruct_mv "+\
+                      "-lIJ_mv -lHYPRE_struct_mv -lkrylov -lHYPRE_utilities -lm -S -emit-llvm"
     elif args.AS or args.DIS:
         cmd_template = "{} {} -o {}"
     else:
@@ -107,10 +110,14 @@ def main(args=None):
                     cmd += f"; {args.clang.with_name('opt')} -S -O3 {fname.with_name(fname.stem+'_reassembled.ll')} -o {fname.with_name(fname.stem+'_optimized.ll')}"
                     expect = fname.with_name(fname.stem+'_optimized.ll')
             else:
+                expect = fname.with_suffix('.ll' if args.IR else '')
                 special_include = args.include_base / (args.collation_reference.stem.split('_collated',1)[0]+"_exp/")
                 if args.mode in ['XSBench','RSBench']:
                     cmd = cmd_template.format(clang=args.clang,
                                               kernel_dir=special_include,
+                                              template=fname)
+                elif args.mode in ['AMG', 'SW4Lite']:
+                    cmd = cmd_template.format(kernel_dir=special_include,
                                               template=fname)
                 else:
                     raise NotImplemented
@@ -120,14 +127,16 @@ def main(args=None):
                                               special_include,
                                               size,
                                               fname.with_suffix(''))
-                expect = fname.with_suffix('.ll' if args.IR else '')
             f.write(f"if [ -f '{expect}' ]; then\n")
             f.write(f"   echo '{expect} exists';\n")
             f.write( "else\n")
             f.write(f'    echo "{cmd}"'+"\n")
             f.write( '    '+cmd+"\n")
             if args.IR:
-                f.write(f"    if [ $? -ne 0 ]; then exit; else rm -f polybench.ll; mv *.ll {fname.with_suffix('.ll')}; fi;\n")
+                if args.mode == 'SW4Lite':
+                    f.write(f"    if [ $? -ne 0 ]; then exit; else mv *.o {fname.with_suffix('.ll')}; fi;\n")
+                else:
+                    f.write(f"    if [ $? -ne 0 ]; then exit; else ( mv mmp_*.ll {fname.with_suffix('.ll')}; rm -f *.ll ) fi;\n")
             else:
                 f.write("    if [ $? -ne 0 ]; then exit; fi;\n")
             f.write( 'fi\n')
