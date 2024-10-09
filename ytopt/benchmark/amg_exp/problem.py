@@ -55,7 +55,9 @@ input_space = [('Ordinal',
 # Special compile string for plopper
 class AMG_Plopper(ECP_Plopper):
     def compileString(self, outfile, dictVal, *args, **kwargs):
-        compile_cmd = "mpicc -fopenmp -std=c99 -fno-unroll-loops -O3 -mllvm -polly -mllvm "+\
+        #compile_cmd = "mpicc -fopenmp -std=c99"+\
+        compile_cmd = "clang $(mpicc -showme:compile) $(mpicc -showme:link) -fopenmp -std=c99 "+\
+                      "-fno-unroll-loops -O3 -mllvm -polly -mllvm "+\
                       "-polly-process-unprofitable -mllvm -polly-use-llvm-names -ffast-math "+\
                       f"-march=native -o {outfile[:-len(self.output_extension)]} {outfile} -I./ "+\
                       "-I./struct_mv -I./sstruct_mv -I./IJ_mv -I./seq_mv -I./parcsr_mv -I./utilities "+\

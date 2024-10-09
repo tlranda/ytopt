@@ -54,7 +54,7 @@ input_space = [('Ordinal',
 class RSBench_Plopper(ECP_Plopper):
     def runString(self, outfile, dictVal, *args, **kwargs):
         d_size = args[0]
-        return f"srun -n 1 {outfile[:-len(self.output_extension)]} -s large -m event -l {d_size}"
+        return f"{outfile[:-len(self.output_extension)]} -s large -m event -l {d_size}"
 
 # Based on
 lookup_ival = {100000: ("S", "SMALL"), 500000: ("SM", "SM"), 1000000: ("M", "MEDIUM"),
