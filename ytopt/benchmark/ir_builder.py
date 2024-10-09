@@ -15,7 +15,7 @@ def build():
     prs.add_argument("--collations", nargs="+", default=None, required=True, help="CSVs that define configurations to rebuild")
     prs.add_argument("--output-dir", default="rebuild_collations", help="Output directory for rebuilds (default: %(default)s)")
     prs.add_argument("--overwrite", action='store_true', help="ALWAYS write template and recompile it (default: %(default)s)")
-    prs.add_argument("--skip-compile", action="store_true", help="Skip compilation (default: %(default)s)")
+    prs.add_argument("--instant-compile", action="store_true", help="Attempt compilation NOW (default: %(default)s)")
     return prs
 
 def parse(args=None, prs=None):
@@ -93,7 +93,7 @@ def main(args=None):
             if not template_name.exists() or args.overwrite:
                 current_problem.plopper.plotValues(template_name, config)
             # Compile it
-            if not args.skip_compile and (not template_name.with_suffix('').exists() or args.overwrite):
+            if args.instant_compile and (not template_name.with_suffix('').exists() or args.overwrite):
                 compile_str = current_problem.plopper.compileString(str(template_name), config)
                 status = subprocess.run(compile_str, shell=True, stderr=subprocess.PIPE)
                 if status.returncode != 0:

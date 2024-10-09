@@ -37,9 +37,13 @@ def identify_size_by_name(name):
     raise ValueError # Something slipped in the filter
 
 def collate(path, args):
-    exp = pd.DataFrame({'size': [],
-                        'objective': [],
-                        'source': []})
+    output_path = pathlib.Path(args.output_root) / f"{path.stem.rsplit('-',1)[0]}_collated.csv"
+    if output_path.exists():
+        exp = pd.read_csv(output_path)
+    else:
+        exp = pd.DataFrame({'size': [],
+                            'objective': [],
+                            'source': []})
     # Top-level CSVs are the YTOPT-source tasks ~~and Defaults~~ (do not include defaults, actually)
     csvs = [_ for _ in path.iterdir() if _.suffix == '.csv' and \
             _.stem.startswith('results') and '_rs_' not in _.stem]
@@ -79,7 +83,6 @@ def collate(path, args):
                 exp.insert(0,col,[None] * len(exp))
         print(f"+{len(csv)} rows")
         exp = pd.concat((exp, csv))
-    output_path = pathlib.Path(args.output_root) / f"{path.stem.rsplit('-',1)[0]}_collated.csv"
     print(f"Saving {len(exp)} results to {output_path}")
     exp.to_csv(output_path, index=False)
 
