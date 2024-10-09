@@ -530,7 +530,7 @@ def online(targets, data, inputs, args, fname, speed = None, exhaust = None):
                 trial += 1
                 print(f"Generate: {EFFICIENCY['generated']} | ",end='')
                 print(f"REJECT: {sum(EFFICIENCY['rejections'].values())} | ",end='')
-                print(f"RATIO: {EFFICIENCY['generated']/sum(EFFICIENCY['rejections'].values())}")
+                print(f"RATIO: {EFFICIENCY['generated']/max(1,sum(EFFICIENCY['rejections'].values()))}")
                 print(EFFICIENCY['rejections'])
                 print(EFFICIENCY['durations'])
         csvfile.close()

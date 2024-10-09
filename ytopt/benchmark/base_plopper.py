@@ -1,4 +1,6 @@
 import os, uuid, re, time, subprocess, numpy as np
+import datetime
+import pathlib
 
 """
     Expected usage:
@@ -116,12 +118,13 @@ class Plopper:
     def __init__(self, sourcefile, outputdir=None, output_extension='.tmp',
                  evaluation_tries=3, retries=0, findReplace=None,
                  infinity=1, force_plot=False, ignore_runtime_failure=False, **kwargs):
-        self.sourcefile = sourcefile # Basis for runtime / plotting values
+        self.sourcefile = str(sourcefile) # Basis for runtime / plotting values
         self.kernel_dir = os.path.abspath(self.sourcefile[:self.sourcefile.rfind('/')])
+        self.temp_logs = pathlib.Path(self.kernel_dir) / 'tmp_file_mapping.log'
 
         if outputdir is None:
             # Use CWD as basis
-            outputdir = os.path.abspath(".")
+            outputdir = str(os.path.abspath("."))
         self.outputdir = outputdir+"/tmp_files" # Where temporary files will be generated
         if not os.path.exists(self.outputdir):
             os.makedirs(self.outputdir)
@@ -195,6 +198,11 @@ class Plopper:
                             line = findReplace.replace(match, str(dictVal[match]), line)
                             foundGroups.append(match)
                 f2.write(line)
+
+        # Log the mapping now that it is prepared
+        with open(self.temp_logs, 'a') as f3:
+            ending = "\n" if args is None or len(args) == 0 else " args="+str(args)+"\n"
+            f3.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}: {outputfile} <-- {dictVal}"+ending)
 
     def getTime(self, process, dictVal, *args, **kwargs):
         # Define how to recover self-attributed objective values from the subprocess object
@@ -311,7 +319,8 @@ class ECP_Plopper(Plopper):
         return clang_cmd
 
     def runString(self, outfile, dictVal, *args, **kwargs):
-        return "srun -n1 "+outfile[:-len(self.output_extension)]+" ".join([str(_) for _ in args])
+        #return "srun -n1 "+outfile[:-len(self.output_extension)]+" ".join([str(_) for _ in args])
+        return outfile[:-len(self.output_extension)]+" ".join([str(_) for _ in args])
 
     def getTime(self, process, dictVal, *arg, **kwargs):
         # Return last 3 floating point values from output by line
@@ -335,7 +344,8 @@ class Polybench_Plopper(Plopper):
         return clang_cmd
 
     def runString(self, outfile, dictVal, *args, **kwargs):
-        return "srun -n1 "+outfile[:-len(self.output_extension)]
+        #return "srun -n1 "+outfile[:-len(self.output_extension)]
+        return outfile[:-len(self.output_extension)]
 
     def getTime(self, process, dictVal, *arg, **kwargs):
         # Return last 3 floating point values from output by line
