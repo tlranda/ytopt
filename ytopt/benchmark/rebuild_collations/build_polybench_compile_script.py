@@ -64,7 +64,7 @@ def main(args=None):
     basic_path = args.collation_reference.with_name(args.collation_reference.stem.split('_collated',1)[0])
     collation = pd.read_csv(args.collation_reference)
     with open(basic_path.with_name(basic_path.stem+'_compile.sh'), 'w') as f:
-        for fname in sorted(basic_path.iterdir()):
+        for fname in sorted(basic_path.iterdir(), key=lambda p: int(p.stem.split('_',1)[1])):
             if fname.suffix != '.c':
                 continue
             size = lookup_size(collation,fname)
