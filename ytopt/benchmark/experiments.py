@@ -2,10 +2,10 @@ import os, subprocess, argparse, configparser
 from collections import OrderedDict
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-valid_run_status = ["check", "check_resumable", "run", "override", "sanity", "announce"]
-runnable = ["run", "override"]
+valid_run_status = ["check", "check_resumable", "run", "override", "override+backup", "sanity", "announce"]
+runnable = ["run", "override", "override+backup"]
 checkable = ["check", "check_resumable", "sanity", "announce"]
-always_announce = ["sanity", "announce"]
+always_announce = ["check", "sanity", "announce"]
 
 def sanity_check(checkname):
     pass
@@ -45,37 +45,38 @@ def verify_output(checkname, runstatus, invoke, expect, args, resumable=None, ca
         can_rm = False
     r = 0
     b = 0
+    if runstatus in always_announce:
+        print(invoke)
     if checkname is None:
         run(invoke, runstatus, args)
         r = 1
         output_check(checkname, runstatus.upper(), expect, args, can_rm)
-        if runstatus in always_announce:
-            print(invoke)
+        print()
         return r,b
     if os.path.exists(checkname):
+        print(f"{checkname} exists")
         if runstatus == "override":
+            print("Override")
             run(invoke, runstatus, args)
             r = 1
-        elif runstatus != "run":
+        elif runstatus == "run":
+            print("No override permission -- checking status (use --runstatus override to replace)")
+        else:
             b = 1
         output_check(checkname, runstatus.upper(), expect, args, can_rm)
-        if runstatus in always_announce:
-            print(invoke)
     else:
         found = False
         for backup in args.backup:
             if not backup.endswith('/'):
                 backup += "/"
             if os.path.exists(backup+checkname):
-                if runstatus == "override":
+                if runstatus == "override+backup":
                     run(invoke, runstatus, args)
                     r = 1
                     output_check(checkname, f"{runstatus.upper()} OVERRIDE", expect, args, can_rm)
                 else:
                     output_check(backup+checkname, f"{runstatus.upper()} BACKUP @{backup}", expect, args, can_rm)
                     b = 1
-                    if runstatus in always_announce:
-                        print(invoke)
                 found = True
                 break
         if not found:
@@ -86,12 +87,9 @@ def verify_output(checkname, runstatus, invoke, expect, args, resumable=None, ca
                 else:
                     warn += f" or backup @{args.backup}"
                 print(warn+f" for {checkname} !!")
-                print(invoke)
                 b = 1
             elif runstatus != "check_resumable":
                 bonus = f"; No backup @{args.backup}" if args.backup is not None else "; No backup given"
-                if runstatus in always_announce:
-                    print(invoke)
                 if runstatus in runnable:
                     run(invoke, runstatus+bonus, args)
                     r = 1
@@ -101,6 +99,7 @@ def verify_output(checkname, runstatus, invoke, expect, args, resumable=None, ca
     # Short recursion on resumable
     if resumable is not None:
         verify_output(resumable, "check_resumable", invoke, expect, args, can_rm=False)
+    print()
     return r, b
 
 def build_test_suite(experiment, runtype, args, key, problem_sizes=None):
