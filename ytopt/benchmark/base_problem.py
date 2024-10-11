@@ -294,6 +294,8 @@ def ecp_problem_builder(lookup, input_space_definition, there, default=None, nam
             # Temporarily swap references
             old_source = self.plopper.sourcefile
             self.plopper.sourcefile = self.name.split('_',1)[0].lower()+".c"
+            if self.name.startswith('AMG_Problem'):
+                self.plopper.sourcefile = 'amg2013.c'
             rvalue = super().objective({}, self.dataset, O3=True)
             self.plopper.sourcefile = old_source
             return rvalue
@@ -331,7 +333,7 @@ def polybench_problem_builder(lookup, input_space_definition, there, default=Non
         def O3(self):
             # Temporarily swap references
             old_source = self.plopper.sourcefile
-            self.plopper.sourcefile = self.name.split('_',1)[0].lower()+".c"
+            self.plopper.sourcefile = './'+self.name.split('_',1)[0].lower()+".c"
             rvalue = super().objective({}, self.dataset, O3=True)
             self.plopper.sourcefile = old_source
             return rvalue
