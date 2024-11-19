@@ -117,7 +117,8 @@ class findReplaceRegex:
 class Plopper:
     def __init__(self, sourcefile, outputdir=None, output_extension='.tmp',
                  evaluation_tries=3, retries=0, findReplace=None,
-                 infinity=1, force_plot=False, ignore_runtime_failure=False, **kwargs):
+                 infinity=1, force_plot=False, ignore_runtime_failure=False,
+                 dummy_objective = None, silent=False, **kwargs):
         self.sourcefile = str(sourcefile) # Basis for runtime / plotting values
         self.kernel_dir = os.path.abspath(self.sourcefile[:self.sourcefile.rfind('/')])
         self.temp_logs = pathlib.Path(self.kernel_dir) / 'tmp_file_mapping.log'
@@ -138,8 +139,14 @@ class Plopper:
         self.infinity = infinity # Very large value to return on failure to compile or execute
         self.force_plot = force_plot # Always utilize plotValues() even if there is no compilation string
         self.ignore_runtime_failure = ignore_runtime_failure # Some processes may permit bad return codes
+        self.silent = silent
 
         self.buffer = None
+
+        if dummy_objective is not None:
+            def findRuntime(self, *args, **kwargs):
+                return dummy_objective
+            self.findRuntime = findRuntime
 
     def seed(self, SEED):
         pass
@@ -218,6 +225,8 @@ class Plopper:
     def metric(self, timing_list):
         # Allows for different interpretations of repeated events
         # Defaults to best-case scenario
+        if not self.silent:
+            print("Observed times:", timing_list)
         return min(timing_list)
 
     def execute(self, outfile, dictVal, *args, **kwargs):
@@ -225,6 +234,8 @@ class Plopper:
         failures = 0
         while failures <= self.retries and len(times) < self.evaluation_tries:
             run_str = self.runString(outfile, dictVal, *args, **kwargs)
+            if not self.silent and len(times) == 0 and failures == 0:
+                print(run_str)
             start = time.time()
             env = self.set_os_environ() if hasattr(self, 'set_os_environ') else None
             execution_status = subprocess.run(run_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
@@ -277,6 +288,8 @@ class Plopper:
             # Compilation
             if compile_str is not None:
                 env = self.set_os_environ() if hasattr(self, 'set_os_environ') else None
+                if not self.silent:
+                    print(compile_str)
                 compilation_status = subprocess.run(compile_str, shell=True, stderr=subprocess.PIPE, env=env)
                 # Find execution time ONLY when the compiler return code is zero, else return infinity
                 if compilation_status.returncode != 0:
