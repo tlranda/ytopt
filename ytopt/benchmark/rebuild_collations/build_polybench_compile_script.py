@@ -4,6 +4,7 @@ import argparse
 import pathlib
 
 import pandas as pd
+import tqdm
 
 def build():
     prs = argparse.ArgumentParser()
@@ -14,6 +15,7 @@ def build():
     prs.add_argument('--AS', action='store_true', help="Only do IR assembly")
     prs.add_argument('--DIS', action='store_true', help="Only do Bitcode Disassembly")
     prs.add_argument('--with-opt', action='store_true', help="Add optimization to Bitcode Disassembly")
+    prs.add_argument('--dry-script', action='store_true', help="Generated script only checks if files exist or not")
     return prs
 
 def parse(prs=None, args=None):
@@ -37,7 +39,7 @@ def parse(prs=None, args=None):
         args.clang = args.clang.with_name("llvm-dis")
     return args
 
-def lookup_size(csv, name):
+def lookup_size(csv, name, args):
     sizes = {'S': 'SMALL',
              'M': 'MEDIUM',
              'L': 'LARGE',
@@ -62,12 +64,24 @@ def main(args=None):
                        "-mllvm -polly-use-llvm-names -ffast-math -march=native {} -o {}"
 
     basic_path = args.collation_reference.with_name(args.collation_reference.stem.split('_collated',1)[0])
+    print("Load CSV", args.collation_reference)
     collation = pd.read_csv(args.collation_reference)
-    with open(basic_path.with_name(basic_path.stem+'_compile.sh'), 'w') as f:
-        for fname in sorted(basic_path.iterdir(), key=lambda p: int(p.stem.split('_',1)[1])):
+    print(len(collation), "records loaded")
+    output_path = basic_path.with_name(basic_path.stem+'_compile.sh')
+    with open(output_path, 'w') as f:
+        for fname in tqdm.tqdm(sorted(basic_path.iterdir(), key=lambda p: int(p.stem.split('_',1)[1]))):
             if fname.suffix != '.c':
                 continue
-            size = lookup_size(collation,fname)
+            try:
+                size = lookup_size(collation,fname, args)
+            except:
+                if 'JOBS' in fname.parts[0]:
+                    fname = fname.relative_to(fname.parts[0])
+                try:
+                    size = lookup_size(collation,fname, args)
+                except:
+                    print(f"No CSV record for file", fname)
+                    continue
             if args.AS:
                 cmd = cmd_template.format(args.clang,
                                           fname.with_suffix('.ll'),
@@ -93,13 +107,17 @@ def main(args=None):
             f.write(f"if [ -f '{expect}' ]; then\n")
             f.write(f"   echo '{expect} exists';\n")
             f.write( "else\n")
-            f.write(f'    echo "{cmd}"'+"\n")
-            f.write( '    '+cmd+"\n")
-            if args.IR:
-                f.write(f"    if [ $? -ne 0 ]; then exit; else rm -f polybench.ll; mv *.ll {fname.with_suffix('.ll')}; fi;\n")
+            if args.dry_script:
+                f.write(f"     echo '!! {expect} does NOT exist';\n")
             else:
-                f.write("    if [ $? -ne 0 ]; then exit; fi;\n")
+                f.write(f'    echo "{cmd}"'+"\n")
+                f.write( '    '+cmd+"\n")
+                if args.IR:
+                    f.write(f"    if [ $? -ne 0 ]; then exit; else rm -f polybench.ll; mv *.ll {fname.with_suffix('.ll')}; fi;\n")
+                else:
+                    f.write("    if [ $? -ne 0 ]; then exit; fi;\n")
             f.write( 'fi\n')
+    print("Script written to", output_path)
 
 if __name__ == '__main__':
     main()
