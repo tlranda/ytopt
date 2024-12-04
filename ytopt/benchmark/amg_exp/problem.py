@@ -72,10 +72,12 @@ class AMG_Plopper(ECP_Plopper):
         return f"mpirun -np 1 {outfile[:-len(self.output_extension)]} -laplace -n {d_size} {d_size} {d_size} -P 1 1 1"
     def getTime(self, process, dictVal, *args, **kwargs):
         try:
-            return float(process.stdout.decode('utf-8').split('\n')[-1].split(' ')[-1])
+            #return float(process.stdout.decode('utf-8').split('\n')[-1].split(' ')[-1])
+            return float(list(filter(lambda x: len(x) > 0, process.stdout.decode('utf-8').split('\n')))[-1].split(' ')[-1])
         except ValueError:
             try:
-                return float(process.stderr.decode('utf-8').split('\n')[-1].split(' ')[-1])
+                #return float(process.stderr.decode('utf-8').split('\n')[-1].split(' ')[-1])
+                return float(list(filter(lambda x: len(x) > 0, process.stderr.decode('utf-8').split('\n')))[-1].split(' ')[-1])
             except ValueError:
                 return None
 
