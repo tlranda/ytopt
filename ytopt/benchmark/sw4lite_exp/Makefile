@@ -129,10 +129,10 @@ else ifeq ($(findstring lassen,$(HOSTNAME)),lassen)
   debug = no
   computername := lassen
 else
-  FC  = mpif90
-  CXX = mpic++
+  FC  = /lcrc/project/EE-ECP/jkoo/sw/openmpi-4.1.1/build/bin/mpif90
+  CXX = /lcrc/project/EE-ECP/jkoo/sw/openmpi-4.1.1/build/bin/mpic++
   OMPOPT = -fopenmp
-  EXTRA_LINK_FLAGS = -lgfortran -lblas -llapack
+  EXTRA_LINK_FLAGS = -lgfortran -lblas -L/lcrc/project/perfopt/trandall/sw/lapack-3.10.1/ -llapack
   openmp = no
   debug = no
 endif

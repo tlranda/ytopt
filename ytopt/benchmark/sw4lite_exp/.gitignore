@@ -1,0 +1,14 @@
+Makefile.cuda
+Makefile.cuda_debug
+dgmodule.mod
+loh1-h100-results/
+loh1-h50-results/
+loh1/*
+optimize_cuda/
+pytest/
+r2
+resorted
+*.bat
+sw4lite
+tests/
+type_defs.mod

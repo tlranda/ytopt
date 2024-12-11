@@ -82,6 +82,8 @@ def main(args=None):
                 except:
                     print(f"No CSV record for file", fname)
                     continue
+            if 'JOBS' in fname.parts[0]:
+                fname = fname.relative_to(fname.parts[0])
             if args.AS:
                 cmd = cmd_template.format(args.clang,
                                           fname.with_suffix('.ll'),

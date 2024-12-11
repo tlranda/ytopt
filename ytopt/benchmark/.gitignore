@@ -1,0 +1,12 @@
+*.sh.o*
+*.sh.e*
+*.zip
+*tmp_files/
+gptune.db/
+*_JOBS/
+figures/
+data_archive/
+rebuild_collations/backup/
+rebuild_collations/jobscheduler_logs/
+search/__init__.py
+slurm_logs/

@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 
 get_numba = re.compile(r'\D*(\d+)\D*')
+show_missing_extra = False
 
 def try_int(x):
     try:
@@ -40,8 +41,9 @@ for d in pathlib.Path('.').iterdir():
         missing_numba = expect_ids.difference(found_numba)
         extra_numba = found_numba.difference(expect_ids)
         print('\t# IR (.ll) files:', max_numba, "Missing?", len(missing_numba), "Extra?", len(extra_numba))
-        if len(missing_numba) > 0:
-            print("\tMISSING:", sorted(missing_numba))
-        if len(extra_numba) > 0:
-            print("\tEXTRA:", sorted(extra_numba))
+        if show_missing_extra:
+            if len(missing_numba) > 0:
+                print("\tMISSING:", sorted(missing_numba))
+            if len(extra_numba) > 0:
+                print("\tEXTRA:", sorted(extra_numba))
 
