@@ -16,6 +16,7 @@ def build():
     prs.add_argument('--DIS', action='store_true', help="Only do Bitcode Disassembly")
     prs.add_argument('--with-opt', action='store_true', help="Add optimization to Bitcode Disassembly")
     prs.add_argument('--dry-script', action='store_true', help="Generated script only checks if files exist or not")
+    prs.add_argument('--optimization-levels', choices=['3','2','1','0'], default=None, nargs='*', help="Optimization level(s) to build for (default: O3)")
     return prs
 
 def parse(prs=None, args=None):
@@ -37,6 +38,9 @@ def parse(prs=None, args=None):
         args.clang = args.clang.with_name("llvm-as")
     elif args.DIS:
         args.clang = args.clang.with_name("llvm-dis")
+    if args.optimization_levels is None:
+        args.optimization_levels = '3'
+    args.optimization_levels = [f"-O{l}" for l in args.optimization_levels]
     return args
 
 def lookup_size(csv, name, args):
@@ -53,13 +57,13 @@ def lookup_size(csv, name, args):
 def main(args=None):
     args = parse(args=args)
     if args.IR:
-        cmd_template = "{} {} {} -I{} -DPOLYBENCH_TIME -std=c99 -fno-unroll-loops -O3 "+\
+        cmd_template = "{} {} {} -I{} -DPOLYBENCH_TIME -std=c99 -fno-unroll-loops {} "+\
                        "-mllvm -polly -mllvm -polly-process-unprofitable "+\
                        "-mllvm -polly-use-llvm-names -ffast-math -march=native -S -emit-llvm"
     elif args.AS or args.DIS:
         cmd_template = "{} {} -o {}"
     else:
-        cmd_template = "{} {} {} -I{} -DPOLYBENCH_TIME -std=c99 -fno-unroll-loops -O3 "+\
+        cmd_template = "{} {} {} -I{} -DPOLYBENCH_TIME -std=c99 -fno-unroll-loops {} "+\
                        "-mllvm -polly -mllvm -polly-process-unprofitable "+\
                        "-mllvm -polly-use-llvm-names -ffast-math -march=native {} -o {}"
 
@@ -84,41 +88,50 @@ def main(args=None):
                     continue
             if 'JOBS' in fname.parts[0]:
                 fname = fname.relative_to(fname.parts[0])
-            if args.AS:
-                cmd = cmd_template.format(args.clang,
-                                          fname.with_suffix('.ll'),
-                                          fname.with_suffix('.bc'))
-                expect = fname.with_suffix('.bc')
-            elif args.DIS:
-                cmd = cmd_template.format(args.clang,
-                                          fname.with_suffix('.bc'),
-                                          fname.with_name(fname.stem+'_reassembled.ll'))
-                expect = fname.with_name(fname.stem+'_reassembled.ll')
-                if args.with_opt:
-                    cmd += f"; {args.clang.with_name('opt')} -S -O3 {fname.with_name(fname.stem+'_reassembled.ll')} -o {fname.with_name(fname.stem+'_optimized.ll')}"
-                    expect = fname.with_name(fname.stem+'_optimized.ll')
-            else:
-                special_include = args.include_base / (args.collation_reference.stem.split('_collated',1)[0]+"_exp/")
-                cmd = cmd_template.format(args.clang,
-                                          fname,
-                                          special_include / "polybench.c",
-                                          special_include,
-                                          size,
-                                          fname.with_suffix(''))
-                expect = fname.with_suffix('.ll' if args.IR else '')
-            f.write(f"if [ -f '{expect}' ]; then\n")
-            f.write(f"   echo '{expect} exists';\n")
-            f.write( "else\n")
-            if args.dry_script:
-                f.write(f"     echo '!! {expect} does NOT exist';\n")
-            else:
-                f.write(f'    echo "{cmd}"'+"\n")
-                f.write( '    '+cmd+"\n")
-                if args.IR:
-                    f.write(f"    if [ $? -ne 0 ]; then exit; else rm -f polybench.ll; mv *.ll {fname.with_suffix('.ll')}; fi;\n")
+            for opt_level in args.optimization_levels:
+                if args.AS:
+                    cmd = cmd_template.format(args.clang,
+                                              fname.with_suffix('.ll'),
+                                              fname.with_suffix('.bc'))
+                    expect = fname.with_suffix('.bc')
+                elif args.DIS:
+                    cmd = cmd_template.format(args.clang,
+                                              fname.with_suffix('.bc'),
+                                              fname.with_name(fname.stem+'_reassembled.ll'))
+                    expect = fname.with_name(fname.stem+'_reassembled.ll')
+                    if args.with_opt:
+                        cmd += f"; {args.clang.with_name('opt')} -S -O3 {fname.with_name(fname.stem+'_reassembled.ll')} -o {fname.with_name(fname.stem+'_optimized.ll')}"
+                        expect = fname.with_name(fname.stem+'_optimized.ll')
+                else: # normal, args.IR
+                    special_include = args.include_base / (args.collation_reference.stem.split('_collated',1)[0]+"_exp/")
+                    out_name = fname.with_suffix('')
+                    if opt_level != '-O3':
+                        out_name = fname.parent / (fname.stem + "_" + opt_level[1:].lower() + fname.suffix)
+                    cmd = cmd_template.format(args.clang,
+                                              fname,
+                                              special_include / "polybench.c",
+                                              special_include,
+                                              opt_level,
+                                              size,
+                                              out_name)
+                    # Make this drop into bench/.ll
+                    expect = out_name.with_suffix('.ll' if args.IR else '')
+                f.write(f"if [ -f '{expect}' ]; then\n")
+                f.write(f"   echo '{expect} exists';\n")
+                f.write( "else\n")
+                if args.dry_script:
+                    f.write(f"     echo '!! {expect} does NOT exist';\n")
                 else:
-                    f.write("    if [ $? -ne 0 ]; then exit; fi;\n")
-            f.write( 'fi\n')
+                    f.write(f'    echo "{cmd}"'+"\n")
+                    f.write( '    '+cmd+"\n")
+                    if args.IR:
+                        f.write(f"    if [ $? -ne 0 ]; then exit; else rm -f polybench.ll; mv *.ll {expect}; fi;\n")
+                    else:
+                        f.write("    if [ $? -ne 0 ]; then exit; fi;\n")
+                f.write( 'fi\n')
+                if args.AS or args.DIS:
+                    # These ones don't need to loop optimization levels and I'm not rewriting the structure to fix that
+                    break
     print("Script written to", output_path)
 
 if __name__ == '__main__':
