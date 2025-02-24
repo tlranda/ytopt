@@ -20,10 +20,11 @@ def build():
     parser.add_argument('-nrun', type=int, default=2, help='Number of runs per task')
     parser.add_argument('-ninit', type=int, default=-1, help='Set initial configs')
     parser.add_argument('-seed', type=int, default=1234, help='Set seed')
-    parser.add_argument('-builder', choices=['polybench', 'ecp'], default='polybench', help='Problem builder')
+    parser.add_argument('-builder', choices=['polybench', 'ecp', 'oracle'], default='polybench', help='Problem builder')
     parser.add_argument('-output', type=str, default="results.csv", help="Output CSV filename in the benchmark directory (default: results.csv)")
     parser.add_argument('-experiment', action='store_false', help='Substitute TLA for MLA')
     parser.add_argument('-preserve-history', action='store_true', help='Rename rather than remove old history files (gptune.db/benchmark.json)')
+    parser.add_argument('-oracle', default=None, help="Path to oracle data to replace evaluations when given (default: empirically collect results)")
     return parser
 
 def parse(parser, args=None):
@@ -307,6 +308,9 @@ def main():
     # Move into directory and fetch the relevant input space and problem description, perhaps other relevant
     # kwargs for the specified benchmark
     HERE, input_space, lookup_ival, kwargs = localized_load(args.benchmark)
+    if args.oracle is not None:
+        kwargs['use_oracle'] = True
+        kwargs['oracle'] = args.oracle
     # FIRST, indirect lookup the factory builder in GPTune mode
     problem_lookup = args.builder(lookup_ival,
                                   input_space,

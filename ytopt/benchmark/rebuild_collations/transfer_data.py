@@ -10,6 +10,7 @@ def build():
     prs.add_argument("remote_path", type=pathlib.Path, help="Path on remote host to deposit documents at")
     prs.add_argument("benchmark", type=pathlib.Path, help="Benchmark that has {benchmark}_collated.csv and {benchmark}/mmp_#.* to transfer")
     prs.add_argument("from_", metavar="from", type=int, help="Minimum mmp_# to transfer (all >= this are copied)")
+    prs.add_argument("--to_", metavar="to", type=int, default=None, help="Maximum mmp_# to transfer (all < this are copied)")
     prs.add_argument("--test-list", action="store_true", help="Only list the local files found matching benchmark + from criteria")
     prs.add_argument("--test-scp", action="store_true", help="Only show what the SCP command may look like with possibly truncated file list")
     prs.add_argument("--test-trunc", type=int, default=None, help="Truncate test outputs after this many entries to make them easier to read")
@@ -47,7 +48,10 @@ def main():
         numeric_match = re.match(get_numeric, fname.stem)
         if numeric_match is None:
             continue
-        if int(numeric_match.groups()[0]) >= args.from_:
+        mmp_id = int(numeric_match.groups()[0])
+        if args.to_ is not None and mmp_id > args.to_:
+            continue
+        if mmp_id >= args.from_:
             mmps.append(fname)
     mmps = sorted(mmps)
     command0 = ['scp',str(collation),str(args.remote_path)]
@@ -57,8 +61,7 @@ def main():
         print("\n".join(command1[1:-1][:args.test_trunc]))
         return
     if args.test_scp:
-        print(" ".join(command0))
-        print(" ".join(command1[:-1][:(args.test_trunc+1) if args.test_trunc is not None else None]+[command1[-1]]))
+        print(" ".join(command0), '&&', " ".join(command1[:-1][:(args.test_trunc+1) if args.test_trunc is not None else None]+[command1[-1]]))
         return
     print(" ".join(command0))
     subprocess.run(command0, shell=True)

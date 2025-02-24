@@ -32,15 +32,18 @@ for d in pathlib.Path('.').iterdir():
         mmps = np.where(csv['id'].apply(lambda x: pathlib.Path(x).stem.startswith('mmp_')).to_numpy())[0]
         expect_ids = set(csv.loc[mmps, 'id'].apply(lambda x: int(pathlib.Path(x).stem.split('_',1)[1])).to_list())
     names = [_ for _ in d.iterdir() if _.suffix == '.ll']
+    dotc_names = [_ for _ in d.iterdir() if _.suffix == '.c']
     if expect_ids is None:
         max_numba = max(map(try_int, names))
-        print('\t# IR (.ll) files:', max_numba)
+        max_cnumba = max(map(try_int, dotc_names))
+        print('\t# IR (.ll) files:', max_numba, '(.c files:', max_cnumba, ')')
     else:
         found_numba = set(map(try_int, names))
         max_numba = max(found_numba)
+        max_cnumba = max(map(try_int, dotc_names))
         missing_numba = expect_ids.difference(found_numba)
         extra_numba = found_numba.difference(expect_ids)
-        print('\t# IR (.ll) files:', max_numba, "Missing?", len(missing_numba), "Extra?", len(extra_numba))
+        print('\t# IR (.ll) files:', max_numba, '(.c files:', max_cnumba, ')', "Missing?", len(missing_numba), "Extra?", len(extra_numba))
         if show_missing_extra:
             if len(missing_numba) > 0:
                 print("\tMISSING:", sorted(missing_numba))

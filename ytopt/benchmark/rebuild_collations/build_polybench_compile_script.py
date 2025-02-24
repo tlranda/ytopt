@@ -49,7 +49,7 @@ def lookup_size(csv, name, args):
              'L': 'LARGE',
              'SM': 'SM',
              'ML': 'ML',
-             'XL': 'XL'}
+             'XL': 'EXTRALARGE'}
     # There can be duplicate IDs, but the size will be the same so just pick the first
     namesize = csv.loc[csv['id'] == str(name.resolve()),'size'].tolist()[0]
     return f'-D{sizes[namesize]}_DATASIZE'
@@ -57,7 +57,7 @@ def lookup_size(csv, name, args):
 def main(args=None):
     args = parse(args=args)
     if args.IR:
-        cmd_template = "{} {} {} -I{} -DPOLYBENCH_TIME -std=c99 -fno-unroll-loops {} "+\
+        cmd_template = "{} {} {} -I{} -DPOLYBENCH_TIME -std=c99 -fno-unroll-loops {} {} "+\
                        "-mllvm -polly -mllvm -polly-process-unprofitable "+\
                        "-mllvm -polly-use-llvm-names -ffast-math -march=native -S -emit-llvm"
     elif args.AS or args.DIS:
@@ -73,11 +73,11 @@ def main(args=None):
     print(len(collation), "records loaded")
     output_path = basic_path.with_name(basic_path.stem+'_compile.sh')
     with open(output_path, 'w') as f:
-        for fname in tqdm.tqdm(sorted(basic_path.iterdir(), key=lambda p: int(p.stem.split('_',1)[1]))):
+        for fname in tqdm.tqdm(sorted(filter(lambda bp: len(bp.stem.split('_')) == 2, basic_path.iterdir()), key=lambda p: int(p.stem.split('_',1)[1]))):
             if fname.suffix != '.c':
                 continue
             try:
-                size = lookup_size(collation,fname, args)
+                size = lookup_size(collation, fname, args)
             except:
                 if 'JOBS' in fname.parts[0]:
                     fname = fname.relative_to(fname.parts[0])
