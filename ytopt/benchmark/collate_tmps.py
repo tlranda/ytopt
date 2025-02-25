@@ -35,6 +35,8 @@ def identify_size(path):
 
 def identify_size_by_name(name):
     # Longest matches check first
+    if 'EXTRALARGE' in name:
+        return 'XL'
     if '_SM' in name or '_sm' in name:
         return 'SM'
     if '_ML' in name or '_ml' in name:
