@@ -148,126 +148,126 @@ def seqchoice(obj):
     raise ValueError(f"Object {obj} lacks or has NONE for sequences and choices")
 
 def GPTune_TLA1_patched(self, Tnew, NS, normalized=False, max_frustrate=100, reject_generate=1000):
-        print('\n\n\n------Starting TLA1 for task: ',Tnew)
-        stats = {
-            "time_total": 0,
-            "time_fun": 0
-        }
-        time_fun=0
+    print('\n\n\n------Starting TLA1 for task: ',Tnew)
+    stats = {
+        "time_total": 0,
+        "time_fun": 0
+    }
+    time_fun=0
 
-        t3=time.time_ns()
-        # Initialization
-        kwargs = copy.deepcopy(self.options)
-        ntso = len(self.data.I)
-        ntsn = len(Tnew)
+    t3=time.time_ns()
+    # Initialization
+    kwargs = copy.deepcopy(self.options)
+    ntso = len(self.data.I)
+    ntsn = len(Tnew)
 
-        if(self.data.O[0].shape[1]>1):
-            raise Exception("TLA1 only works for single-objective tuning")
+    if(self.data.O[0].shape[1]>1):
+        raise Exception("TLA1 only works for single-objective tuning")
 
-        PSopt =[]
-        for i in range(ntso):
-            PSopt.append(self.data.P[i][np.argmin(self.data.O[i])])
-        # YSopt = np.array([[self.data.O[k].min()] for k in range(ntso)])
-        MSopt = []
+    PSopt =[]
+    for i in range(ntso):
+        PSopt.append(self.data.P[i][np.argmin(self.data.O[i])])
+    # YSopt = np.array([[self.data.O[k].min()] for k in range(ntso)])
+    MSopt = []
 
-        # Data may already be normalized -- only normalize UNNORMALIZED data
-        if normalized:
-            INorms = self.data.I
-        else:
-            # convert the task spaces to the normalized spaces
-            INorms=[]
-            for t in self.data.I:
-                INorm = self.problem.IS.transform(np.array(t, ndmin=2))[0]
-                INorms.append(INorm.reshape((-1, self.problem.DI)))
-            INorms = np.vstack([INorms[i] for i in range(ntso)]).reshape((ntso,self.problem.DI))
-
-        tmp=[]
-        for t in Tnew:
+    # Data may already be normalized -- only normalize UNNORMALIZED data
+    if normalized:
+        INorms = self.data.I
+    else:
+        # convert the task spaces to the normalized spaces
+        INorms=[]
+        for t in self.data.I:
             INorm = self.problem.IS.transform(np.array(t, ndmin=2))[0]
-            tmp.append(INorm.reshape((-1, self.problem.DI)))
-        InewNorms=np.vstack([tmp[i] for i in range(ntsn)]).reshape((ntsn,self.problem.DI))
+            INorms.append(INorm.reshape((-1, self.problem.DI)))
+        INorms = np.vstack([INorms[i] for i in range(ntso)]).reshape((ntso,self.problem.DI))
 
-        if normalized:
-            PSoptNorms = PSopt
+    tmp=[]
+    for t in Tnew:
+        INorm = self.problem.IS.transform(np.array(t, ndmin=2))[0]
+        tmp.append(INorm.reshape((-1, self.problem.DI)))
+    InewNorms=np.vstack([tmp[i] for i in range(ntsn)]).reshape((ntsn,self.problem.DI))
+
+    if normalized:
+        PSoptNorms = PSopt
+    else:
+        # convert the parameter spaces to the normalized spaces
+        PSoptNorms = self.problem.PS.transform(PSopt)
+    columns = []
+    for j in range(self.problem.DP):
+        columns.append([])
+    for i in range(ntso):
+        for j in range(self.problem.DP):
+            columns[j].append(PSoptNorms[i][j])
+    PSoptNorms = []
+    for j in range(self.problem.DP):
+        PSoptNorms.append(np.asarray(columns[j]).reshape((ntso, -1)))
+
+    # Predict optimums of new tasks
+    stacks = []
+    meanvars = []
+    for k in range(self.problem.DP):
+        K = GPy.kern.RBF(input_dim=self.problem.DI)
+        M = GPy.models.GPRegression(INorms, PSoptNorms[k], K)
+        # M.optimize_restarts(num_restarts = 10, robust=True, verbose=False, parallel=False, num_processes=None, messages="False")
+        M.optimize_restarts(num_restarts = kwargs['model_restarts'], robust=True, verbose = kwargs['verbose'], parallel = (kwargs['model_threads'] > 1), num_processes = kwargs['model_threads'], messages = kwargs['verbose'], optimizer = 'lbfgs', start = None, max_iters = kwargs['model_max_iters'], ipython_notebook = False, clear_after_finish = True)
+        MSopt.append(M)
+        # Create NS-1 samples drawn around the mean
+        mean, var = MSopt[-1].predict_noiseless(InewNorms)
+        stacks.append(np.vstack((mean, np.random.normal(mean, var, (NS-1,1)))))
+        meanvars.append((mean,var))
+
+    #aprxoptsNorm=np.hstack([MSopt[k].predict_noiseless(InewNorms)[0] for k in range(self.problem.DP)])  # the index [0] is the mean value, [1] is the variance
+    aprxoptsNorm = np.hstack(stacks)
+    aprxoptsNorm=np.minimum(aprxoptsNorm,(1-1e-12)*np.ones((ntsn,self.problem.DP)))
+    aprxoptsNorm=np.maximum(aprxoptsNorm,(1e-12)*np.ones((ntsn,self.problem.DP)))
+    # print('aprxoptsNorm',aprxoptsNorm,type(aprxoptsNorm))
+    aprxopts = self.problem.PS.inverse_transform(aprxoptsNorm)
+    # print('aprxopts',aprxopts,type(aprxopts),type(aprxopts[0]))
+
+    # Ensure we end up having enough unique samples
+    tired = 0
+    n_remain = lambda : NS - len(set([tuple(a) for a in aprxopts]))
+    prev = n_remain()
+    while prev > 0 and tired < max_frustrate:
+        tired += 1
+        new_sample = np.hstack([np.random.normal(m, v, (reject_generate,1)) for (m,v) in meanvars])
+        new_sample = np.minimum(new_sample,(1-1e-12)*np.ones((ntsn,self.problem.DP)))
+        new_sample = np.maximum(new_sample,(1e-12)*np.ones((ntsn,self.problem.DP)))
+        new_sample_inv = self.problem.PS.inverse_transform(new_sample)
+        aprxopts.extend(new_sample_inv)
+        remain = n_remain()
+        # Iterations that produce any number of new results are "free"
+        if prev > remain:
+            tired -= 1
+            aprxoptsNorm = np.vstack((aprxoptsNorm, new_sample))
         else:
-            # convert the parameter spaces to the normalized spaces
-            PSoptNorms = self.problem.PS.transform(PSopt)
-        columns = []
-        for j in range(self.problem.DP):
-            columns.append([])
-        for i in range(ntso):
-            for j in range(self.problem.DP):
-                columns[j].append(PSoptNorms[i][j])
-        PSoptNorms = []
-        for j in range(self.problem.DP):
-            PSoptNorms.append(np.asarray(columns[j]).reshape((ntso, -1)))
+            aprxopts = aprxopts[:-reject_generate]
+        prev = remain
+    # Find the actual ones that matter
+    lookup = [tuple(a) for a in aprxopts]
+    lids = [lookup.index(a) for a in set(lookup)][:NS] # Limit to NS such configurations
+    aprxopts = [lookup[i] for i in lids]
+    aprxoptsNorm = np.asarray([aprxoptsNorm[i,:] for i in lids])
 
-        # Predict optimums of new tasks
-        stacks = []
-        meanvars = []
-        for k in range(self.problem.DP):
-            K = GPy.kern.RBF(input_dim=self.problem.DI)
-            M = GPy.models.GPRegression(INorms, PSoptNorms[k], K)
-            # M.optimize_restarts(num_restarts = 10, robust=True, verbose=False, parallel=False, num_processes=None, messages="False")
-            M.optimize_restarts(num_restarts = kwargs['model_restarts'], robust=True, verbose = kwargs['verbose'], parallel = (kwargs['model_threads'] > 1), num_processes = kwargs['model_threads'], messages = kwargs['verbose'], optimizer = 'lbfgs', start = None, max_iters = kwargs['model_max_iters'], ipython_notebook = False, clear_after_finish = True)
-            MSopt.append(M)
-            # Create NS-1 samples drawn around the mean
-            mean, var = MSopt[-1].predict_noiseless(InewNorms)
-            stacks.append(np.vstack((mean, np.random.normal(mean, var, (NS-1,1)))))
-            meanvars.append((mean,var))
+    aprxoptsNormList=[[_ for _ in aprxoptsNorm[:,]]]
+    # TnewNormList=[]
+    #for i in range(ntsn):
+    #    aprxoptsNormList[i].append(aprxoptsNorm)  # this makes sure for each task, there is only one sample parameter set
+    #    # InewNormList.append(InewNorms[i,:])
 
-        #aprxoptsNorm=np.hstack([MSopt[k].predict_noiseless(InewNorms)[0] for k in range(self.problem.DP)])  # the index [0] is the mean value, [1] is the variance
-        aprxoptsNorm = np.hstack(stacks)
-        aprxoptsNorm=np.minimum(aprxoptsNorm,(1-1e-12)*np.ones((ntsn,self.problem.DP)))
-        aprxoptsNorm=np.maximum(aprxoptsNorm,(1e-12)*np.ones((ntsn,self.problem.DP)))
-        # print('aprxoptsNorm',aprxoptsNorm,type(aprxoptsNorm))
-        aprxopts = self.problem.PS.inverse_transform(aprxoptsNorm)
-        # print('aprxopts',aprxopts,type(aprxopts),type(aprxopts[0]))
+    t1 = time.time_ns()
+    O = self.computer.evaluate_objective(problem = self.problem, I = InewNorms, P =aprxoptsNormList, history_db = self.historydb, options = kwargs)
+    t2 = time.time_ns()
+    time_fun = time_fun + (t2-t1)/1e9
 
-        # Ensure we end up having enough unique samples
-        tired = 0
-        n_remain = lambda : NS - len(set([tuple(a) for a in aprxopts]))
-        prev = n_remain()
-        while prev > 0 and tired < max_frustrate:
-            tired += 1
-            new_sample = np.hstack([np.random.normal(m, v, (reject_generate,1)) for (m,v) in meanvars])
-            new_sample = np.minimum(new_sample,(1-1e-12)*np.ones((ntsn,self.problem.DP)))
-            new_sample = np.maximum(new_sample,(1e-12)*np.ones((ntsn,self.problem.DP)))
-            new_sample_inv = self.problem.PS.inverse_transform(new_sample)
-            aprxopts.extend(new_sample_inv)
-            remain = n_remain()
-            # Iterations that produce any number of new results are "free"
-            if prev > remain:
-                tired -= 1
-                aprxoptsNorm = np.vstack((aprxoptsNorm, new_sample))
-            else:
-                aprxopts = aprxopts[:-reject_generate]
-            prev = remain
-        # Find the actual ones that matter
-        lookup = [tuple(a) for a in aprxopts]
-        lids = [lookup.index(a) for a in set(lookup)][:NS] # Limit to NS such configurations
-        aprxopts = [lookup[i] for i in lids]
-        aprxoptsNorm = np.asarray([aprxoptsNorm[i,:] for i in lids])
+    #        print(aprxopts)
+    #        pickle.dump(aprxopts, open('TLA1.pkl', 'w'))
 
-        aprxoptsNormList=[[_ for _ in aprxoptsNorm[:,]]]
-        # TnewNormList=[]
-        #for i in range(ntsn):
-        #    aprxoptsNormList[i].append(aprxoptsNorm)  # this makes sure for each task, there is only one sample parameter set
-        #    # InewNormList.append(InewNorms[i,:])
+    t4 = time.time_ns()
+    stats['time_total'] = (t4-t3)/1e9
+    stats['time_fun'] = time_fun
 
-        t1 = time.time_ns()
-        O = self.computer.evaluate_objective(problem = self.problem, I = InewNorms, P =aprxoptsNormList, history_db = self.historydb, options = kwargs)
-        t2 = time.time_ns()
-        time_fun = time_fun + (t2-t1)/1e9
-
-        #        print(aprxopts)
-        #        pickle.dump(aprxopts, open('TLA1.pkl', 'w'))
-
-        t4 = time.time_ns()
-        stats['time_total'] = (t4-t3)/1e9
-        stats['time_fun'] = time_fun
-
-        return (aprxopts, O, stats)
+    return (aprxopts, O, stats)
 
 def wrap_objective(objective, surrogate_to_size_dict):
     def new_objective(point: dict):
@@ -431,7 +431,7 @@ def main():
     gt = GPTune(problem, computer=computer, data=data, options=options, historydb=historydb)
 
     # Set up the actual transfer learning task
-    if args.experiment:
+    if args.experiment: # True by default
         # THIS is what GPTune's HistoryDB says you should do for TLA; same # evals in all problems,
         # but leverage model functions on prior tasks to simulate their results
         transfer_task = [[target_problem.problem_class]]
