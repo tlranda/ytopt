@@ -52,7 +52,7 @@ def lookup_size(csv, name, args):
              'XL': 'EXTRALARGE'}
     # There can be duplicate IDs, but the size will be the same so just pick the first
     namesize = csv.loc[csv['id'] == str(name.resolve()),'size'].tolist()[0]
-    return f'-D{sizes[namesize]}_DATASIZE'
+    return f'-D{sizes[namesize]}_DATASET'
 
 def main(args=None):
     args = parse(args=args)
@@ -74,6 +74,7 @@ def main(args=None):
     output_path = basic_path.with_name(basic_path.stem+'_compile.sh')
     with open(output_path, 'w') as f:
         for fname in tqdm.tqdm(sorted(filter(lambda bp: len(bp.stem.split('_')) == 2, basic_path.iterdir()), key=lambda p: int(p.stem.split('_',1)[1]))):
+        #for fname in tqdm.tqdm(sorted(pathlib.Path('Heat3d_JOBS/heat3d_missed').iterdir(), key=lambda p: int(p.stem.split('_',1)[1]))):
             if fname.suffix != '.c':
                 continue
             try:

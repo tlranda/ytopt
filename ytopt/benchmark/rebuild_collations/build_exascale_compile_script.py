@@ -103,7 +103,8 @@ def main(args=None):
     print(len(collation), "records loaded")
     output_path = basic_path.with_name(basic_path.stem+'_compile.sh')
     with open(output_path, 'w') as f:
-        for fname in tqdm.tqdm(sorted(basic_path.iterdir())):
+        #for fname in tqdm.tqdm(sorted(basic_path.iterdir())):
+        for fname in tqdm.tqdm(sorted(pathlib.Path('SW4Lite_JOBS/sw4lite_missed').iterdir())):
             if 'JOBS' in fname.parts[0]:
                 fname = fname.relative_to(fname.parts[0])
             if fname.suffix != '.c':
