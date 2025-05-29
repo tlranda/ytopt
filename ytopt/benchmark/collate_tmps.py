@@ -18,6 +18,7 @@ def build():
     prs.add_argument("--indicator", choices=['rsbench','amg','sw4lite'], default=None, help="Special size interpretation rules")
     prs.add_argument("--add-new-columns", action="store_true", help="Permit new columns to be inserted in the collation CSV")
     prs.add_argument("--demo-collation-extension", default=None, help="Path to accumulate new results in (NOTE: will not be cross-CSV compatible; always exclude this argument for best results, instead use this to safely inspect new data without backing up your old data)")
+    prs.add_argument("--sizes", default=None, nargs="*", help="Explicitly indicate sizes for --csvs rather than inferring from filename")
     return prs
 
 def parse(args=None, prs=None):
@@ -25,9 +26,13 @@ def parse(args=None, prs=None):
         prs = build()
     if args is None:
         args = prs.parse_args()
+    if args.sizes is not None:
+        args.sizes = dict((pathlib.Path(k),v) for (k,v) in zip(args.csvs, args.sizes))
     return args
 
-def identify_size(path):
+def identify_size(path, args):
+    if args.sizes is not None:
+        return args.sizes[path]
     if 'bliss' in str(path) or 'opentuner' in str(path):
         return identify_size_by_name("_".join(path.parts))
     else:
@@ -133,7 +138,7 @@ def collate(csv_name, args):
                             'objective': [],
                             'source': []})
     csv_name = pathlib.Path(csv_name)
-    size = identify_size(csv_name)
+    size = identify_size(csv_name, args)
     print(f"Collating {csv_name} as size {size}")
     csv = pd.read_csv(csv_name)
     try:
@@ -158,10 +163,10 @@ def collate(csv_name, args):
             print(f"Heads up! Objective appears to be strictly negative -- inverting all values")
             csv['objective'] *= (-1)
     csv.insert(len(csv.columns),'size',[size] * len(csv))
-    if 'opentuner' in str(csv_name):
-        csv.insert(len(csv.columns),'source', [csv_name.parts[-3] + '_' +csv_name.stem] * len(csv))
-    else:
-        csv.insert(len(csv.columns),'source', [csv_name.stem] * len(csv))
+    #if 'opentuner' in str(csv_name):
+    #    csv.insert(len(csv.columns),'source', [csv_name.parts[-3] + '_' +csv_name.stem] * len(csv))
+    #else:
+    csv.insert(len(csv.columns),'source', [csv_name.stem] * len(csv))
     csv.insert(len(csv.columns),'id', [-1] * len(csv))
     # Should only happen once if new collation
     csv_new_cols = set(csv.columns).difference(set(exp.columns))
@@ -235,6 +240,7 @@ def collate(csv_name, args):
             elif line_idx < 10:
                 print(f"Demo of copy (omitted due to --no-mutation): {tmp_file} --> {copied_path}")
             csv.loc[mmp_id,'id'] = str(copied_path.resolve())
+    oldexplen = len(exp)
     exp = pd.concat((exp, csv))
     if not args.no_mutation:
         print(f"Saving {len(exp)} results to {output_path}")
@@ -250,11 +256,12 @@ def collate(csv_name, args):
         else:
             print(f"Not overriding CSV, but new length would be {len(exp)} at {output_path}")
             print(exp)
+            print(exp.loc[oldexplen:,'id'])
     print(f"End processing {csv_name} with {len(unfulfilled)} unmatched tmp_mapping results and {(csv['id'] == -1).sum()} unmatched CSV results")
     if (csv['id'] == -1).sum() > 0:
+        import pdb
+        pdb.set_trace()
         pass
-        #import pdb
-        #pdb.set_trace()
 
 def main(args=None):
     args = parse(args)
